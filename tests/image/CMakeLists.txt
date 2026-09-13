@@ -1,0 +1,8 @@
+# Unit tests for mirador::image public contracts (M1+). Architecture boundary
+# tests live in tests/architecture/; core contracts live in tests/core/.
+
+mirador_add_test(
+    NAME mirador.image.image_buffer
+    SOURCES image_buffer_test.cpp
+    LIBS mirador::image
+    LABELS unit)

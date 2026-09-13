@@ -34,7 +34,7 @@
 
 ## 工作项
 
-- [ ] `M1-01` `mirador::image` 编译目标与有界拥有缓冲 `ImageBuffer`：预算参数显式、
+- [x] `M1-01` `mirador::image` 编译目标与有界拥有缓冲 `ImageBuffer`：预算参数显式、
   分配前校验、失败返回 `kBudgetExceeded`、`view()` 输出合法视图；架构测试锁住
   image → core 单一依赖方向。
 - [ ] `M1-02` 确定性颜色转换 `convert_color`：文档化支持矩阵（同格式行拷贝、彩色→灰度、
