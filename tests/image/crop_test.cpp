@@ -186,6 +186,8 @@ ImageBuffer make_nv12_gradient() {
     std::byte* bytes = buffer.data();
     for (int32_t i = 0; i < 64; ++i) {
         bytes[i] = static_cast<std::byte>(i);
+    }
+    for (int32_t i = 0; i < 32; ++i) {  // chroma: stride 8 x 4 rows = 32 bytes
         bytes[64 + i] = static_cast<std::byte>(100 + i);
     }
     return buffer;

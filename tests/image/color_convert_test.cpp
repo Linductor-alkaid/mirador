@@ -267,23 +267,25 @@ TEST(ColorConvert, Nv12ToInterleavedAppliesDocumentedYuvMatrix) {
                                            static_cast<std::byte>(100), static_cast<std::byte>(100),
                                            static_cast<std::byte>(100), static_cast<std::byte>(100),
                                            static_cast<std::byte>(100), static_cast<std::byte>(100)};
-    const std::array<std::byte, 8> chroma = {static_cast<std::byte>(128), static_cast<std::byte>(128),
-                                             static_cast<std::byte>(0),   static_cast<std::byte>(255),
-                                             static_cast<std::byte>(128), static_cast<std::byte>(128),
-                                             static_cast<std::byte>(0),   static_cast<std::byte>(255)};
+    // 4x2 NV12 has exactly one chroma row of 4 bytes: two UV pairs, one neutral
+    // and one with U=0, V=255 (u'=-128, v'=127).
+    const std::array<std::byte, 4> chroma = {static_cast<std::byte>(128), static_cast<std::byte>(128),
+                                             static_cast<std::byte>(0), static_cast<std::byte>(255)};
     for (int32_t i = 0; i < 8; ++i) {
-        src_bytes[i] = luma[i];
-        src_bytes[8 + i] = chroma[i];  // luma plane is width * height = 8 bytes
+        src_bytes[i] = luma[i];  // luma plane is width * height = 8 bytes
+    }
+    for (int32_t i = 0; i < 4; ++i) {
+        src_bytes[8 + i] = chroma[i];
     }
 
     auto dst = convert_color(src_buffer.view(), PixelFormat::kRgb8, kBudget);
     ASSERT_TRUE(dst.ok());
     EXPECT_EQ(read_pixel(dst.value().view(), 0, 0), (Rgba{255, 255, 255, 255}));
     EXPECT_EQ(read_pixel(dst.value().view(), 1, 0), (Rgba{0, 0, 0, 255}));
-    // x=2 in row 1 samples the second chroma pair (U=0, V=255).
+    // The single chroma row serves both luma rows: x=2 samples the second pair
+    // (U=0, V=255), x=0 samples the neutral pair.
     EXPECT_EQ(read_pixel(dst.value().view(), 2, 1), (Rgba{255, 54, 0, 255}));
     EXPECT_EQ(read_pixel(dst.value().view(), 3, 1), (Rgba{255, 54, 0, 255}));
-    // x=0 in row 1 samples the neutral pair of the second chroma row.
     EXPECT_EQ(read_pixel(dst.value().view(), 0, 1), (Rgba{100, 100, 100, 255}));
 }
 
