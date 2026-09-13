@@ -43,10 +43,10 @@
 - [x] `M1-03` `RectI` 像素整数矩形（core：构造校验、`intersect`/`contains`，int64 防溢出）
   与旋转感知裁剪 `crop`：0/90/180/270 方向、非连续 stride、奇数尺寸、NV12 色度取整规则、
   越界 ROI 返回 `kInvalidArgument` 的测试矩阵。
-- [ ] `M1-04` 面积重采样 `resize_area`：任意比例 box 权重整数实现（含非整数比例与放大）、
+- [x] `M1-04` 面积重采样 `resize_area`：任意比例 box 权重整数实现（含非整数比例与放大）、
   灰度/交错格式同格式缩放、NV12→灰度仅亮度路径；同内容不同 stride 输出一致；缩放坐标
   与 `Transform2D::make_scale` 往返一致。
-- [ ] `M1-05` dHash 指纹：9×8 灰度 64 位差分哈希、汉明距离与相似度；`fingerprint()`
+- [x] `M1-05` dHash 指纹：9×8 灰度 64 位差分哈希、汉明距离与相似度；`fingerprint()`
   组合入口（内部缓冲有界，接受全部六种格式）；同内容不同布局指纹相同、不同内容区分度
   测试。
 - [ ] `M1-06` `ChangeReport` 与 `detect_change` 分层变化检测：指纹早退 → 缩略灰度分块
@@ -117,3 +117,26 @@
   property 1、architecture 3）；touched 文件 `clang-format --dry-run --Werror` 与
   `clang-tidy --warnings-as-errors='*'` 无告警。全预设矩阵在里程碑收尾统一补跑。
 - 限制：跨平台编译证据待 CI 运行回填。
+
+2026-09-14：`M1-04`、`M1-05` 实施完成与阶段验证（分支 `feat/image-m1-image-ops`，
+commit `a928a1b`（含 amend）、`e0cd815`、`53710c5`）。
+
+- 落地内容：
+  - `M1-04`：`resize_area` 精确面积权重（按目标尺寸放大的整数覆盖率、半向上取整、
+    同尺寸行拷贝快路径），NV12 仅亮度路径输出灰度缩略图；`Transform2D::make_scale`
+    往返一致测试覆盖坐标恢复（RULE-05）。
+  - `M1-05`：`dhash_9x8`（严格 9×8 灰度、位序定义固定）、`hamming_distance`
+    （可移植 SWAR popcount）、`fingerprint_similarity` 与有界组合入口
+    `fingerprint()`；stride 无关稳定性、反相内容距离 64、3 像素平移相似度 ≥0.7、
+    灰度/NV12 同内容同指纹。
+- 阶段验证（本地，Ubuntu 24.04 x64，GCC 13.3.0、CMake 3.28.3 + Ninja、
+  clang-format/clang-tidy 18.1.3）：
+  - 全部 6 个 Linux 预设 configure + build + `ctest` 14/14 通过（tsan 经
+    `setarch "$(uname -m)" -R`）；变更文件 `clang-format --dry-run --Werror` 与
+    `clang-tidy --warnings-as-errors='*' -p build/debug` 无告警。
+  - ASAN 抓获两处测试侧 NV12 色度平面越界（4×2 色度仅 1 行、8×8 色度仅 32 字节，
+    测试写超），已修正为按分配平面字节数写入；属测试缺陷，实现无越界。
+  - 架构测试在本阶段实际覆盖：`source_scan`（公共头与 src 无第三方/线程令牌）、
+    `link_closure`（core）与 `link_closure_image`（image 链接闭包仅标准库）。
+- 限制：跨平台编译证据待 CI 运行回填；`M1-01`~`M1-05` 的验收以本地证据先行记录，
+  CI 结果合入后补充。
