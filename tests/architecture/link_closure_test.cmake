@@ -28,8 +28,10 @@ if(NOT mirador_needed_lines)
 endif()
 
 # The C++20 standard library and its toolchain runtime; glibc subsumes rt/pthread/dl
-# since 2.34 but older toolchains still list them separately.
-set(mirador_allowed "^(lib(stdc\\+\\+|c|m|gcc_s|rt|pthread|dl|atomic|uc)\\.so|ld-linux)")
+# since 2.34 but older toolchains still list them separately. Sanitizer runtimes
+# (libasan/libubsan/libtsan/...) appear in the asan/ubsan/tsan presets and are also
+# toolchain runtime, not third-party dependencies.
+set(mirador_allowed "^(lib(stdc\\+\\+|c|m|gcc_s|rt|pthread|dl|atomic|uc|asan|ubsan|tsan|lsan|msan|hwasan)\\.so|ld-linux)")
 
 set(mirador_violations "")
 foreach(mirador_line IN LISTS mirador_needed_lines)
