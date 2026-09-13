@@ -1,6 +1,6 @@
 # M0：边界与骨架
 
-> 状态：Completed（发布点 `v0.1.0-alpha` tag 待维护者按发布流程创建）
+> 状态：Completed（`v0.1.0-alpha` 已发布，见 [CHANGELOG](../../CHANGELOG.md)）
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：无
