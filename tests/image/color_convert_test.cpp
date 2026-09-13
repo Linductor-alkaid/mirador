@@ -294,7 +294,8 @@ TEST(ColorConvert, Nv12ToGrayCopiesLumaPlaneOnly) {
     std::byte* src_bytes = src_buffer.data();
     for (int32_t i = 0; i < 9; ++i) {
         src_bytes[i] = static_cast<std::byte>(i * 3);
-        src_bytes[9 + (i % 6)] = static_cast<std::byte>(255);  // chroma is 6 bytes
+        // Odd width 3: chroma rows hold 2 UV pairs = 4 bytes, 2 rows = 8 bytes.
+        src_bytes[9 + (i % 8)] = static_cast<std::byte>(255);
     }
 
     auto dst = convert_color(src_buffer.view(), PixelFormat::kGray8, kBudget);

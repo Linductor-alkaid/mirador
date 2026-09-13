@@ -12,3 +12,9 @@ mirador_add_test(
     SOURCES color_convert_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.crop
+    SOURCES crop_test.cpp
+    LIBS mirador::image
+    LABELS unit)

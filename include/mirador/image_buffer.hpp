@@ -13,10 +13,10 @@ namespace mirador {
 
 /// Owning, packed CPU image buffer for pipeline intermediates (design section 12
 /// frame-cache layer). All planes live in one zero-initialized allocation laid out
-/// contiguously per DEC-007: the primary plane rows (tight stride
-/// `width * bytes_per_pixel`), followed by the NV12 chroma rows (`width` bytes per
-/// row, `ceil(height / 2)` rows). Move-only; `view()` projects the memory as a valid
-/// non-owning ImageView in rotation k0.
+/// contiguously per DEC-007 (frozen): the primary plane rows (tight stride
+/// `width * bytes_per_pixel`), followed by the NV12 chroma rows (`width +
+/// width % 2` bytes per row, `ceil(height / 2)` rows). Move-only; `view()`
+/// projects the memory as a valid non-owning ImageView in rotation k0.
 class ImageBuffer {
 public:
     /// Empty buffer; `view()` of an empty buffer is an invalid view.

@@ -37,10 +37,10 @@
 - [x] `M1-01` `mirador::image` 编译目标与有界拥有缓冲 `ImageBuffer`：预算参数显式、
   分配前校验、失败返回 `kBudgetExceeded`、`view()` 输出合法视图；架构测试锁住
   image → core 单一依赖方向。
-- [ ] `M1-02` 确定性颜色转换 `convert_color`：文档化支持矩阵（同格式行拷贝、彩色→灰度、
+- [x] `M1-02` 确定性颜色转换 `convert_color`：文档化支持矩阵（同格式行拷贝、彩色→灰度、
   灰度→彩色、交错格式互转、NV12→彩色/灰度；彩色→NV12 返回 `kUnsupportedFormat`）；
   BT.601 全范围整数定点系数，像素循环无浮点，跨编译器位稳定；stride 感知。
-- [ ] `M1-03` `RectI` 像素整数矩形（core：构造校验、`intersect`/`contains`，int64 防溢出）
+- [x] `M1-03` `RectI` 像素整数矩形（core：构造校验、`intersect`/`contains`，int64 防溢出）
   与旋转感知裁剪 `crop`：0/90/180/270 方向、非连续 stride、奇数尺寸、NV12 色度取整规则、
   越界 ROI 返回 `kInvalidArgument` 的测试矩阵。
 - [ ] `M1-04` 面积重采样 `resize_area`：任意比例 box 权重整数实现（含非整数比例与放大）、
@@ -93,3 +93,27 @@
 
 2026-09-14：里程碑创建。依据设计文档 §11/§24 M1 与总计划 `SCOPE-02` 拆分工作项
 `M1-01`~`M1-10`；`DEC-008` 按暂定值（帧 4 MiB）进入实现，冻结仍留在 M2。
+
+2026-09-14：`M1-01`~`M1-03` 实施完成（分支 `feat/image-m1-image-ops`，commit
+`03e858c`..本节对应提交）。
+
+- 环境：Ubuntu 24.04 x64（GCC 13.3.0、CMake 3.28.3 + Ninja、clang-format/clang-tidy
+  18.1.3）。
+- 落地内容：
+  - `M1-01`：`mirador::image` 转编译目标 + `ImageBuffer`（显式字节预算、预算/分配双路径
+    `kBudgetExceeded`、DEC-007 平面布局、`view()` 投影）；架构测试新增"每个一方模块的
+    链接接口恰为 `mirador::core`"断言与 image 链接闭包探针（`readelf` NEEDED）；模块
+    关闭路径（`MIRADOR_BUILD_IMAGE=OFF`）实测目标消失、构建绿。
+  - `M1-02`：`convert_color` 文档化支持矩阵（同格式拷贝、彩色→灰度 BT.601 整数公式、
+    灰度→彩色、交错互转、NV12→彩色/灰度；→NV12 显式 `kUnsupportedFormat`），纯整数
+    像素循环，分配前预算校验。
+  - `M1-03`：core `RectI`（`is_valid`/`contains`×2/`intersect`，int64 边缘运算）与
+    `crop`（呈现空间 ROI、NV12 色度子采样、越界/空 ROI/预算错误）。
+- **`DEC-007` 冻结为 Accepted**：M0 草案"NV12 色度行 = width 字节"在奇数宽度下无法
+  容纳末尾 V 分量，冻结时修正为 `width + width % 2` 并同步 `pixel_format`/`ImageBuffer`/
+  转换/裁剪；`tests/core/image_view_test.cpp` 中 M0 期望值（`kNv12,1,7 == 7`）重新基线
+  为 `8`，属缺陷修正而非语义变更，已记录于 `DEC-007` 第 5 条。
+- 本地命令与结果：`cmake --preset debug` + build + `ctest` 12/12 通过（unit 8、
+  property 1、architecture 3）；touched 文件 `clang-format --dry-run --Werror` 与
+  `clang-tidy --warnings-as-errors='*'` 无告警。全预设矩阵在里程碑收尾统一补跑。
+- 限制：跨平台编译证据待 CI 运行回填。

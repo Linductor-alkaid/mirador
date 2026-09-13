@@ -64,7 +64,8 @@ void copy_rows(const ImageView& src, MutableView dst) {
     }
     if (src.format == PixelFormat::kNv12) {
         const int32_t chroma_height = (src.height + 1) / 2;
-        const int64_t chroma_row_bytes = src.width;
+        // DEC-007 (frozen): odd chroma widths need one extra byte per row.
+        const auto chroma_row_bytes = static_cast<int64_t>(src.width) + (src.width % 2);
         for (int32_t y = 0; y < chroma_height; ++y) {
             std::memcpy(dst.data + src.height * dst.row_stride_bytes + static_cast<int64_t>(y) * chroma_row_bytes,
                         src.secondary_plane.data + static_cast<int64_t>(y) * src.secondary_plane.row_stride_bytes,

@@ -42,15 +42,16 @@ TEST(ImageBuffer, CreateTightPackedLayout) {
 TEST(ImageBuffer, Nv12LayoutFollowsDec007) {
     auto buffer = ImageBuffer::create(PixelFormat::kNv12, 7, 9, 4096);
     ASSERT_TRUE(buffer.ok());
-    // Luma rows 7 * 9 = 63 bytes, chroma rows width * ceil(9 / 2) = 35 bytes.
-    EXPECT_EQ(buffer.value().byte_size(), 63 + 35);
+    // Luma rows 7 * 9 = 63 bytes; chroma rows ceil(7 / 2) UV pairs = 8 bytes each,
+    // ceil(9 / 2) = 5 rows (DEC-007, frozen).
+    EXPECT_EQ(buffer.value().byte_size(), 63 + 8 * 5);
 
     const ImageView view = buffer.value().view();
     EXPECT_TRUE(validate(view).ok());
     EXPECT_EQ(view.row_stride_bytes, 7);
     ASSERT_NE(view.secondary_plane.data, nullptr);
     EXPECT_EQ(view.secondary_plane.data, view.data + 63);
-    EXPECT_EQ(view.secondary_plane.row_stride_bytes, 7);
+    EXPECT_EQ(view.secondary_plane.row_stride_bytes, 8);
 }
 
 TEST(ImageBuffer, EnforcesExplicitByteBudget) {
@@ -61,7 +62,7 @@ TEST(ImageBuffer, EnforcesExplicitByteBudget) {
     const auto exact = ImageBuffer::create(PixelFormat::kRgba8, 4, 3, 48);
     EXPECT_TRUE(exact.ok());
 
-    const auto nv12_too_small = ImageBuffer::create(PixelFormat::kNv12, 7, 9, 97);
+    const auto nv12_too_small = ImageBuffer::create(PixelFormat::kNv12, 7, 9, 102);
     ASSERT_FALSE(nv12_too_small.ok());
     EXPECT_EQ(nv12_too_small.status().code(), ErrorCode::kBudgetExceeded);
 }

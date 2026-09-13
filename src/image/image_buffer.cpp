@@ -17,7 +17,13 @@ Result<ImageBuffer> ImageBuffer::create(PixelFormat format, int32_t width, int32
     }
     // Bounded by kMaxImageDimension^2 * 4 (about 1.7e10), which fits int64_t.
     const int64_t primary_bytes = static_cast<int64_t>(width) * bytes_per_pixel(format) * height;
-    const int64_t chroma_bytes = format == PixelFormat::kNv12 ? static_cast<int64_t>(width) * ((height + 1) / 2) : 0;
+    int64_t chroma_bytes = 0;
+    if (format == PixelFormat::kNv12) {
+        // DEC-007 (frozen): chroma rows hold ceil(width / 2) UV pairs, so odd
+        // widths need one extra byte per row.
+        const int64_t chroma_row_bytes = static_cast<int64_t>(width) + (width % 2);
+        chroma_bytes = chroma_row_bytes * ((height + 1) / 2);
+    }
     const int64_t total_bytes = primary_bytes + chroma_bytes;
     if (total_bytes > max_bytes) {
         return Status(ErrorCode::kBudgetExceeded, "ImageBuffer::create: request exceeds the declared byte budget");
@@ -47,7 +53,9 @@ ImageView ImageBuffer::view() const noexcept {
     view.format = format_;
     view.rotation = Rotation::k0;
     if (format_ == PixelFormat::kNv12) {
-        view.secondary_plane = ImagePlane{data_.data() + static_cast<int64_t>(width_) * height_, width_};
+        const int64_t primary_bytes = static_cast<int64_t>(width_) * height_;
+        const auto chroma_stride = static_cast<int64_t>(width_) + (width_ % 2);
+        view.secondary_plane = ImagePlane{data_.data() + primary_bytes, chroma_stride};
     }
     return view;
 }
