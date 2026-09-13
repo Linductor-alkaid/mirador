@@ -47,6 +47,9 @@ public:
     }
     /// Total allocation size across all planes.
     [[nodiscard]] int64_t byte_size() const noexcept { return byte_size_; }
+    /// Writable pointer to the first primary-plane byte, for in-place writers such
+    /// as adapters and tests; the const projection is `view()`.
+    [[nodiscard]] std::byte* data() noexcept { return data_.data(); }
     /// Projection of the buffer memory; valid per `validate()` when non-empty.
     [[nodiscard]] ImageView view() const noexcept;
 

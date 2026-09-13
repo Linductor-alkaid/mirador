@@ -6,3 +6,9 @@ mirador_add_test(
     SOURCES image_buffer_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.color_convert
+    SOURCES color_convert_test.cpp
+    LIBS mirador::image
+    LABELS unit)
