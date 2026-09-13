@@ -55,18 +55,21 @@ jobs:
           fi
 
   windows:
-    name: msvc / windows-debug
+    name: msvc / ninja
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      # Locate the installed MSVC environment instead of hardcoding a VS generator
+      # version, which breaks when runner images ship a different VS release.
+      - uses: ilammy/msvc-dev-cmd@v1
       - name: Configure
-        run: cmake --preset windows-debug
+        run: cmake -S . -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIRADOR_BUILD_TESTS=ON
       - name: Build
-        run: cmake --build --preset windows-debug
+        run: cmake --build build/windows
       - name: Test
-        run: ctest --preset windows-debug
+        run: ctest --test-dir build/windows --output-on-failure
 
   android:
     name: ndk / arm64-v8a
