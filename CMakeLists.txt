@@ -17,6 +17,8 @@ add_library(mirador_core
     src/core/status.cpp
     src/core/pixel_format.cpp
     src/core/image_view.cpp
+    src/core/geometry.cpp
+    src/core/transform.cpp
 )
 add_library(mirador::core ALIAS mirador_core)
 
