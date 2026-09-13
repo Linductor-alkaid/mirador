@@ -12,8 +12,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Optional module targets (mirador::image/cache/geometry/fusion/render) are added
-# by M0-01 as they gain content; optional dependencies stay off by default (DEC-002).
 add_library(mirador_core
     src/core/version.cpp
 )
@@ -26,6 +24,23 @@ target_include_directories(mirador_core
 )
 
 target_compile_features(mirador_core PUBLIC cxx_std_20)
+
+# First-party module targets (design section 21, M0-01). Modules are INTERFACE
+# libraries until they gain compiled content (M1+); the dependency direction
+# module -> core is expressed here and locked by the architecture tests (M0-05).
+# Optional third-party dependencies stay off by default (DEC-002) and are only
+# ever pulled in by the module that implements them.
+set(MIRADOR_MODULES image cache geometry fusion render)
+foreach(mirador_module IN LISTS MIRADOR_MODULES)
+    string(TOUPPER "${mirador_module}" mirador_module_upper)
+    option(MIRADOR_BUILD_${mirador_module_upper}
+        "Build mirador::${mirador_module} module" ON)
+    if(MIRADOR_BUILD_${mirador_module_upper})
+        add_library(mirador_${mirador_module} INTERFACE)
+        add_library(mirador::${mirador_module} ALIAS mirador_${mirador_module})
+        target_link_libraries(mirador_${mirador_module} INTERFACE mirador::core)
+    endif()
+endforeach()
 
 if(MSVC)
     target_compile_options(mirador_core PRIVATE /W4 /permissive-)
