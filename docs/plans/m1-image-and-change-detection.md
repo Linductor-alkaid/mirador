@@ -140,3 +140,10 @@ commit `a928a1b`（含 amend）、`e0cd815`、`53710c5`）。
     `link_closure`（core）与 `link_closure_image`（image 链接闭包仅标准库）。
 - 限制：跨平台编译证据待 CI 运行回填；`M1-01`~`M1-05` 的验收以本地证据先行记录，
   CI 结果合入后补充。
+
+2026-09-14：`M1-01`~`M1-05` 跨平台编译证据回填。GitHub Actions run
+`34773477251`（[PR #3](https://github.com/Linductor-alkaid/mirador/pull/3)）9/9 job
+success：linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、windows msvc/ninja、
+android ndk arm64-v8a（configure+build）、lint。公共头在 GCC、Clang、MSVC 下编译通过，
+NDK arm64-v8a 交叉编译通过；架构测试（source_scan、link_closure、link_closure_image）
+在全部 job 运行通过。
