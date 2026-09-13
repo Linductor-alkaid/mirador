@@ -14,6 +14,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(mirador_core
     src/core/version.cpp
+    src/core/status.cpp
 )
 add_library(mirador::core ALIAS mirador_core)
 
