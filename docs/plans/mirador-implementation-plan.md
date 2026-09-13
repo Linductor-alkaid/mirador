@@ -9,10 +9,11 @@
 
 ## 当前状态
 
-M0「边界与骨架」已完成（PR #1 全部工作项与退出条件通过，CI run `34766949574` 9/9 绿）：
-公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、GoogleTest
-v1.18.0、三平台 CI 已冻结；`v0.1.0-alpha` tag 待维护者创建。下一里程碑 M1（基础图像与
-变化检测）启动时创建里程碑文档。整体路线沿用设计文档第 24 节的 M0-M5。
+M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项与退出条件通过，CI 9/9
+绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、
+GoogleTest v1.18.0、三平台 CI 已冻结，发布说明见 [CHANGELOG](../../CHANGELOG.md)。
+下一里程碑 M1（基础图像与变化检测）启动时创建里程碑文档。整体路线沿用设计文档
+第 24 节的 M0-M5。
 
 ## 交付边界
 
