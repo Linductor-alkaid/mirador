@@ -1,0 +1,20 @@
+THIRD PARTY NOTICES
+===================
+
+This file lists third-party components distributed with Mirador binaries or
+sources, as required by the design document (sections 21-22) and the project
+standards (docs/project/project-standards.md, section 9).
+
+As of 2026-09-13, the Mirador core distribution bundles no third-party
+components: mirador-core depends only on the C++20 standard library.
+
+Optional modules may introduce pinned dependencies (for example OpenCV or
+ELSED). Each such dependency, its pinned version, license and source must be
+recorded here and in docs/supply-chain/ before it is distributed; license
+review must complete before ELSED or similar algorithm sources are vendored.
+
+Model runtimes (ncnn, ONNX Runtime, MNN, TensorRT, ...) and model weights are
+never distributed with the core library. Backend examples for specific
+runtimes live in separate repositories or in integrations/ that the default
+build must not fetch. See docs/design/mirador-development-design.md for the
+full boundary description.

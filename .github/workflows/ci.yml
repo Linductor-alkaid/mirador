@@ -1,0 +1,105 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  linux:
+    name: ${{ matrix.compiler }} / ${{ matrix.preset }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cxx: g++
+            preset: debug
+          - compiler: clang
+            cxx: clang++
+            preset: debug
+          - compiler: gcc
+            cxx: g++
+            preset: warnings
+          - compiler: gcc
+            cxx: g++
+            preset: asan
+          - compiler: gcc
+            cxx: g++
+            preset: ubsan
+          - compiler: gcc
+            cxx: g++
+            preset: tsan
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+        env:
+          CC: ${{ matrix.compiler }}
+          CXX: ${{ matrix.cxx }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: |
+          # TSan on newer kernels hits "unexpected memory mapping" with high-entropy
+          # ASLR; disable ASLR for the test process only.
+          if [ "${{ matrix.preset }}" = "tsan" ]; then
+            setarch "$(uname -m)" -R ctest --preset tsan
+          else
+            ctest --preset ${{ matrix.preset }}
+          fi
+
+  windows:
+    name: msvc / windows-debug
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset windows-debug
+      - name: Build
+        run: cmake --build --preset windows-debug
+      - name: Test
+        run: ctest --preset windows-debug
+
+  android:
+    name: ndk / arm64-v8a
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 26.3.11579264
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Android NDK
+        run: |
+          yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Configure
+        run: >
+          cmake -S . -B build/android -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake
+          -DANDROID_ABI=arm64-v8a
+          -DANDROID_PLATFORM=android-24
+          -DCMAKE_BUILD_TYPE=Debug
+          -DMIRADOR_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build/android
+
+  lint:
+    name: clang-format / clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy
+      - name: Configure (generate compile_commands.json)
+        run: cmake --preset debug
+      - name: Check formatting
+        run: |
+          clang-format --version
+          git ls-files '*.cpp' '*.cc' '*.h' '*.hpp' | xargs clang-format --dry-run --Werror
+      - name: Run clang-tidy
+        run: |
+          clang-tidy --version
+          git ls-files '*.cpp' '*.cc' | xargs clang-tidy --warnings-as-errors='*' -p build/debug
