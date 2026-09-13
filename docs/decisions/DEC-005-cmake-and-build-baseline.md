@@ -1,9 +1,9 @@
 # DEC-005：CMake 与构建基线
 
-> 状态：Proposed（暂定默认值，冻结里程碑 M0）
+> 状态：Accepted
 > 日期：2026-09-13
 > 负责人：linductor
-> 冻结里程碑：M0
+> 冻结里程碑：M0（随 M0-01/M0-06 实现与预设验证冻结）
 > 替代/被替代：无
 
 ## 背景与问题
@@ -12,7 +12,7 @@
 CMakePresets 及 `debug`/`release`/`asan`/`ubsan`/`tsan` 预设。CMakePresets 的条件字段与
 ctest 预设需要 CMake ≥ 3.21，较新的预设 schema 需要更高版本。两者需要统一成一条基线。
 
-## 决策（暂定默认值）
+## 决策
 
 1. `cmake_minimum_required(VERSION 3.16)`：遵循设计文档，保持对较旧发行版/CI 镜像的兼容。
 2. `CMakePresets.json` 使用 schema version 3：消费预设需 CMake ≥ 3.21；开发与 CI 环境使用
@@ -38,6 +38,8 @@ ctest 预设需要 CMake ≥ 3.21，较新的预设 schema 需要更高版本。
 ## 验证方式
 
 本地（CMake 3.28/Ninja/GCC 13）与 CI 实测全部预设 configure/build/test 通过。
+
+2026-09-13：全部六个 Linux 预设（debug/release/warnings/asan/ubsan/tsan）本地 configure+build+ctest 7/7 通过，警告预设开启 `MIRADOR_WARNINGS_AS_ERRORS`；模块开关 `MIRADOR_BUILD_<MODULE>` 关闭路径实测。证据见 M0 里程碑验证记录。
 
 ## 关联文档和工作项
 

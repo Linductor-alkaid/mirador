@@ -1,9 +1,9 @@
 # DEC-006：测试框架选型
 
-> 状态：Proposed（暂定默认值，冻结里程碑 M0）
+> 状态：Accepted
 > 日期：2026-09-13
 > 负责人：linductor
-> 冻结里程碑：M0
+> 冻结里程碑：M0（随 M0-08 引入与测试迁移冻结）
 > 替代/被替代：无
 
 ## 背景与问题
@@ -14,7 +14,7 @@
 
 ## 决策（暂定默认值）
 
-采用 GoogleTest（pinned 版本待引入时确定，许可证 BSD-3-Clause）：
+采用 GoogleTest v1.18.0（commit `063de7e9578f82b369302001269680b4b1553359`，许可证 BSD-3-Clause，submodule + `dependencies.lock.json` 锁定）：
 
 - 提供断言、夹具、值/类型参数化与死亡测试，覆盖坐标矩阵与 Fake Backend 注入需求。
 - 社区成熟、CMake 集成（`FetchContent`/submodule）与 CI 支持广泛。
@@ -35,6 +35,8 @@
 ## 验证方式
 
 `M0-08` 迁移 smoke 测试后，全部预设 build/test 通过；供应链文档登记许可证与锁定信息。
+
+2026-09-13：GoogleTest v1.18.0 以 submodule 引入并通过 configure 期 pin 校验（缺失、不匹配、恢复三条路径实测）；smoke 测试迁移后全部预设 7/7 通过；[googletest.md](../supply-chain/googletest.md) 完成登记。
 
 ## 关联文档和工作项
 
