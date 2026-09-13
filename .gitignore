@@ -22,3 +22,6 @@ install_manifest.txt
 # Python tooling venvs
 .venv/
 __pycache__/
+
+# Mimosa local security-gate state
+.mimosa/

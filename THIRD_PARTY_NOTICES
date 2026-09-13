@@ -5,8 +5,17 @@ This file lists third-party components distributed with Mirador binaries or
 sources, as required by the design document (sections 21-22) and the project
 standards (docs/project/project-standards.md, section 9).
 
-As of 2026-09-13, the Mirador core distribution bundles no third-party
-components: mirador-core depends only on the C++20 standard library.
+1. GoogleTest (https://github.com/google/googletest)
+
+   Included as the pinned submodule third_party/googletest (v1.18.0,
+   commit 063de7e9578f82b369302001269680b4b1553359). Used exclusively by the
+   test suite; it is never linked into mirador-core or shipped artifacts.
+   License: BSD-3-Clause. Copyright 2008, Google Inc.
+   Full text: third_party/googletest/LICENSE
+   Audit record: docs/supply-chain/googletest.md
+
+As of 2026-09-13 this is the only third-party component in the repository; the
+Mirador core itself depends only on the C++20 standard library.
 
 Optional modules may introduce pinned dependencies (for example OpenCV or
 ELSED). Each such dependency, its pinned version, license and source must be

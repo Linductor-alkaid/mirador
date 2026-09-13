@@ -39,10 +39,14 @@ tests/                  单元、属性与集成测试
 ## 构建与测试
 
 ```bash
+git submodule update --init third_party/googletest   # 测试依赖（DEC-006），或 clone --recursive
 cmake --preset debug
 cmake --build --preset debug
 ctest --preset debug
 ```
+
+测试通过 ctest 标签组织（`unit`/`property`/`architecture`），例如 `ctest -L architecture`
+运行架构边界测试。不需要测试时可配置 `-DMIRADOR_BUILD_TESTS=OFF` 跳过第三方依赖。
 
 预设：`debug`、`release`、`asan`、`ubsan`、`tsan`、`warnings`（Linux/macOS，Ninja）与
 `windows-debug`（MSVC）；使用预设需 CMake ≥ 3.21（见 `DEC-005`）。Android NDK 交叉编译

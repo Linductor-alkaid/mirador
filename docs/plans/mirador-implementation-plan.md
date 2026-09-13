@@ -9,8 +9,10 @@
 
 ## 当前状态
 
-工作空间已完成初始化：治理文档、决策记录、构建骨架与 M0 里程碑计划就绪；尚未进入任何
-工作项的实施。整体路线沿用设计文档第 24 节的 M0-M5。
+M0「边界与骨架」已完成（PR #1 全部工作项与退出条件通过，CI run `34766949574` 9/9 绿）：
+公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、GoogleTest
+v1.18.0、三平台 CI 已冻结；`v0.1.0-alpha` tag 待维护者创建。下一里程碑 M1（基础图像与
+变化检测）启动时创建里程碑文档。整体路线沿用设计文档第 24 节的 M0-M5。
 
 ## 交付边界
 
@@ -75,7 +77,7 @@
 
 | 里程碑 | 名称 | 前置 | 建议发布点（暂定） | 状态 | 文档 |
 | --- | --- | --- | --- | --- | --- |
-| M0 | 边界与骨架 | — | `v0.1.0-alpha` | Planned | [m0-boundary-and-skeleton.md](m0-boundary-and-skeleton.md) |
+| M0 | 边界与骨架 | — | `v0.1.0-alpha` | Completed | [m0-boundary-and-skeleton.md](m0-boundary-and-skeleton.md) |
 | M1 | 基础图像与变化检测 | M0 | `v0.1.0-beta.1` | Planned | 启动时创建 |
 | M2 | Backend SPI 与能力结果缓存 | M1 | `v0.1.0-beta.2` | Planned | 启动时创建 |
 | M3 | 传统视觉与视觉索引 | M2 | `v0.1.0-beta.3` | Planned | 启动时创建 |
@@ -89,17 +91,15 @@
 
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
-| [DEC-004](../decisions/DEC-004-exception-and-error-model.md) | 异常与错误模型 | 公共边界 `Result<T>`/`Status`，异常不穿越公共 API | linductor | M0 |
-| [DEC-005](../decisions/DEC-005-cmake-and-build-baseline.md) | CMake 与构建基线 | 最低 3.16，预设需 ≥ 3.21，开发/CI 建议 ≥ 3.25 | linductor | M0 |
-| [DEC-006](../decisions/DEC-006-test-framework.md) | 测试框架 | GoogleTest | linductor | M0 |
-| `DEC-007` | NV12 等多平面格式表示 | 扩展 `ImagePlane`，不假定单连续平面 | linductor | M1 |
+| [DEC-007](../decisions/DEC-007-multiplane-image-representation.md) | NV12 等多平面格式表示 | 扩展 `ImagePlane`，不假定单连续平面（M0-03 已按草案实现） | linductor | M1 |
 | `DEC-008` | 缓存默认字节预算 | 帧 4 MiB、能力结果 16 MiB（参照设计 §25 示例） | linductor | M2 |
 | `DEC-009` | ELSED 集成方式 | 源码引入可选模块并完成许可证审查 | linductor | M3 |
 | `DEC-010` | 稳定 ID 匹配算法 | 门控后贪心匹配起步 | linductor | M4 |
 | `DEC-011` | 基准设备清单 | 设计 §20 三平台中端代表设备 | linductor | M5 |
 
 已生效决策见 [docs/decisions/](../decisions/)：`DEC-001` 同步 API 与无 executor、`DEC-002`
-Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型。
+Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`DEC-004` 公共边界
+`Result<T>`/`Status`、`DEC-005` CMake 与构建基线、`DEC-006` GoogleTest 测试框架。
 
 ## 通用完成定义
 
@@ -141,3 +141,9 @@ Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型。
 2026-09-13：工作空间初始化并完成骨架验证——6 个 Linux 预设（debug/release/warnings/asan/
 ubsan/tsan）配置、构建、ctest 全部通过，clang-format/clang-tidy 无告警；Windows 与 Android
 NDK 仅有 CI 定义未实测。证据与限制详见 [M0 里程碑验证记录](m0-boundary-and-skeleton.md)。
+
+2026-09-13：M0-01~M0-06、M0-08 实现完成（分支 `feat/core-m0-contracts`，commit
+b7d1aa3..d9f54c9）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、
+架构测试、GoogleTest v1.18.0 引入与全部模块目标落地。本地 6 预设 ctest 7/7 通过，
+clang-format/clang-tidy 无告警；`DEC-004`/`DEC-005`/`DEC-006` 冻结为 Accepted。跨平台
+编译证据随 PR #1 的 CI 运行回填，详见 [M0 里程碑验证记录](m0-boundary-and-skeleton.md)。
