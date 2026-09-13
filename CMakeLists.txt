@@ -15,6 +15,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(mirador_core
     src/core/version.cpp
     src/core/status.cpp
+    src/core/pixel_format.cpp
+    src/core/image_view.cpp
 )
 add_library(mirador::core ALIAS mirador_core)
 

@@ -55,15 +55,14 @@ private:
     Status status_;
 };
 
-/// Void specialization for operations that either succeed or produce a Status.
+/// Void specialization for operations that either succeed or produce a Status. Here
+/// the Status doubles as the full state: a default or ok Status is success.
 template <>
 class [[nodiscard]] Result<void> {
 public:
     Result() noexcept = default;  // NOLINT(google-explicit-constructor)
     Result(Status status)         // NOLINT(google-explicit-constructor)
-        : status_(std::move(status)) {
-        assert(!status_.ok() && "Result error construction requires a non-ok status");
-    }
+        : status_(std::move(status)) {}
 
     [[nodiscard]] bool ok() const noexcept { return status_.ok(); }
     explicit operator bool() const noexcept { return ok(); }
