@@ -66,6 +66,7 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
                 src/image/color_convert.cpp
                 src/image/crop.cpp
                 src/image/resize.cpp
+                src/image/fingerprint.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)

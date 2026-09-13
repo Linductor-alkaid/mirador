@@ -24,3 +24,9 @@ mirador_add_test(
     SOURCES resize_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.fingerprint
+    SOURCES fingerprint_test.cpp
+    LIBS mirador::image
+    LABELS unit)
