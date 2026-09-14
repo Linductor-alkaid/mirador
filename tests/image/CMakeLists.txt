@@ -30,3 +30,9 @@ mirador_add_test(
     SOURCES fingerprint_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.change_detection
+    SOURCES change_detection_test.cpp
+    LIBS mirador::image
+    LABELS unit)

@@ -6,6 +6,8 @@ project(mirador
     LANGUAGES CXX)
 
 option(MIRADOR_BUILD_TESTS "Build mirador tests" ON)
+option(MIRADOR_BUILD_BENCHMARKS "Build mirador benchmarks" ON)
+option(MIRADOR_BUILD_EXAMPLES "Build mirador examples" ON)
 option(MIRADOR_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -67,7 +69,12 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
                 src/image/crop.cpp
                 src/image/resize.cpp
                 src/image/fingerprint.cpp
+                src/image/change_detection.cpp
             )
+            mirador_apply_warnings(mirador_${mirador_module})
+            target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
+        elseif(mirador_module STREQUAL "cache")
+            add_library(mirador_${mirador_module} src/cache/frame_cache.cpp)
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
         else()
@@ -77,6 +84,14 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
         add_library(mirador::${mirador_module} ALIAS mirador_${mirador_module})
     endif()
 endforeach()
+
+if(MIRADOR_BUILD_BENCHMARKS AND TARGET mirador::image)
+    add_subdirectory(benchmarks)
+endif()
+
+if(MIRADOR_BUILD_EXAMPLES AND TARGET mirador::image AND TARGET mirador::cache)
+    add_subdirectory(examples)
+endif()
 
 if(MIRADOR_BUILD_TESTS)
     enable_testing()
