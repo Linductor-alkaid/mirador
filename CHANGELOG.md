@@ -7,6 +7,45 @@
 
 无。
 
+## [0.1.0-beta.3] - 2026-09-15
+
+M3「传统视觉、检测/OCR 通用组件与视觉索引」全部工作项落地：`mirador::geometry`
+线段能力、`mirador::image` 检测/OCR 通用组件与 `mirador::cache` 有界视觉索引，
+集成方式与组件契约冻结于 `DEC-009`/`DEC-014`
+（[PR #8](https://github.com/Linductor-alkaid/mirador/pull/8)，CI 10/10 全绿）。
+
+### 新增
+
+- M3：`mirador::geometry` 转编译目标（`DEC-009`）：`LineDetector` SPI（`LineSegmentSet`
+  统一输出、`LineDetectRequest`、`BackendInfo` 能力查询）、线段过滤（角度/长度/置信度，
+  支持 180 度绕回窗口）与传递性共线合并；一方确定性线段检测器
+  `SegmentGrowingLineDetector`（梯度边缘 + 方向对齐区域生长 + 闭式 PCA 拟合 + 离群
+  分段，无 libm 热路径，无状态可共享）。架构测试新增 `link_closure_geometry` 探针。
+- M3：`mirador::image` 检测/OCR 通用组件（`DEC-014`）：`letterbox`（面积重采样 +
+  居中填充，携带实际像素操作的精确 `Transform2D`）、`nms`（分数贪心、类别感知、
+  数量上限）与 `filter_detections`、`db_postprocess_aabb`（概率图 → AABB 文本框 +
+  DB unclip）与 `recover_contour_boxes`（共享确定性 8 连通域标记）、`merge_text_lines`
+  与 `normalize_text`（UTF-8 安全）、`refine_small_detections`（小目标 crop-refine
+  组合器，逆变换坐标恢复）。
+- M3：视觉索引（`DEC-014`）：core 新增 `VisualPatchFingerprint` 契约类型与
+  `make_translation` 工厂；`mirador::image` 新增 `make_visual_patch_fingerprint`
+  （灰度归一化 + FNV-1a 内容哈希 + dHash）；`mirador::cache` 新增有界 `VisualIndex`
+  （精确内容 / 感知哈希 / 模板 NCC 三层证据、LRU 逐出与提升、候选上限）。
+- M3：新增示例 `road_segments_tour`（道路线段：检测 → 过滤 → 共线合并）与
+  `icon_state_index_tour`（图标状态入库 → 扰动查询 → 复用策略），证明库不绑定单一
+  平台场景。
+- core：`PointF`/`RectF`/`LineSegment`/`TextRegion`/`DetectionRegion` 组件相等比较。
+
+### 兼容性影响
+
+- 全部为增量公共 API；M0-M2 既有 API 不变。
+- `mirador::geometry` 由 INTERFACE 转为编译目标，链接接口仍恰为 `mirador::core`
+  （`DEC-009`，默认构建零第三方依赖）；ELSED 本体按 `DEC-009` 作为可选适配延后。
+- NV12 的 letterbox / crop-refine 暂不支持（色度填充与色度丢弃决策待定，
+  `DEC-014` 参考适配范围），返回 `kUnsupportedFormat`。
+- DB 后处理参考实现输出 AABB 框（`polygon`/`utf8_text` 留空）；旋转框与逐字符
+  结果随首个真实 Backend 引入（`DEC-014`）。
+
 ## [0.1.0-beta.2] - 2026-09-14
 
 M2「Backend SPI 与能力结果缓存」：Backend SPI 契约冻结（`DEC-012`）、能力结果缓存

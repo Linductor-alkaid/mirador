@@ -36,3 +36,39 @@ mirador_add_test(
     SOURCES change_detection_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.letterbox
+    SOURCES letterbox_test.cpp
+    LIBS mirador::image
+    LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.detection_postprocess
+    SOURCES detection_postprocess_test.cpp
+    LIBS mirador::image
+    LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.text_postprocess
+    SOURCES text_postprocess_test.cpp
+    LIBS mirador::image
+    LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.text_normalize
+    SOURCES text_normalize_test.cpp
+    LIBS mirador::image
+    LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.crop_refine
+    SOURCES crop_refine_test.cpp
+    LIBS mirador::image
+    LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.patch_fingerprint
+    SOURCES patch_fingerprint_test.cpp
+    LIBS mirador::image
+    LABELS unit)

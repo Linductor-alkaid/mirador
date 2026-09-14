@@ -11,6 +11,11 @@ namespace mirador {
 struct PointF {
     float x = 0.0F;
     float y = 0.0F;
+
+    /// Component equality (M3-02, test and cache-key convenience).
+    [[nodiscard]] friend bool operator==(const PointF& lhs, const PointF& rhs) noexcept {
+        return lhs.x == rhs.x && lhs.y == rhs.y;
+    }
 };
 
 /// Axis-aligned rectangle in pixel-area coordinates: [x, x + width) x [y, y + height).
@@ -19,6 +24,11 @@ struct RectF {
     float y = 0.0F;
     float width = 0.0F;
     float height = 0.0F;
+
+    /// Component equality (M3-02, test and cache-key convenience).
+    [[nodiscard]] friend bool operator==(const RectF& lhs, const RectF& rhs) noexcept {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width && lhs.height == rhs.height;
+    }
 };
 
 /// Axis-aligned rectangle in integer pixel coordinates: [x, x + width) x [y, y + height).
@@ -57,6 +67,11 @@ struct LineSegment {
     PointF begin;
     PointF end;
     float confidence = 0.0F;
+
+    /// Component equality (M3-02).
+    [[nodiscard]] friend bool operator==(const LineSegment& lhs, const LineSegment& rhs) noexcept {
+        return lhs.begin == rhs.begin && lhs.end == rhs.end && lhs.confidence == rhs.confidence;
+    }
 };
 
 /// The four corners of `rect` in order: top-left, top-right, bottom-right, bottom-left.

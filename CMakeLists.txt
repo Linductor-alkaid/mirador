@@ -76,6 +76,13 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
                 src/image/resize.cpp
                 src/image/fingerprint.cpp
                 src/image/change_detection.cpp
+                src/image/letterbox.cpp
+                src/image/detection_postprocess.cpp
+                src/image/connected_components.cpp
+                src/image/text_postprocess.cpp
+                src/image/text_normalize.cpp
+                src/image/crop_refine.cpp
+                src/image/patch_fingerprint.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
@@ -83,6 +90,18 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
             add_library(mirador_${mirador_module}
                 src/cache/frame_cache.cpp
                 src/cache/capability_cache.cpp
+                src/cache/visual_index.cpp
+            )
+            mirador_apply_warnings(mirador_${mirador_module})
+            target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
+        elseif(mirador_module STREQUAL "geometry")
+            # M3-02: the line detection SPI and its first-party filters give
+            # geometry compiled content (design sections 15, 24 M3); the link
+            # interface stays exactly mirador::core (DEC-009: no third-party
+            # detector dependency in the default build).
+            add_library(mirador_${mirador_module}
+                src/geometry/line_filter.cpp
+                src/geometry/segment_growing_line_detector.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)

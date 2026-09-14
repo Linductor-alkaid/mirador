@@ -11,3 +11,9 @@ mirador_add_test(
     SOURCES capability_cache_test.cpp
     LIBS mirador::cache
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.cache.visual_index
+    SOURCES visual_index_test.cpp
+    LIBS mirador::cache
+    LABELS unit)

@@ -25,6 +25,12 @@ struct DetectionRegion {
     int32_t class_id = -1;
     std::string label;
     float confidence = 0.0F;
+
+    /// Component equality (M3-07, test convenience).
+    [[nodiscard]] friend bool operator==(const DetectionRegion& lhs, const DetectionRegion& rhs) noexcept {
+        return lhs.bounds == rhs.bounds && lhs.class_id == rhs.class_id && lhs.label == rhs.label &&
+               lhs.confidence == rhs.confidence;
+    }
 };
 
 /// Detection execution request (design section 14, DEC-012 field contract).
