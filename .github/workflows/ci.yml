@@ -95,6 +95,24 @@ jobs:
       - name: Build
         run: cmake --build build/android
 
+  # M1-09: the optional OpenCV adapter builds and tests against the
+  # integrator-provided OpenCV of the runner image (apt, never vendored).
+  opencv:
+    name: gcc / opencv-adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libopencv-dev
+      - name: Configure
+        run: cmake -S . -B build/opencv -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIRADOR_BUILD_ADAPTERS_OPENCV=ON
+      - name: Build
+        run: cmake --build build/opencv
+      - name: Test
+        run: ctest --test-dir build/opencv --output-on-failure
+
   lint:
     name: clang-format / clang-tidy
     runs-on: ubuntu-latest
@@ -103,9 +121,10 @@ jobs:
         with:
           submodules: recursive
       - name: Install tools
-        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy libopencv-dev
       - name: Configure (generate compile_commands.json)
-        run: cmake --preset debug
+        # Adapter ON so the compile database covers adapters/ for clang-tidy.
+        run: cmake --preset debug -DMIRADOR_BUILD_ADAPTERS_OPENCV=ON
       - name: Check formatting
         run: |
           clang-format --version
