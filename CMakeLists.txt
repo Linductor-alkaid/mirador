@@ -8,6 +8,10 @@ project(mirador
 option(MIRADOR_BUILD_TESTS "Build mirador tests" ON)
 option(MIRADOR_BUILD_BENCHMARKS "Build mirador benchmarks" ON)
 option(MIRADOR_BUILD_EXAMPLES "Build mirador examples" ON)
+# Optional adapter for integrator-provided OpenCV (design section 24 M1, M1-09):
+# never vendored and never part of the default build; enabling it requires an
+# OpenCV development installation found through find_package.
+option(MIRADOR_BUILD_ADAPTERS_OPENCV "Build the optional OpenCV adapter (requires OpenCV core)" OFF)
 option(MIRADOR_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -91,6 +95,11 @@ endif()
 
 if(MIRADOR_BUILD_EXAMPLES AND TARGET mirador::image AND TARGET mirador::cache)
     add_subdirectory(examples)
+endif()
+
+if(MIRADOR_BUILD_ADAPTERS_OPENCV)
+    find_package(OpenCV REQUIRED COMPONENTS core)
+    add_subdirectory(adapters/opencv)
 endif()
 
 if(MIRADOR_BUILD_TESTS)
