@@ -20,6 +20,12 @@ VLM 调用与动作执行由调用方或独立适配层提供。详见
 | `mirador::fusion` | 多源证据融合、稳定 ID、generation | M4 |
 | `mirador::render` | SoM 渲染与调试叠加、网格细化工具 | M4 |
 
+当前状态（2026-09，随[实施总计划](docs/plans/mirador-implementation-plan.md)更新）：
+`mirador::core`、`mirador::image` 与 `mirador::cache` 为编译目标——M1 已落地颜色转换、
+裁剪、面积缩放、dHash 指纹、分层变化检测（`detect_change`，含忽略区域与 none/partial/
+global 分类）和有界 LRU `FrameCache`；`geometry`/`fusion`/`render` 仍为 INTERFACE 占位，
+随对应里程碑落地。
+
 ## 目录结构
 
 ```text
@@ -47,6 +53,18 @@ ctest --preset debug
 
 测试通过 ctest 标签组织（`unit`/`property`/`architecture`），例如 `ctest -L architecture`
 运行架构边界测试。不需要测试时可配置 `-DMIRADOR_BUILD_TESTS=OFF` 跳过第三方依赖。
+
+## 示例与基准
+
+```bash
+cmake --build build/release --target mirador_example_change_detection
+./build/release/examples/mirador_example_change_detection     # 提交帧 -> 变化检测 -> ROI/指纹 -> 帧缓存
+cmake --build build/release --target mirador_bench_change_detection
+./build/release/benchmarks/mirador_bench_change_detection     # 四场景 p50/p95（仅本机有效）
+```
+
+示例与基准默认随构建编译（`MIRADOR_BUILD_EXAMPLES`/`MIRADOR_BUILD_BENCHMARKS` 可关闭）；
+基准数字依赖运行机器，不做跨平台比较。
 
 预设：`debug`、`release`、`asan`、`ubsan`、`tsan`、`warnings`（Linux/macOS，Ninja）与
 `windows-debug`（MSVC）；使用预设需 CMake ≥ 3.21（见 `DEC-005`）。Android NDK 交叉编译

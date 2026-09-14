@@ -61,7 +61,7 @@
 - [ ] `M1-09` OpenCV 适配（`adapters/opencv`，可选依赖默认关闭）：`cv::Mat` →
   `ImageView` 包装与有界缓冲导出；公共 API 与 `src/` 不出现 OpenCV 类型；在具备 OpenCV
   的环境完成构建与测试。
-- [ ] `M1-10` 无 runtime 示例与文档同步：示例使用公共 API 演示"提交帧 → 变化检测 →
+- [x] `M1-10` 无 runtime 示例与文档同步：示例使用公共 API 演示"提交帧 → 变化检测 →
   ROI/指纹输出"并纳入编译验证；`DEC-007` 冻结、README 模块状态、CHANGELOG 更新。
 
 ## 风险与阻塞
@@ -196,3 +196,18 @@ android ndk arm64-v8a（configure+build）、lint。首轮 run `34796765864` 的
 以 `git ls-files` 全量格式/lint 门禁复验）；其余 8 job 首轮即绿，架构测试
 （source_scan、link_closure、link_closure_image、link_closure_cache）在全部 job
 通过。
+
+2026-09-14：`M1-10` 实施完成（分支 `feat/image-m1-change-cache`）。
+
+- 落地内容：无 runtime 示例 `examples/change_detection_tour`（公共 API 演示
+  合成帧采集 → 指纹/相似度 → 带忽略区域的 `detect_change` → 报告输出 → `FrameCache`
+  产物缓存，确定性、纯内存、无网络/磁盘/线程）；`MIRADOR_BUILD_EXAMPLES` 开关
+  默认开启纳入编译验证；README 模块状态（core/image/cache 编译目标）与示例/基准
+  使用说明；CHANGELOG `Unreleased` 段记录 M1 至今变化。`DEC-007` 冻结已于 M1-03
+  批次完成。
+- 本地验证：debug 构建 ctest 17/17；示例运行输出符合设计（进度条变化检出 partial
+  且 ROI 精确、spinner 被忽略区域抑制、相同帧指纹早退 none、缓存 2 条目 144/512
+  字节命中）；触及文件 clang-format/clang-tidy 无告警。
+- 限制：M1 里程碑仅余 `M1-09`（OpenCV 适配，RISK-2026-06：本机无 OpenCV 环境，
+  补跑条件：具备 OpenCV 开发包的 Linux 或 Windows 环境，启用 `adapters/opencv`
+  构建并运行其测试矩阵）；示例/基准的跨平台编译证据随本分支 CI 回填。
