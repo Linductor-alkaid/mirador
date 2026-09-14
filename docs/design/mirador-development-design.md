@@ -382,9 +382,9 @@ Mirador 自身许可证可以维持 MIT 方向，但每个可选依赖、参考�
 
 定义 OCR、Detector 和未来 Embedder 的 Backend SPI、能力查询、模型身份、请求与原始结果，并使用 Fake Backend 完成端到端测试。实现能力结果缓存键、显式刷新与失效规则。此阶段可以提供一个外部示例 Backend 验证 ncnn 或 ONNX Runtime 的可适配性，但不能把 runtime 合入 Core。
 
-### M3：传统视觉与视觉索引
+### M3：传统视觉、检测/OCR 通用组件与视觉索引
 
-加入可选 ELSED/线段检测、几何过滤与统一输出，再实现图块感知哈希、模板匹配和有界视觉索引。通过界面图标状态与道路线段两个差异明显的示例证明 Mirador 不是只服务 Android Agent 的专用封装。
+加入可选 ELSED/线段检测、几何过滤与统一输出，再实现图块感知哈希、模板匹配和有界视觉索引。同期交付 §13/§14 承诺的检测/OCR 通用组件：letterbox 预处理组合、NMS、类别过滤、小目标 crop-refine，以及 DB 后处理、轮廓框恢复、行合并、文本规范化参考组件——全部为纯 CPU 算法，不执行模型、不引入 runtime（§9"Mirador 负责通用前后处理"的落地）。通过界面图标状态与道路线段两个差异明显的示例证明 Mirador 不是只服务 Android Agent 的专用封装。
 
 ### M4：融合、稳定 ID 与 SoM
 

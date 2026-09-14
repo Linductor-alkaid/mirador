@@ -1,11 +1,15 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.0
+> 版本：1.1
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-13
+> 更新日期：2026-09-14
+>
+> 1.1 修订（2026-09-14）：承接设计 §13/§14 的检测/OCR 通用组件（新增 `SCOPE-11`，
+> 并入 M3）；`POST-05` 参考后端由延后项升级为计划性独立交付物，立项窗口为 M4 完成后、
+> M5 评测准备启动前。
 
 ## 当前状态
 
@@ -16,7 +20,7 @@ M1「基础图像与变化检测」已完成并发布 `v0.1.0-beta.1`（PR #3/#4
 PR #5 合并提交）。M2「Backend SPI 与能力结果缓存」已完成并发布 `v0.1.0-beta.2`
 （2026-09-14，PR #6 经用户授权合入，CI 两次 run 全绿；里程碑文档见
 [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md)，tag 打在
-PR #6 合并提交）。下一里程碑 M3「传统视觉与视觉索引」待启动。整体路线沿用设计文档
+PR #6 合并提交）。下一里程碑 M3「传统视觉、检测/OCR 通用组件与视觉索引」待启动。整体路线沿用设计文档
 第 24 节的 M0-M5。
 
 ## 交付边界
@@ -31,6 +35,9 @@ PR #6 合并提交）。下一里程碑 M3「传统视觉与视觉索引」待�
   视觉索引（精确哈希/感知哈希/模板匹配）（设计 §12、§24 M2-M3）。
 - [ ] `SCOPE-04` `mirador-geometry`：`LineDetector` SPI、几何过滤、ELSED 或等价线段实现
   （可选依赖）（设计 §15、§24 M3）。
+- [ ] `SCOPE-11` 检测/OCR 通用组件：letterbox 预处理组合、NMS、类别过滤、小目标
+  crop-refine；DB 后处理、轮廓框恢复、行合并、文本规范化参考组件——纯 CPU 算法，
+  不执行模型、不引入 runtime，模块归属随 M3 立项确定（设计 §13、§14；1.1 修订并入）。
 - [ ] `SCOPE-05` `mirador-fusion`：多源证据关联、确定性融合、来源追踪、稳定 ID 与 generation
   （设计 §16、§24 M4）。
 - [ ] `SCOPE-06` `mirador-render`：SoM 渲染、调试叠加、网格划分与坐标回映工具（设计 §17、
@@ -46,7 +53,8 @@ PR #6 合并提交）。下一里程碑 M3「传统视觉与视觉索引」待�
 ### 明确不包含
 
 - 模型 runtime 链接进 Core、模型权重分发与下载；runtime 适配位于独立仓库或默认构建不获取
-  的 `integrations/`（见 `POST-05`）。
+  的 `integrations/`——具体模型后端以独立交付物形式交付（见 `POST-05`，1.1 修订后为
+  计划性立项，不再是无期限延后）。
 - 平台采集实现、Accessibility 服务、窗口/投影权限、输入注入与点击执行。
 - VLM 调用、Agent 决策、Workflow 状态机与任务调度框架。
 - 常驻线程、后台轮询、网络请求与默认持久化。
@@ -85,7 +93,7 @@ PR #6 合并提交）。下一里程碑 M3「传统视觉与视觉索引」待�
 | M0 | 边界与骨架 | — | `v0.1.0-alpha` | Completed | [m0-boundary-and-skeleton.md](m0-boundary-and-skeleton.md) |
 | M1 | 基础图像与变化检测 | M0 | `v0.1.0-beta.1` | Completed | [m1-image-and-change-detection.md](m1-image-and-change-detection.md) |
 | M2 | Backend SPI 与能力结果缓存 | M1 | `v0.1.0-beta.2` | Completed | [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md) |
-| M3 | 传统视觉与视觉索引 | M2 | `v0.1.0-beta.3` | Planned | 启动时创建 |
+| M3 | 传统视觉、检测/OCR 通用组件与视觉索引 | M2 | `v0.1.0-beta.3` | Planned | 启动时创建 |
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Planned | 启动时创建 |
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Planned | 启动时创建 |
 
@@ -132,8 +140,15 @@ Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`D
 - `POST-02` 异步扩展接口（不破坏核心 ABI）— 触发：多个调用方证明同步封装不足。
 - `POST-03` 光流/轻量特征增强变化检测 — 触发：M1 基准漏检/误检率超标。
 - `POST-04` Embedder Backend 与嵌入视觉索引 — 触发：M3 图标索引命中率不足。
-- `POST-05` ncnn/ONNX Runtime 示例适配包（独立仓库或 `integrations/`）— 触发：M2 需要外部
-  runtime 可适配性验证。
+
+**计划性独立交付物（1.1 修订，自延后项升级）**：
+
+- `POST-05` 参考能力后端交付包——OCR（如 PP-OCR mobile）与检测（YOLO 系）的示例
+  Backend，验证真实 runtime 可适配性并为 M5 评测提供真实能力。按 AGENTS.md 边界存放于
+  默认构建不获取的 `integrations/` 或独立仓库，不进核心发布包、不随核心版本号发布。
+  立项窗口：M4 完成后、M5 评测准备启动前；立项时按工程规范 §9.3 完成 runtime 选型对比
+  （ncnn / ONNX Runtime 等）、许可证审查并形成决策记录，同时确认存放形式与评测接入方式。
+  模型权重不进仓库，示例通过用户显式提供路径运行。
 
 ## 风险
 
@@ -142,6 +157,9 @@ Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`D
 - `RISK-2026-02` ELSED 许可证与集成方式未定，影响 M3 — 跟进：`DEC-009`。
 - `RISK-2026-03` 坐标/变换建模在 M0 过度设计或表达力不足 — 跟进：M0-04 与设计 §7 测试矩阵。
 - `RISK-2026-04` 缓存键设计遗漏导致跨模型/参数误命中 — 跟进：`RULE-07` 与 `DOD-04` 负向测试。
+- `RISK-2026-08` 检测/OCR 通用组件（尤其 DB 后处理、行合并）与具体模型的后处理约定存在
+  参数化差异，参考实现的适配范围未定 — 跟进：M3 立项时确定组件契约与参考适配范围
+  （1.1 修订新增）。
 
 ## 验证记录
 
