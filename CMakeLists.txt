@@ -77,6 +77,7 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
                 src/image/fingerprint.cpp
                 src/image/change_detection.cpp
                 src/image/letterbox.cpp
+                src/image/detection_postprocess.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)

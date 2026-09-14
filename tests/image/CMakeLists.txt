@@ -42,3 +42,9 @@ mirador_add_test(
     SOURCES letterbox_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.detection_postprocess
+    SOURCES detection_postprocess_test.cpp
+    LIBS mirador::image
+    LABELS unit)
