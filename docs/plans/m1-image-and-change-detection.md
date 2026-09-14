@@ -1,6 +1,6 @@
 # M1：基础图像与变化检测
 
-> 状态：In Progress
+> 状态：Complete
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M0
@@ -58,7 +58,7 @@
 - [x] `M1-08` 变化检测基准入口（`benchmarks/`）：不变画面、局部变化、旋转、动态区域忽略
   四场景，确定性合成帧，输出 p50/p95；本机（Linux）首个数字写入验证记录，不做跨平台
   性能声明。
-- [ ] `M1-09` OpenCV 适配（`adapters/opencv`，可选依赖默认关闭）：`cv::Mat` →
+- [x] `M1-09` OpenCV 适配（`adapters/opencv`，可选依赖默认关闭）：`cv::Mat` →
   `ImageView` 包装与有界缓冲导出；公共 API 与 `src/` 不出现 OpenCV 类型；在具备 OpenCV
   的环境完成构建与测试。
 - [x] `M1-10` 无 runtime 示例与文档同步：示例使用公共 API 演示"提交帧 → 变化检测 →
@@ -70,24 +70,25 @@
   补跑条件。
 - `RISK-2026-05`（新增）：像素循环若引入浮点或未指定行为，跨编译器位确定性会被破坏。
   处置：颜色转换与重采样全部使用整数定点并经 UBSAN；确定性以测试锁定。
-- `RISK-2026-06`（新增）：本机无 OpenCV 环境时 `M1-09` 无法本地验证。处置：保持工作项
-  未勾选并记录补跑条件，不阻塞其余项。
+- `RISK-2026-06`（新增，已消解）：原记录"本机无 OpenCV 环境"；2026-09-14 实施前复查
+  发现本机已具备 libopencv-dev 4.6.0（Ubuntu 24.04 apt），`M1-09` 在本机完成构建与
+  测试，风险关闭。跨平台证据由 CI opencv job（ubuntu-latest apt OpenCV）提供。
 - `DEC-007` 未冻结会阻塞 NV12 消费路径的最终语义；按计划在 `M1-02` 落地后冻结。
 
 ## 测试与退出条件
 
-- [ ] 全部 6 个 Linux 预设（debug/release/warnings/asan/ubsan/tsan）配置、构建、ctest
+- [x] 全部 6 个 Linux 预设（debug/release/warnings/asan/ubsan/tsan）配置、构建、ctest
   通过；`clang-format`/`clang-tidy` 无告警。
-- [ ] 颜色转换、裁剪、缩放测试矩阵覆盖 0/90/180/270 方向、非连续 stride、奇数尺寸与
+- [x] 颜色转换、裁剪、缩放测试矩阵覆盖 0/90/180/270 方向、非连续 stride、奇数尺寸与
   往返一致；不支持格式组合显式报 `kUnsupportedFormat`。
-- [ ] 指纹稳定性：相同像素内容经不同 stride/偏移布局指纹一致；相邻内容有可预期区分度。
-- [ ] 变化检测：不变画面输出零 ROI 且相似度为 1；局部变化 ROI 覆盖变化块；旋转/全局
+- [x] 指纹稳定性：相同像素内容经不同 stride/偏移布局指纹一致；相邻内容有可预期区分度。
+- [x] 变化检测：不变画面输出零 ROI 且相似度为 1；局部变化 ROI 覆盖变化块；旋转/全局
   变化分类为全局；忽略区域内的动画不产生失效。
-- [ ] 帧缓存：字节预算强制、LRU 淘汰顺序、单条目超限显式错误、键覆盖更新失效路径。
-- [ ] 架构测试扩展后：image 目标链接闭包仅 core + 标准库；公共头与 `src/` 无第三方
-  令牌；CI 运行。
-- [ ] 基准产出本机数字（环境、命令、p50/p95），性能声明限定在该环境。
-- [ ] `DEC-007` 在 NV12 消费路径落地后冻结为 Accepted；总计划与本里程碑文档同步。
+- [x] 帧缓存：字节预算强制、LRU 淘汰顺序、单条目超限显式错误、键覆盖更新失效路径。
+- [x] 架构测试扩展后：image 目标链接闭包仅 core + 标准库；公共头与 `src/` 无第三方
+  令牌；CI 运行。cache 目标链接闭包与 OpenCV 令牌边界（仅 adapters/）同步锁定。
+- [x] 基准产出本机数字（环境、命令、p50/p95），性能声明限定在该环境。
+- [x] `DEC-007` 在 NV12 消费路径落地后冻结为 Accepted；总计划与本里程碑文档同步。
 
 ## 验证记录
 
@@ -217,3 +218,43 @@ android ndk arm64-v8a（configure+build）、lint。首轮 run `34796765864` 的
 文档提交）9/9 job success：linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、
 windows msvc/ninja、android ndk arm64-v8a（configure+build）、lint。示例与基准在
 GCC/Clang/MSVC/NDK 下编译通过；四个架构测试在全部 job 通过。
+
+2026-09-14：`M1-09` 实施完成（分支 `feat/adapters-opencv`）。
+
+- 实施前复查推翻 RISK-2026-06 原记录：本机已具备 OpenCV 开发环境（libopencv-dev
+  4.6.0，Ubuntu 24.04 apt），`find_package(OpenCV COMPONENTS core)` 配置成功，
+  M1-09 可本地实施，风险关闭。
+- 落地内容：`adapters/opencv`（头文件置于适配器自有 include 树，公共 API 零改动）：
+  - `wrap_mat`：`cv::Mat` → 非拥有 `ImageView`（rotation k0，stride 感知，ROI Mat
+    指向 ROI 起点），CV_8UC1/3/4 按 OpenCV 通道语义映射 kGray8/kBgr8/kBgra8，
+    其余类型 `kUnsupportedFormat`，空 Mat `kInvalidArgument`；
+  - `wrap_nv12_mat`：约定布局（`height + ceil(height/2)` 行 CV_8UC1）显式宽高包装，
+    色度平面位于 `data + step*height`，step 必须 ≥ `width + width%2`（DEC-007）；
+  - `export_mat`/`export_nv12_mat`：深拷贝导出到有界 packed `ImageBuffer`
+    （预算前置校验，`kBudgetExceeded`）；
+  - CMake：`MIRADOR_BUILD_ADAPTERS_OPENCV` 默认 OFF，开启时 `find_package` 必选；
+    OpenCV 头以 SYSTEM 引入不进警告门禁；目标依赖恰为 core+image+OpenCV。
+  - 架构扫描扩展：`opencv2`/`cv::` 令牌只允许出现在 `adapters/` 与
+    `tests/adapters/`，examples/benchmarks/其余 tests 出现即构建失败。
+  - OpenCV 不 vendor 进仓库：`THIRD_PARTY_NOTICES` 登记为集成方提供（Apache-2.0，
+    已测试 4.6.0），README/CHANGELOG 同步。
+- 本地验证（Ubuntu 24.04 x64，GCC 13.3.0，OpenCV 4.6.0）：
+  - 适配器 ON 配置：构建绿，ctest 18/18（新增 `mirador.adapters.opencv` 10 项：
+    连续/ROI stride 包装、通道映射、不支持类型拒绝、NV12 奇宽 step 校验、几何
+    拒绝、导出字节对照、DEC-007 布局、预算超限、指纹集成）；适配器 ASAN+UBSAN
+    下 10/10 干净；
+  - 默认 OFF 路径：ctest 17/17，adapters 目标不存在；
+  - 触及文件 clang-format/clang-tidy 无告警（lint CI job 同步开启适配器使
+    compile db 覆盖 adapters/）。
+- 限制：适配器 OpenCV 环境证据为 Linux（本地 + CI）；Windows/macOS 的适配器
+  编译证据待后续具备环境时补跑（适配器仅用 cv::Mat 稳定表面，风险低）。
+- 里程碑收尾：M1-01~M1-10 全部完成，测试与退出条件全部满足；状态待 CI 结果
+  回填后置为 Complete。
+
+2026-09-14：M1 收尾跨平台证据回填。GitHub Actions run `34800966538`
+（[PR #5](https://github.com/Linductor-alkaid/mirador/pull/5)）10/10 job success：
+linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、windows msvc/ninja、android
+ndk arm64-v8a、**gcc opencv-adapter**（新增：apt OpenCV 4.x 上适配器构建 + 全量
+ctest）、lint（开启适配器后 compile db 覆盖 adapters/）。适配器随 PR 在 GCC/Clang/
+MSVC/NDK 下编译验证（默认 OFF 的核心构建不受影响）。M1 里程碑状态置为 Complete；
+发布点 `v0.1.0-beta.1` 待发布流程启动。

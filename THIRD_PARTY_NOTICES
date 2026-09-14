@@ -17,10 +17,21 @@ standards (docs/project/project-standards.md, section 9).
 As of 2026-09-13 this is the only third-party component in the repository; the
 Mirador core itself depends only on the C++20 standard library.
 
-Optional modules may introduce pinned dependencies (for example OpenCV or
-ELSED). Each such dependency, its pinned version, license and source must be
-recorded here and in docs/supply-chain/ before it is distributed; license
-review must complete before ELSED or similar algorithm sources are vendored.
+2. OpenCV (https://opencv.org) - integrator-provided, not distributed
+
+   Used exclusively by the optional adapter adapters/opencv (M1-09) behind the
+   CMake option MIRADOR_BUILD_ADAPTERS_OPENCV (default OFF). OpenCV is never
+   vendored into this repository and never distributed with Mirador sources or
+   binaries: integrators provide their own OpenCV build through
+   find_package(OpenCV) and take on the license obligations of the OpenCV they
+   link. License: Apache License 2.0 (OpenCV 4.x). Versions tested by the
+   Mirador project: 4.6.0 (Ubuntu 24.04 apt package). Only opencv_core is
+   required; only the cv::Mat data/step/type surface is consumed.
+
+Optional modules may introduce pinned dependencies (for example ELSED). Each
+such dependency, its pinned version, license and source must be recorded here
+and in docs/supply-chain/ before it is distributed; license review must
+complete before ELSED or similar algorithm sources are vendored.
 
 Model runtimes (ncnn, ONNX Runtime, MNN, TensorRT, ...) and model weights are
 never distributed with the core library. Backend examples for specific

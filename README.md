@@ -24,7 +24,9 @@ VLM 调用与动作执行由调用方或独立适配层提供。详见
 `mirador::core`、`mirador::image` 与 `mirador::cache` 为编译目标——M1 已落地颜色转换、
 裁剪、面积缩放、dHash 指纹、分层变化检测（`detect_change`，含忽略区域与 none/partial/
 global 分类）和有界 LRU `FrameCache`；`geometry`/`fusion`/`render` 仍为 INTERFACE 占位，
-随对应里程碑落地。
+随对应里程碑落地。可选适配器 `mirador::adapters::opencv`（`cv::Mat` ↔ `ImageView`
+包装与有界导出）默认关闭，通过 `-DMIRADOR_BUILD_ADAPTERS_OPENCV=ON` 开启，要求构建
+环境已安装 OpenCV（不随本项目分发；已测试 4.6.0，详见 THIRD_PARTY_NOTICES）。
 
 ## 目录结构
 

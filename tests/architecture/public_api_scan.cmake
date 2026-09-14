@@ -69,4 +69,37 @@ if(mirador_violations)
         "dependencies are forbidden in include/ and src/):\n${mirador_violations}")
 endif()
 
+# M1-09: OpenCV tokens may appear only inside adapters/ (and their own tests);
+# examples, benchmarks and the rest of the test suite stay adapter-free so the
+# optional dependency cannot leak past the adapter boundary.
+set(mirador_opencv_tokens "opencv2" "cv::")
+set(mirador_adapter_files "")
+file(GLOB_RECURSE mirador_adapter_files
+    RELATIVE "${MIRADOR_SOURCE_DIR}"
+    "${MIRADOR_SOURCE_DIR}/examples/*.cpp"
+    "${MIRADOR_SOURCE_DIR}/examples/*.hpp"
+    "${MIRADOR_SOURCE_DIR}/benchmarks/*.cpp"
+    "${MIRADOR_SOURCE_DIR}/benchmarks/*.hpp"
+    "${MIRADOR_SOURCE_DIR}/tests/*.cpp"
+    "${MIRADOR_SOURCE_DIR}/tests/*.hpp"
+)
+list(FILTER mirador_adapter_files EXCLUDE REGEX "^tests/adapters/")
+set(mirador_adapter_violations "")
+foreach(mirador_file IN LISTS mirador_adapter_files)
+    file(READ "${MIRADOR_SOURCE_DIR}/${mirador_file}" mirador_contents)
+    foreach(mirador_token IN LISTS mirador_opencv_tokens)
+        string(FIND "${mirador_contents}" "${mirador_token}" mirador_hit)
+        if(NOT mirador_hit EQUAL -1)
+            string(APPEND mirador_adapter_violations
+                "  ${mirador_file}: adapter token '${mirador_token}' outside adapters/\n")
+        endif()
+    endforeach()
+endforeach()
+
+if(mirador_adapter_violations)
+    message(FATAL_ERROR
+        "Architecture boundary violations (OpenCV tokens are allowed only under "
+        "adapters/):\n${mirador_adapter_violations}")
+endif()
+
 message(STATUS "architecture scan: ${mirador_scan_files} checked, no banned tokens")
