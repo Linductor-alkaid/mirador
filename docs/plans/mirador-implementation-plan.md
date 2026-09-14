@@ -23,8 +23,10 @@ PR #5 合并提交）。M2「Backend SPI 与能力结果缓存」已完成并发
 PR #6 合并提交）。M3「传统视觉、检测/OCR 通用组件与视觉索引」已完成并发布
 `v0.1.0-beta.3`（2026-09-15，PR #8 经用户授权合入，CI 10/10 全绿；里程碑文档见
 [m3-traditional-vision-common-components-visual-index.md](m3-traditional-vision-common-components-visual-index.md)，
-tag 打在 PR #8 合并提交）。下一里程碑 M4「融合、稳定 ID 与 SoM」待启动。整体路线沿用设计文档
-第 24 节的 M0-M5。
+tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已立项并实施中（2026-09-15，
+分支 `feat/m4-fusion-stable-id-som`，里程碑文档见
+[m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md)，`DEC-010` 已冻结）。
+整体路线沿用设计文档第 24 节的 M0-M5。
 
 ## 交付边界
 
@@ -98,7 +100,7 @@ tag 打在 PR #8 合并提交）。下一里程碑 M4「融合、稳定 ID 与 S
 | M1 | 基础图像与变化检测 | M0 | `v0.1.0-beta.1` | Completed | [m1-image-and-change-detection.md](m1-image-and-change-detection.md) |
 | M2 | Backend SPI 与能力结果缓存 | M1 | `v0.1.0-beta.2` | Completed | [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md) |
 | M3 | 传统视觉、检测/OCR 通用组件与视觉索引 | M2 | `v0.1.0-beta.3` | Completed | [m3-traditional-vision-common-components-visual-index.md](m3-traditional-vision-common-components-visual-index.md) |
-| M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Planned | 启动时创建 |
+| M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | In Progress | [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md) |
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Planned | 启动时创建 |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
@@ -111,7 +113,7 @@ tag 打在 PR #8 合并提交）。下一里程碑 M4「融合、稳定 ID 与 S
 | [DEC-007](../decisions/DEC-007-multiplane-image-representation.md) | NV12 等多平面格式表示 | 扩展 `ImagePlane`，不假定单连续平面（M0-03 已按草案实现） | linductor | M1 |
 | `DEC-008` | 缓存默认字节预算 | 已冻结：帧 4 MiB、能力结果 16 MiB（见 [DEC-008](../decisions/DEC-008-cache-default-byte-budgets.md)） | linductor | M2 |
 | [DEC-009](../decisions/DEC-009-elsed-integration.md) | ELSED 集成方式 | 已冻结：一方等价实现进 M3，ELSED 本体为可选适配延后（见 [DEC-009](../decisions/DEC-009-elsed-integration.md)） | linductor | M3 |
-| `DEC-010` | 稳定 ID 匹配算法 | 门控后贪心匹配起步 | linductor | M4 |
+| [DEC-010](../decisions/DEC-010-stable-id-matching.md) | 稳定 ID 匹配算法 | 已冻结：门控后贪心一对一匹配起步，分裂/合并做事件识别与 generation 递增（见 [DEC-010](../decisions/DEC-010-stable-id-matching.md)） | linductor | M4 |
 | `DEC-011` | 基准设备清单 | 设计 §20 三平台中端代表设备 | linductor | M5 |
 
 已生效决策见 [docs/decisions/](../decisions/)：`DEC-001` 同步 API 与无 executor、`DEC-002`
