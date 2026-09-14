@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -509,7 +510,7 @@ Result<SemanticSnapshot> PerceptionSession::fuse(const Frame& frame, const Evide
         if (const Status frame_status = check_frame(options_.source_id, frame); !frame_status.ok()) {
             return frame_status;
         }
-        const Result<FusionOutput> fused = fuse_evidence(evidence, frame, options, context);
+        Result<FusionOutput> fused = fuse_evidence(evidence, frame, options, context);
         if (!fused.ok()) {
             return fused.status();
         }
@@ -521,7 +522,7 @@ Result<SemanticSnapshot> PerceptionSession::fuse(const Frame& frame, const Evide
         SemanticSnapshot snapshot;
         snapshot.frame_sequence = frame.sequence;
         snapshot.coordinate_space = options.target_space;
-        snapshot.regions = std::move(fused.value().regions);
+        snapshot.regions = fused.take_value().regions;
         for (size_t index = 0; index < snapshot.regions.size(); ++index) {
             snapshot.regions[index].stable_id = ids.value().assignments[index].stable_id;
         }

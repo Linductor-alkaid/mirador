@@ -15,13 +15,13 @@ namespace mirador {
 /// region merged from an Accessibility box and OCR text reports
 /// kExternal | kOcr, and a region whose evidence was served from the
 /// capability cache additionally reports kCache.
-enum class RegionSource : uint32_t {
+enum class RegionSource : uint32_t {  // NOLINT(performance-enum-size): design section 8 freezes the uint32_t base
     kNone = 0,
-    kExternal = 1u << 0,  ///< caller-provided structured region (e.g. Accessibility)
-    kOcr = 1u << 1,       ///< OCR text evidence
-    kDetector = 1u << 2,  ///< detector/UI-proposer evidence
-    kCache = 1u << 3,     ///< evidence replayed from the capability cache
-    kTemplate = 1u << 4,  ///< visual-index template-match evidence
+    kExternal = 1U << 0,  ///< caller-provided structured region (e.g. Accessibility)
+    kOcr = 1U << 1,       ///< OCR text evidence
+    kDetector = 1U << 2,  ///< detector/UI-proposer evidence
+    kCache = 1U << 3,     ///< evidence replayed from the capability cache
+    kTemplate = 1U << 4,  ///< visual-index template-match evidence
 };
 
 [[nodiscard]] constexpr uint32_t operator|(RegionSource lhs, RegionSource rhs) noexcept {

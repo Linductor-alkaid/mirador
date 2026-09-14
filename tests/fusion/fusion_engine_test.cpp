@@ -5,11 +5,13 @@
 
 #include <mirador/fusion.hpp>
 
+#include <mirador/detector_backend.hpp>
 #include <mirador/evidence.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/frame.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_view.hpp>
+#include <mirador/ocr_backend.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
@@ -18,10 +20,12 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -29,7 +33,6 @@ namespace {
 
 using mirador::AssociationObservation;
 using mirador::AssociationRule;
-using mirador::ConfidenceContribution;
 using mirador::CoordinateSpaceId;
 using mirador::DetectionRegion;
 using mirador::ErrorCode;
@@ -38,8 +41,6 @@ using mirador::ExecutionContext;
 using mirador::ExternalRegion;
 using mirador::Frame;
 using mirador::FusionOptions;
-using mirador::FusionOutput;
-using mirador::PointF;
 using mirador::RectF;
 using mirador::RegionSource;
 using mirador::Rotation;
@@ -207,7 +208,7 @@ TEST(FusionGateTest, SameClassAndLabelMerges) {
 
 TEST(FusionGateTest, UnknownClassOnOneSideLeavesTheDecisionToTheGates) {
     EvidenceSet evidence;
-    DetectionRegion unknown = make_detection(0.0F, 0.0F, 10.0F, 10.0F, -1, "", 0.7F);
+    const DetectionRegion unknown = make_detection(0.0F, 0.0F, 10.0F, 10.0F, -1, "", 0.7F);
     ASSERT_TRUE(evidence.add_detection(unknown).ok());
     ASSERT_TRUE(evidence.add_detection(make_detection(1.0F, 1.0F, 10.0F, 10.0F, 2, "icon", 0.6F)).ok());
 
@@ -501,6 +502,7 @@ TEST(FusionErrorsTest, CancellationIsPolledEverySixtyFourPairScanStripes) {
 
 // --- Property-style invariants -------------------------------------------------------------
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest EXPECT_* macro expansion dominates the metric
 TEST(FusionPropertyTest, RandomLegalCropsFuseIntoFiniteBoundsWithAnchorsInside) {
     std::mt19937 rng(20260915U);
     std::uniform_int_distribution<int32_t> origin(0, 48);
@@ -510,12 +512,12 @@ TEST(FusionPropertyTest, RandomLegalCropsFuseIntoFiniteBoundsWithAnchorsInside) 
     const TestFrame frame = make_frame(128, 128, Rotation::k0);
     for (int iteration = 0; iteration < 200; ++iteration) {
         EvidenceSet evidence;
-        const int32_t count = static_cast<int32_t>(kind(rng)) + 1;
+        const auto count = static_cast<int32_t>(kind(rng)) + 1;
         for (int32_t index = 0; index < count; ++index) {
-            const float x = static_cast<float>(origin(rng));
-            const float y = static_cast<float>(origin(rng));
-            const float width = static_cast<float>(extent(rng));
-            const float height = static_cast<float>(extent(rng));
+            const auto x = static_cast<float>(origin(rng));
+            const auto y = static_cast<float>(origin(rng));
+            const auto width = static_cast<float>(extent(rng));
+            const auto height = static_cast<float>(extent(rng));
             switch (kind(rng)) {
                 case 0:
                     ASSERT_TRUE(evidence.add_external(make_external(x, y, width, height)).ok());

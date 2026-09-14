@@ -8,6 +8,7 @@
 #include "fake_backends.hpp"
 
 #include <mirador/change_detection.hpp>
+#include <mirador/detector_backend.hpp>
 #include <mirador/evidence.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/frame.hpp>
@@ -18,8 +19,8 @@
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
-#include <mirador/stable_id_tracker.hpp>
 #include <mirador/status.hpp>
+#include <mirador/transform.hpp>
 
 #include <gtest/gtest.h>
 
@@ -27,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace {

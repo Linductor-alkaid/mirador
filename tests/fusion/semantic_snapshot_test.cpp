@@ -5,6 +5,7 @@
 
 #include <mirador/change_detection.hpp>
 #include <mirador/geometry.hpp>
+#include <mirador/transform.hpp>
 
 #include <gtest/gtest.h>
 
@@ -13,9 +14,7 @@
 namespace {
 
 using mirador::ChangeClassification;
-using mirador::ChangeReport;
 using mirador::CoordinateSpaceId;
-using mirador::PointF;
 using mirador::RectF;
 using mirador::RegionSource;
 using mirador::SemanticSnapshot;
@@ -76,7 +75,7 @@ TEST(SemanticSnapshotTest, ComponentEqualityComparesEveryField) {
     base.generation = 2U;
     base.coordinate_space = CoordinateSpaceId::kOriented;
 
-    SemanticSnapshot same = base;
+    const SemanticSnapshot same = base;
     EXPECT_TRUE(base == same);
 
     SemanticSnapshot other_space = base;

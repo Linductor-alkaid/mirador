@@ -14,15 +14,17 @@ namespace mirador {
 
 /// Owning packed RGB8 image the renderer produces (design section 17). Render
 /// keeps its own pixel representation — by DEC-013 it does not consume
-/// `mirador::image` — and `view()` projects the memory as a core ImageView.
+/// `mirador::image`. Pure aggregate; the projection is the free function
+/// below.
 struct MarkedImage {
     int32_t width = 0;
     int32_t height = 0;
     std::vector<std::byte> pixels;  ///< packed kRgb8 rows, tight stride
-
-    /// Projection as a non-owning view; an empty buffer yields an invalid view.
-    [[nodiscard]] ImageView view() const noexcept;
 };
+
+/// Projects the marked image as a non-owning core ImageView; an empty buffer
+/// yields an invalid view.
+[[nodiscard]] ImageView marked_image_view(const MarkedImage& image) noexcept;
 
 /// One drawn mark: the display numbering plus the identity it refers to.
 /// `mark_id` is the 1-based snapshot region order (deterministic); the VLM

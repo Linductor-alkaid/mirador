@@ -76,39 +76,35 @@ TEST(GridPartitionTest, OutOfRangeCellIndicesAreRejected) {
 
 // --- Locate / image_point round trips ---------------------------------------------------
 
+/// Expected outcome of one `grid_locate` call, table-driven.
+struct LocateExpectation {
+    PointF point;
+    int32_t column;
+    int32_t row;
+    float local_x;
+    float local_y;
+};
+
+void expect_locate(const GridPartition& grid, const LocateExpectation& expected) {
+    const auto located = mirador::grid_locate(grid, expected.point);
+    ASSERT_TRUE(located.ok());
+    EXPECT_EQ(located.value().column, expected.column);
+    EXPECT_EQ(located.value().row, expected.row);
+    EXPECT_FLOAT_EQ(located.value().local.x, expected.local_x);
+    EXPECT_FLOAT_EQ(located.value().local.y, expected.local_y);
+}
+
 TEST(GridPartitionTest, LocateAssignsCellsAndCellLocalCoordinates) {
     const GridPartition grid = make_grid(10, 7, 3);
-
-    auto located = mirador::grid_locate(grid, PointF{1.5F, 2.5F});
-    ASSERT_TRUE(located.ok());
-    EXPECT_EQ(located.value().column, 0);
-    EXPECT_EQ(located.value().row, 0);
-    EXPECT_FLOAT_EQ(located.value().local.x, 1.5F);
-    EXPECT_FLOAT_EQ(located.value().local.y, 2.5F);
-
-    // A point exactly on a cell boundary belongs to the cell it faces.
-    located = mirador::grid_locate(grid, PointF{3.0F, 3.0F});
-    ASSERT_TRUE(located.ok());
-    EXPECT_EQ(located.value().column, 1);
-    EXPECT_EQ(located.value().row, 1);
-    EXPECT_FLOAT_EQ(located.value().local.x, 0.0F);
-    EXPECT_FLOAT_EQ(located.value().local.y, 0.0F);
-
-    // Edge point (w-1, h-1) lands in the clipped corner cell.
-    located = mirador::grid_locate(grid, PointF{9.0F, 6.0F});
-    ASSERT_TRUE(located.ok());
-    EXPECT_EQ(located.value().column, 3);
-    EXPECT_EQ(located.value().row, 2);
-    EXPECT_FLOAT_EQ(located.value().local.x, 0.0F);
-    EXPECT_FLOAT_EQ(located.value().local.y, 0.0F);
-
-    // The extreme interior point maps through the column clamp.
-    located = mirador::grid_locate(grid, PointF{9.5F, 6.5F});
-    ASSERT_TRUE(located.ok());
-    EXPECT_EQ(located.value().column, 3);
-    EXPECT_EQ(located.value().row, 2);
-    EXPECT_FLOAT_EQ(located.value().local.x, 0.5F);
-    EXPECT_FLOAT_EQ(located.value().local.y, 0.5F);
+    const std::vector<LocateExpectation> cases{
+        {PointF{1.5F, 2.5F}, 0, 0, 1.5F, 2.5F},
+        {PointF{3.0F, 3.0F}, 1, 1, 0.0F, 0.0F},  // boundary point belongs to the cell it faces
+        {PointF{9.0F, 6.0F}, 3, 2, 0.0F, 0.0F},  // edge point (w-1, h-1): clipped corner cell
+        {PointF{9.5F, 6.5F}, 3, 2, 0.5F, 0.5F},  // extreme interior point maps through the column clamp
+    };
+    for (const LocateExpectation& expected : cases) {
+        expect_locate(grid, expected);
+    }
 }
 
 TEST(GridPartitionTest, PointsOutsideTheImageAreRejected) {
@@ -133,36 +129,49 @@ TEST(GridPartitionTest, ImagePointOutOfRangeCellsAreRejected) {
     EXPECT_EQ(mirador::grid_image_point(grid, bad_row).status().code(), ErrorCode::kInvalidArgument);
 }
 
-TEST(GridPartitionTest, LocateAndImagePointRoundTripWithinTolerance) {
-    const GridPartition grid = make_grid(37, 23, 8);  // odd sizes, partial edge cells
+/// The located cell must map back to the original point within 1e-4 and
+/// relocate into the same cell.
+void expect_maps_back(const GridPartition& grid, const GridLocation& location, PointF point) {
+    const auto restored = mirador::grid_image_point(grid, location);
+    ASSERT_TRUE(restored.ok());
+    EXPECT_NEAR(restored.value().x, point.x, 1e-4F);
+    EXPECT_NEAR(restored.value().y, point.y, 1e-4F);
+    const auto relocated = mirador::grid_locate(grid, restored.value());
+    ASSERT_TRUE(relocated.ok());
+    EXPECT_EQ(relocated.value().column, location.column);
+    EXPECT_EQ(relocated.value().row, location.row);
+}
 
+/// locate -> image_point -> locate must reproduce the point and the same cell.
+void expect_locate_roundtrip(const GridPartition& grid, PointF point) {
+    const auto located = mirador::grid_locate(grid, point);
+    ASSERT_TRUE(located.ok());
+    expect_maps_back(grid, located.value(), point);
+}
+
+/// Probe points: corners, an extreme interior point and every cell's center
+/// plus top-left corner.
+std::vector<PointF> grid_probe_points(const GridPartition& grid) {
     std::vector<PointF> probes;
     probes.push_back(PointF{0.0F, 0.0F});
-    probes.push_back(PointF{36.0F, 22.0F});  // (w-1, h-1)
-    probes.push_back(PointF{35.75F, 22.5F});
+    probes.push_back(PointF{static_cast<float>(grid.image_width - 1), static_cast<float>(grid.image_height - 1)});
+    probes.push_back(
+        PointF{static_cast<float>(grid.image_width) - 0.25F, static_cast<float>(grid.image_height) - 0.5F});
     for (int32_t row = 0; row < grid.rows; ++row) {
         for (int32_t column = 0; column < grid.columns; ++column) {
             const RectI cell = mirador::grid_cell_bounds(grid, column, row).value();
-            // Cell center and top-left corner.
             probes.push_back(PointF{static_cast<float>(cell.x) + static_cast<float>(cell.width) / 2.0F,
                                     static_cast<float>(cell.y) + static_cast<float>(cell.height) / 2.0F});
             probes.push_back(PointF{static_cast<float>(cell.x), static_cast<float>(cell.y)});
         }
     }
+    return probes;
+}
 
-    for (const PointF& point : probes) {
-        const auto located = mirador::grid_locate(grid, point);
-        ASSERT_TRUE(located.ok()) << "point (" << point.x << ", " << point.y << ")";
-        const auto restored = mirador::grid_image_point(grid, located.value());
-        ASSERT_TRUE(restored.ok());
-        EXPECT_NEAR(restored.value().x, point.x, 1e-4F);
-        EXPECT_NEAR(restored.value().y, point.y, 1e-4F);
-
-        // And the restored point locates into the same cell.
-        const auto relocated = mirador::grid_locate(grid, restored.value());
-        ASSERT_TRUE(relocated.ok());
-        EXPECT_EQ(relocated.value().column, located.value().column);
-        EXPECT_EQ(relocated.value().row, located.value().row);
+TEST(GridPartitionTest, LocateAndImagePointRoundTripWithinTolerance) {
+    const GridPartition grid = make_grid(37, 23, 8);  // odd sizes, partial edge cells
+    for (const PointF& point : grid_probe_points(grid)) {
+        expect_locate_roundtrip(grid, point);
     }
 }
 
@@ -171,12 +180,7 @@ TEST(GridPartitionTest, SingleCellGridRoundTripsEveryPoint) {
     ASSERT_EQ(grid.columns, 1);
     ASSERT_EQ(grid.rows, 1);
     for (const PointF& point : std::vector<PointF>{{0.0F, 0.0F}, {2.5F, 2.0F}, {4.0F, 3.0F}}) {
-        const auto located = mirador::grid_locate(grid, point);
-        ASSERT_TRUE(located.ok());
-        const auto restored = mirador::grid_image_point(grid, located.value());
-        ASSERT_TRUE(restored.ok());
-        EXPECT_NEAR(restored.value().x, point.x, 1e-4F);
-        EXPECT_NEAR(restored.value().y, point.y, 1e-4F);
+        expect_locate_roundtrip(grid, point);
     }
     // The single cell is clipped to the image bounds.
     EXPECT_EQ(mirador::grid_cell_bounds(grid, 0, 0).value(), (RectI{0, 0, 5, 4}));

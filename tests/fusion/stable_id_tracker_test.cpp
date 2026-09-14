@@ -14,7 +14,6 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
-#include <cstdint>
 #include <span>
 #include <string>
 #include <utility>
@@ -24,7 +23,6 @@ namespace {
 
 using mirador::ErrorCode;
 using mirador::ExecutionContext;
-using mirador::IdAssignment;
 using mirador::IdEvent;
 using mirador::PointF;
 using mirador::RectF;
@@ -127,8 +125,8 @@ TEST(StableIdTrackerTest, MatchingTextWinsASymmetricGeometricTie) {
 
     // Two candidates with identical IoU and displacement; only the text signal
     // differs. radius = 0.5*hypot(100,100) ~ 70.7 admits both (displacement 30).
-    std::vector<VisualRegion> current{make_region(30.0F, 0.0F, 100.0F, 100.0F, "hello world"),
-                                      make_region(-30.0F, 0.0F, 100.0F, 100.0F, "goodbye")};
+    const std::vector<VisualRegion> current{make_region(30.0F, 0.0F, 100.0F, 100.0F, "hello world"),
+                                            make_region(-30.0F, 0.0F, 100.0F, 100.0F, "goodbye")};
     const auto report = advance(tracker, current);
     ASSERT_TRUE(report.ok());
     ASSERT_EQ(report.value().assignments.size(), 2U);

@@ -2,9 +2,10 @@
 // accessors, cache provenance bits, validation of bounds/space/similarity and
 // the kMaxItems budget (RULE-06: explicit kBudgetExceeded, never silent drop).
 
+#include <mirador/detector_backend.hpp>
 #include <mirador/evidence.hpp>
-
 #include <mirador/geometry.hpp>
+#include <mirador/ocr_backend.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/status.hpp>
@@ -13,8 +14,10 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 namespace {
 
@@ -90,20 +93,20 @@ TEST(EvidenceSetTest, ItemAccessorsDispatchByKind) {
     ASSERT_TRUE(evidence.add_template(9U, RectF{3.0F, 3.0F, 5.0F, 5.0F}, 0.7).ok());
 
     const std::vector<EvidenceItem>& items = evidence.items();
-    EXPECT_EQ(items[0].bounds(), external.bounds);
-    EXPECT_EQ(items[1].bounds(), text.bounds);
-    EXPECT_EQ(items[2].bounds(), detection.bounds);
-    EXPECT_EQ(items[3].bounds(), (RectF{3.0F, 3.0F, 5.0F, 5.0F}));
+    EXPECT_EQ(evidence_bounds(items[0]), external.bounds);
+    EXPECT_EQ(evidence_bounds(items[1]), text.bounds);
+    EXPECT_EQ(evidence_bounds(items[2]), detection.bounds);
+    EXPECT_EQ(evidence_bounds(items[3]), (RectF{3.0F, 3.0F, 5.0F, 5.0F}));
 
-    EXPECT_EQ(items[0].text_or_label(), "OK");
-    EXPECT_EQ(items[1].text_or_label(), "ocr text");
-    EXPECT_EQ(items[2].text_or_label(), "det-label");
-    EXPECT_EQ(items[3].text_or_label(), "");
+    EXPECT_EQ(evidence_text_or_label(items[0]), "OK");
+    EXPECT_EQ(evidence_text_or_label(items[1]), "ocr text");
+    EXPECT_EQ(evidence_text_or_label(items[2]), "det-label");
+    EXPECT_EQ(evidence_text_or_label(items[3]), "");
 
-    EXPECT_FLOAT_EQ(items[0].confidence(), 1.0F);  // ExternalRegion default confidence
-    EXPECT_FLOAT_EQ(items[1].confidence(), 0.5F);
-    EXPECT_FLOAT_EQ(items[2].confidence(), 0.25F);
-    EXPECT_FLOAT_EQ(items[3].confidence(), 0.7F);
+    EXPECT_FLOAT_EQ(evidence_confidence(items[0]), 1.0F);  // ExternalRegion default confidence
+    EXPECT_FLOAT_EQ(evidence_confidence(items[1]), 0.5F);
+    EXPECT_FLOAT_EQ(evidence_confidence(items[2]), 0.25F);
+    EXPECT_FLOAT_EQ(evidence_confidence(items[3]), 0.7F);
     EXPECT_EQ(items[3].template_entry_id, 9U);
 }
 
@@ -112,9 +115,9 @@ TEST(EvidenceSetTest, TemplateConfidenceIsClampedIntoUnitInterval) {
     ASSERT_TRUE(evidence.add_template(1U, RectF{0.0F, 0.0F, 4.0F, 4.0F}, 1.5).ok());
     ASSERT_TRUE(evidence.add_template(2U, RectF{0.0F, 0.0F, 4.0F, 4.0F}, -0.5).ok());
     ASSERT_TRUE(evidence.add_template(3U, RectF{0.0F, 0.0F, 4.0F, 4.0F}, 0.3).ok());
-    EXPECT_FLOAT_EQ(evidence.items()[0].confidence(), 1.0F);
-    EXPECT_FLOAT_EQ(evidence.items()[1].confidence(), 0.0F);
-    EXPECT_FLOAT_EQ(evidence.items()[2].confidence(), 0.3F);
+    EXPECT_FLOAT_EQ(evidence_confidence(evidence.items()[0]), 1.0F);
+    EXPECT_FLOAT_EQ(evidence_confidence(evidence.items()[1]), 0.0F);
+    EXPECT_FLOAT_EQ(evidence_confidence(evidence.items()[2]), 0.3F);
 }
 
 TEST(EvidenceSetTest, SourceMasksCarryKindBitAndCacheBit) {
@@ -159,9 +162,9 @@ TEST(EvidenceSetTest, RejectsNonFiniteOrNegativeSizeBounds) {
     const float nan = std::numeric_limits<float>::quiet_NaN();
     const float inf = std::numeric_limits<float>::infinity();
 
-    ExternalRegion nan_bounds = make_external(0.0F, 0.0F, nan, 4.0F);
+    const ExternalRegion nan_bounds = make_external(0.0F, 0.0F, nan, 4.0F);
     EXPECT_EQ(evidence.add_external(nan_bounds).status().code(), ErrorCode::kInvalidArgument);
-    ExternalRegion inf_bounds = make_external(inf, 0.0F, 4.0F, 4.0F);
+    const ExternalRegion inf_bounds = make_external(inf, 0.0F, 4.0F, 4.0F);
     EXPECT_EQ(evidence.add_external(inf_bounds).status().code(), ErrorCode::kInvalidArgument);
 
     TextRegion negative;

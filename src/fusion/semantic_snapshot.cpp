@@ -1,5 +1,7 @@
 #include <mirador/semantic_snapshot.hpp>
 
+#include <cstdint>
+
 namespace mirador {
 
 const VisualRegion* find_region(const SemanticSnapshot& snapshot, uint64_t stable_id) noexcept {

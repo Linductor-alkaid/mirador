@@ -19,6 +19,7 @@
 #include <mirador/ocr_backend.hpp>
 #include <mirador/perception_session.hpp>
 #include <mirador/pixel_format.hpp>
+#include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/set_of_mark.hpp>
 
@@ -27,6 +28,7 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -103,8 +105,8 @@ public:
 
     [[nodiscard]] BackendInfo info() const override { return info_; }
 
-    mirador::Result<std::vector<TextRegion>> recognize(const ImageView& prepared, const OcrRequest&,
-                                                       const ExecutionContext&) override {
+    mirador::Result<std::vector<TextRegion>> recognize(const ImageView& prepared, const OcrRequest& /*request*/,
+                                                       const ExecutionContext& /*context*/) override {
         std::vector<TextRegion> lines;
         if (!active_) {
             return lines;
@@ -130,8 +132,9 @@ public:
 
     [[nodiscard]] BackendInfo info() const override { return info_; }
 
-    mirador::Result<std::vector<DetectionRegion>> detect(const ImageView& prepared, const mirador::DetectionRequest&,
-                                                         const ExecutionContext&) override {
+    mirador::Result<std::vector<DetectionRegion>> detect(const ImageView& prepared,
+                                                         const mirador::DetectionRequest& /*request*/,
+                                                         const ExecutionContext& /*context*/) override {
         std::vector<DetectionRegion> boxes;
         if (!active_) {
             return boxes;
@@ -176,19 +179,19 @@ mirador::Result<EvidenceSet> collect_evidence(const ExternalRegion& button, cons
                                               const std::vector<TextRegion>& lines,
                                               const std::vector<DetectionRegion>& boxes) {
     EvidenceSet evidence;
-    if (mirador::Result<uint64_t> added = evidence.add_external(button); !added.ok()) {
+    if (const mirador::Result<uint64_t> added = evidence.add_external(button); !added.ok()) {
         return added.status();
     }
-    if (mirador::Result<uint64_t> added = evidence.add_external(status); !added.ok()) {
+    if (const mirador::Result<uint64_t> added = evidence.add_external(status); !added.ok()) {
         return added.status();
     }
     for (const TextRegion& line : lines) {
-        if (mirador::Result<uint64_t> added = evidence.add_text(line); !added.ok()) {
+        if (const mirador::Result<uint64_t> added = evidence.add_text(line); !added.ok()) {
             return added.status();
         }
     }
     for (const DetectionRegion& box : boxes) {
-        if (mirador::Result<uint64_t> added = evidence.add_detection(box); !added.ok()) {
+        if (const mirador::Result<uint64_t> added = evidence.add_detection(box); !added.ok()) {
             return added.status();
         }
     }
@@ -282,8 +285,8 @@ int main() {
     const SemanticSnapshot snapshot1 = session.fuse(first, evidence1.value(), fusion_options).value();
     print_snapshot(snapshot1);
     const mirador::SetOfMarkResult marks1 = mirador::render_set_of_mark(first.image, snapshot1).value();
-    std::printf("  som: %zu mark(s), marked image %dx%d\n", marks1.marks.size(), marks1.image.view().width,
-                marks1.image.view().height);
+    const ImageView marked_view = marked_image_view(marks1.image);
+    std::printf("  som: %zu mark(s), marked image %dx%d\n", marks1.marks.size(), marked_view.width, marked_view.height);
     resolve_mark(snapshot1, marks1, 1, snapshot1.generation);
 
     // -- Frame 2: identical pixels. The change gate short-circuits: no

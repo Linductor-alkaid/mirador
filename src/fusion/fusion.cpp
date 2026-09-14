@@ -1,11 +1,22 @@
 #include <mirador/fusion.hpp>
 
+#include <mirador/detector_backend.hpp>
+#include <mirador/evidence.hpp>
+#include <mirador/execution_context.hpp>
+#include <mirador/frame.hpp>
+#include <mirador/geometry.hpp>
+#include <mirador/image_view.hpp>
+#include <mirador/pixel_format.hpp>
+#include <mirador/result.hpp>
+#include <mirador/semantic_snapshot.hpp>
 #include <mirador/status.hpp>
 #include <mirador/transform.hpp>
 
 #include "rect_math.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -99,10 +110,13 @@ Result<std::vector<WorkingItem>> working_items(const EvidenceSet& evidence, cons
         }
         WorkingItem moved;
         moved.item = &item;
-        moved.bounds =
-            conversion.value().has_value() ? transform_rect(conversion.value().value(), item.bounds()) : item.bounds();
+        if (const std::optional<Transform2D>& convert = conversion.value(); convert.has_value()) {
+            moved.bounds = transform_rect(*convert, evidence_bounds(item));
+        } else {
+            moved.bounds = evidence_bounds(item);
+        }
         moved.center = fusion_internal::rect_center(moved.bounds);
-        working.push_back(std::move(moved));
+        working.push_back(moved);
     }
     return working;
 }
@@ -296,7 +310,7 @@ VisualRegion assemble_region(const std::vector<size_t>& members, const std::vect
         append_text(region, item);
         set_label(region, item);
         const float weight = source_weight(item, options);
-        const float confidence = item.confidence();
+        const float confidence = evidence_confidence(item);
         weighted_sum += weight * confidence;
         weight_sum += weight;
         region.evidence_ids.push_back(item.evidence_id);

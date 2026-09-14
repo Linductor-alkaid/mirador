@@ -1,9 +1,15 @@
 #include <mirador/evidence.hpp>
 
+#include <mirador/geometry.hpp>
+#include <mirador/result.hpp>
+#include <mirador/semantic_snapshot.hpp>
 #include <mirador/status.hpp>
+#include <mirador/transform.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <string_view>
 #include <utility>
 
 namespace mirador {
@@ -34,42 +40,42 @@ uint32_t source_mask(RegionSource origin, bool cached) noexcept {
 
 }  // namespace
 
-const RectF& EvidenceItem::bounds() const noexcept {
-    switch (kind) {
+const RectF& evidence_bounds(const EvidenceItem& item) noexcept {
+    switch (item.kind) {
         case EvidenceKind::kExternal:
-            return external.bounds;
+            return item.external.bounds;
         case EvidenceKind::kText:
-            return text.bounds;
+            return item.text.bounds;
         case EvidenceKind::kDetection:
-            return detection.bounds;
+            return item.detection.bounds;
         case EvidenceKind::kTemplate:
-            return template_bounds;
+            return item.template_bounds;
     }
-    return external.bounds;
+    return item.external.bounds;
 }
 
-float EvidenceItem::confidence() const noexcept {
-    switch (kind) {
+float evidence_confidence(const EvidenceItem& item) noexcept {
+    switch (item.kind) {
         case EvidenceKind::kExternal:
-            return external.confidence;
+            return item.external.confidence;
         case EvidenceKind::kText:
-            return text.confidence;
+            return item.text.confidence;
         case EvidenceKind::kDetection:
-            return detection.confidence;
+            return item.detection.confidence;
         case EvidenceKind::kTemplate:
-            return static_cast<float>(std::clamp(template_similarity, 0.0, 1.0));
+            return static_cast<float>(std::clamp(item.template_similarity, 0.0, 1.0));
     }
     return 0.0F;
 }
 
-std::string_view EvidenceItem::text_or_label() const noexcept {
-    switch (kind) {
+std::string_view evidence_text_or_label(const EvidenceItem& item) noexcept {
+    switch (item.kind) {
         case EvidenceKind::kExternal:
-            return external.text;
+            return item.external.text;
         case EvidenceKind::kText:
-            return text.utf8_text;
+            return item.text.utf8_text;
         case EvidenceKind::kDetection:
-            return detection.label;
+            return item.detection.label;
         case EvidenceKind::kTemplate:
             return {};
     }

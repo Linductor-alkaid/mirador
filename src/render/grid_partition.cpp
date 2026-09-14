@@ -1,5 +1,7 @@
 #include <mirador/grid_partition.hpp>
 
+#include <mirador/geometry.hpp>
+#include <mirador/result.hpp>
 #include <mirador/status.hpp>
 
 #include <algorithm>

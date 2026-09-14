@@ -46,7 +46,8 @@ enum class EvidenceKind : uint8_t {
 /// One piece of region evidence inside an `EvidenceSet`. Items are stored
 /// id-ordered; only the payload selected by `kind` is meaningful. The unused
 /// payloads stay default-constructed — bounded overhead per item, traded for
-/// a simple value type (M4 budget note in the module README).
+/// a simple value type (M4 budget note in the module README). Pure aggregate:
+/// accessors are the free functions below (repo convention, M3 lint).
 struct EvidenceItem {
     uint64_t evidence_id = 0;
     EvidenceKind kind = EvidenceKind::kExternal;
@@ -63,22 +64,22 @@ struct EvidenceItem {
     RectF template_bounds;
     double template_similarity = 0.0;
 
-    /// Geometry of this item regardless of kind.
-    [[nodiscard]] const RectF& bounds() const noexcept;
-    /// Best-effort confidence: item confidence, template similarity clamped to
-    /// [0, 1].
-    [[nodiscard]] float confidence() const noexcept;
-    /// Text payload: external/text text, detection label, empty for template.
-    [[nodiscard]] std::string_view text_or_label() const noexcept;
-
     /// Component equality (test convenience).
     [[nodiscard]] friend bool operator==(const EvidenceItem& lhs, const EvidenceItem& rhs) noexcept {
         return lhs.evidence_id == rhs.evidence_id && lhs.kind == rhs.kind && lhs.space == rhs.space &&
                lhs.source == rhs.source && lhs.external == rhs.external && lhs.text == rhs.text &&
                lhs.detection == rhs.detection && lhs.template_entry_id == rhs.template_entry_id &&
-               lhs.template_similarity == rhs.template_similarity;
+               lhs.template_bounds == rhs.template_bounds && lhs.template_similarity == rhs.template_similarity;
     }
 };
+
+/// Geometry of `item` regardless of kind.
+[[nodiscard]] const RectF& evidence_bounds(const EvidenceItem& item) noexcept;
+/// Best-effort confidence: item confidence, template similarity clamped to
+/// [0, 1].
+[[nodiscard]] float evidence_confidence(const EvidenceItem& item) noexcept;
+/// Text payload: external/text text, detection label, empty for template.
+[[nodiscard]] std::string_view evidence_text_or_label(const EvidenceItem& item) noexcept;
 
 /// Ordered collection of region evidence feeding one fusion (design sections
 /// 16 and 25). Evidence ids are assigned sequentially from 1 in add order, so

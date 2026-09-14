@@ -14,6 +14,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +32,6 @@ using mirador::RectF;
 using mirador::RectI;
 using mirador::Rotation;
 using mirador::SemanticSnapshot;
-using mirador::SetOfMarkResult;
 using mirador::SoMMark;
 using mirador::SoMRenderOptions;
 using mirador::VisualRegion;
@@ -43,10 +43,8 @@ struct Rgb {
     uint8_t green = 0;
     uint8_t blue = 0;
 };
-constexpr Rgb kPalette[8]{
-    {230, 57, 70},  {42, 157, 143}, {69, 123, 157}, {233, 196, 106},
-    {231, 111, 81}, {156, 76, 159}, {42, 109, 62},  {188, 108, 37},
-};
+constexpr std::array<Rgb, 8> kPalette{{Rgb{230, 57, 70}, Rgb{42, 157, 143}, Rgb{69, 123, 157}, Rgb{233, 196, 106},
+                                       Rgb{231, 111, 81}, Rgb{156, 76, 159}, Rgb{42, 109, 62}, Rgb{188, 108, 37}}};
 
 constexpr Rgb kBackground{10, 20, 30};
 
@@ -61,30 +59,31 @@ bool same_color(const MarkedImage& image, int32_t x, int32_t y, Rgb color) {
     return actual.red == color.red && actual.green == color.green && actual.blue == color.blue;
 }
 
-/// Owned RGB8 background: packed rows, filled with kBackground.
+/// Owned RGB8 background fixture: packed rows, filled with kBackground.
 struct TestBackground {
     std::vector<std::byte> bytes;
     ImageView view;
-
-    TestBackground(int32_t width, int32_t height) {
-        bytes.assign(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U, std::byte{0});
-        for (int32_t y = 0; y < height; ++y) {
-            for (int32_t x = 0; x < width; ++x) {
-                const size_t offset =
-                    (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 3U;
-                bytes[offset] = static_cast<std::byte>(kBackground.red);
-                bytes[offset + 1U] = static_cast<std::byte>(kBackground.green);
-                bytes[offset + 2U] = static_cast<std::byte>(kBackground.blue);
-            }
-        }
-        view.data = bytes.data();
-        view.width = width;
-        view.height = height;
-        view.row_stride_bytes = static_cast<int64_t>(width) * 3;
-        view.format = PixelFormat::kRgb8;
-        view.rotation = Rotation::k0;
-    }
 };
+
+TestBackground make_background(int32_t width, int32_t height) {
+    TestBackground background;
+    background.bytes.assign(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U, std::byte{0});
+    for (int32_t y = 0; y < height; ++y) {
+        for (int32_t x = 0; x < width; ++x) {
+            const size_t offset = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 3U;
+            background.bytes[offset] = static_cast<std::byte>(kBackground.red);
+            background.bytes[offset + 1U] = static_cast<std::byte>(kBackground.green);
+            background.bytes[offset + 2U] = static_cast<std::byte>(kBackground.blue);
+        }
+    }
+    background.view.data = background.bytes.data();
+    background.view.width = width;
+    background.view.height = height;
+    background.view.row_stride_bytes = static_cast<int64_t>(width) * 3;
+    background.view.format = PixelFormat::kRgb8;
+    background.view.rotation = Rotation::k0;
+    return background;
+}
 
 VisualRegion make_region(double x, double y, double width, double height, uint64_t stable_id) {
     VisualRegion region;
@@ -114,7 +113,7 @@ bool marks_equal(const SoMMark& left, const SoMMark& right) {
 // --- Mark mapping -------------------------------------------------------------------
 
 TEST(SetOfMarkTest, EveryRegionProducesAWellNumberedMark) {
-    const TestBackground background(40, 30);
+    const TestBackground background = make_background(40, 30);
     SemanticSnapshot snapshot;
     snapshot.generation = 4U;
     snapshot.frame_sequence = 11U;
@@ -141,7 +140,7 @@ TEST(SetOfMarkTest, EveryRegionProducesAWellNumberedMark) {
 }
 
 TEST(SetOfMarkTest, EmptySnapshotCopiesTheBackground) {
-    const TestBackground background(16, 12);
+    const TestBackground background = make_background(16, 12);
     const SemanticSnapshot snapshot;
     const auto rendered = mirador::render_set_of_mark(background.view, snapshot);
     ASSERT_TRUE(rendered.ok());
@@ -154,7 +153,7 @@ TEST(SetOfMarkTest, EmptySnapshotCopiesTheBackground) {
 // --- Deterministic drawing --------------------------------------------------------------
 
 TEST(SetOfMarkTest, RepeatedRendersAreByteIdentical) {
-    const TestBackground background(48, 36);
+    const TestBackground background = make_background(48, 36);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(1, 1, 10, 8, 3U), make_region(6, 6, 14, 10, 11U), make_region(30, 20, 10, 10, 5U)};
 
@@ -170,7 +169,7 @@ TEST(SetOfMarkTest, RepeatedRendersAreByteIdentical) {
 }
 
 TEST(SetOfMarkTest, BoxOutlineUsesThePaletteColorOfTheStableId) {
-    const TestBackground background(40, 30);
+    const TestBackground background = make_background(40, 30);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(5, 5, 10, 10, 3U)};  // palette[3]: yellow
 
@@ -192,7 +191,7 @@ TEST(SetOfMarkTest, BoxOutlineUsesThePaletteColorOfTheStableId) {
 }
 
 TEST(SetOfMarkTest, PaletteIndexWrapsWithStableIdModuloEight) {
-    const TestBackground background(16, 16);
+    const TestBackground background = make_background(16, 16);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(0, 0, 4, 4, 10U)};  // 10 % 8 == 2
 
@@ -202,7 +201,7 @@ TEST(SetOfMarkTest, PaletteIndexWrapsWithStableIdModuloEight) {
 }
 
 TEST(SetOfMarkTest, ClippedRegionDrawsOnlyTheVisiblePart) {
-    const TestBackground background(40, 30);
+    const TestBackground background = make_background(40, 30);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(-5, -5, 10, 10, 1U)};
 
@@ -216,7 +215,7 @@ TEST(SetOfMarkTest, ClippedRegionDrawsOnlyTheVisiblePart) {
 }
 
 TEST(SetOfMarkTest, FullyOutOfBoundsRegionLeavesPixelsUntouched) {
-    const TestBackground background(40, 30);
+    const TestBackground background = make_background(40, 30);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(100, 100, 10, 10, 2U)};
 
@@ -228,11 +227,11 @@ TEST(SetOfMarkTest, FullyOutOfBoundsRegionLeavesPixelsUntouched) {
 // --- Label chips --------------------------------------------------------------------------
 
 TEST(SetOfMarkTest, LabelChipIsPlacedAboveTheBoxWhenSpaceAllows) {
-    const TestBackground background(40, 30);
+    const TestBackground background = make_background(40, 30);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(10, 14, 20, 10, 1U)};  // box y 14..23
 
-    SoMRenderOptions options;  // label_height 14 -> scale 2, chip 8x12 for mark 1
+    const SoMRenderOptions options;  // label_height 14 -> scale 2, chip 8x12 for mark 1
     const auto rendered = mirador::render_set_of_mark(background.view, snapshot, options);
     ASSERT_TRUE(rendered.ok());
 
@@ -249,7 +248,7 @@ TEST(SetOfMarkTest, LabelChipIsPlacedAboveTheBoxWhenSpaceAllows) {
 }
 
 TEST(SetOfMarkTest, SecondNeighbouringChipAvoidsThePlacedOne) {
-    const TestBackground background(40, 60);
+    const TestBackground background = make_background(40, 60);
     SemanticSnapshot snapshot;
     // Region A (mark 1): box y 5..14; its chip falls to below-A = {5,16,8,12}.
     // Region B (mark 2): box y 29..48; its first candidate above-B = {5,16,8,12}
@@ -269,12 +268,11 @@ TEST(SetOfMarkTest, SecondNeighbouringChipAvoidsThePlacedOne) {
 }
 
 TEST(SetOfMarkTest, LabelHeightZeroDisablesChips) {
-    const TestBackground background(40, 30);
+    const TestBackground background = make_background(40, 30);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(10, 14, 20, 10, 1U)};
 
-    SoMRenderOptions options;
-    options.label_height = 0;
+    const SoMRenderOptions options{.box_thickness = 2, .label_height = 0, .max_marks = 256};
     const auto rendered = mirador::render_set_of_mark(background.view, snapshot, options);
     ASSERT_TRUE(rendered.ok());
     EXPECT_TRUE(same_color(rendered.value().image, 10, 1, kBackground));   // no chip above
@@ -285,57 +283,49 @@ TEST(SetOfMarkTest, LabelHeightZeroDisablesChips) {
 // --- Budgets and validation ----------------------------------------------------------------
 
 TEST(SetOfMarkTest, MoreRegionsThanMaxMarksFailsWithBudgetExceeded) {
-    const TestBackground background(40, 30);
+    const TestBackground background = make_background(40, 30);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(1, 1, 4, 4, 1U), make_region(10, 1, 4, 4, 2U)};
 
-    SoMRenderOptions options;
-    options.max_marks = 1;
+    const SoMRenderOptions options{.box_thickness = 2, .label_height = 14, .max_marks = 1};
     EXPECT_EQ(mirador::render_set_of_mark(background.view, snapshot, options).status().code(),
               ErrorCode::kBudgetExceeded);
 }
 
 TEST(SetOfMarkTest, OutputOverByteBudgetFailsWithBudgetExceeded) {
-    const TestBackground background(40, 30);  // 40*30*3 = 3600 bytes
+    const TestBackground background = make_background(40, 30);  // 40*30*3 = 3600 bytes
     const SemanticSnapshot snapshot;
 
-    SoMRenderOptions options;
-    options.max_bytes = 3599;
+    const SoMRenderOptions options{.max_bytes = 3599};
     EXPECT_EQ(mirador::render_set_of_mark(background.view, snapshot, options).status().code(),
               ErrorCode::kBudgetExceeded);
 }
 
 TEST(SetOfMarkTest, InvalidOptionsAreRejected) {
-    const TestBackground background(8, 8);
+    const TestBackground background = make_background(8, 8);
     const SemanticSnapshot snapshot;
 
-    SoMRenderOptions zero_bytes;
-    zero_bytes.max_bytes = 0;
+    const SoMRenderOptions zero_bytes{.max_bytes = 0};
     EXPECT_EQ(mirador::render_set_of_mark(background.view, snapshot, zero_bytes).status().code(),
               ErrorCode::kInvalidArgument);
 
-    SoMRenderOptions thin_box;
-    thin_box.box_thickness = 0;
+    const SoMRenderOptions thin_box{.box_thickness = 0};
     EXPECT_EQ(mirador::render_set_of_mark(background.view, snapshot, thin_box).status().code(),
               ErrorCode::kInvalidArgument);
 
-    SoMRenderOptions thick_box;
-    thick_box.box_thickness = 17;
+    const SoMRenderOptions thick_box{.box_thickness = 17};
     EXPECT_EQ(mirador::render_set_of_mark(background.view, snapshot, thick_box).status().code(),
               ErrorCode::kInvalidArgument);
 
-    SoMRenderOptions negative_label;
-    negative_label.label_height = -1;
+    const SoMRenderOptions negative_label{.label_height = -1};
     EXPECT_EQ(mirador::render_set_of_mark(background.view, snapshot, negative_label).status().code(),
               ErrorCode::kInvalidArgument);
 
-    SoMRenderOptions huge_label;
-    huge_label.label_height = 65;
+    const SoMRenderOptions huge_label{.label_height = 65};
     EXPECT_EQ(mirador::render_set_of_mark(background.view, snapshot, huge_label).status().code(),
               ErrorCode::kInvalidArgument);
 
-    SoMRenderOptions zero_marks;
-    zero_marks.max_marks = 0;
+    const SoMRenderOptions zero_marks{.max_marks = 0};
     EXPECT_EQ(mirador::render_set_of_mark(background.view, snapshot, zero_marks).status().code(),
               ErrorCode::kInvalidArgument);
 }
@@ -354,7 +344,7 @@ TEST(SetOfMarkTest, Nv12BackgroundIsUnsupportedAndRotatedBackgroundIsInvalid) {
     const SemanticSnapshot snapshot;
     EXPECT_EQ(mirador::render_set_of_mark(nv12_view, snapshot).status().code(), ErrorCode::kUnsupportedFormat);
 
-    const TestBackground background(8, 6);
+    const TestBackground background = make_background(8, 6);
     ImageView rotated = background.view;
     rotated.rotation = Rotation::k90;
     EXPECT_EQ(mirador::render_set_of_mark(rotated, snapshot).status().code(), ErrorCode::kInvalidArgument);
@@ -368,7 +358,7 @@ TEST(SetOfMarkTest, Nv12BackgroundIsUnsupportedAndRotatedBackgroundIsInvalid) {
 }
 
 TEST(SetOfMarkTest, CancelledAndExpiredContextsAreExplicit) {
-    const TestBackground background(8, 8);
+    const TestBackground background = make_background(8, 8);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(1, 1, 4, 4, 1U)};
 
@@ -385,13 +375,13 @@ TEST(SetOfMarkTest, CancelledAndExpiredContextsAreExplicit) {
 // --- MarkedImage view projection -------------------------------------------------------------
 
 TEST(SetOfMarkTest, MarkedImageProjectsAsRgb8K0View) {
-    const TestBackground background(9, 7);
+    const TestBackground background = make_background(9, 7);
     SemanticSnapshot snapshot;
     snapshot.regions = {make_region(1, 1, 4, 4, 5U)};
     const auto rendered = mirador::render_set_of_mark(background.view, snapshot);
     ASSERT_TRUE(rendered.ok());
 
-    const ImageView view = rendered.value().image.view();
+    const ImageView view = marked_image_view(rendered.value().image);
     EXPECT_EQ(view.format, PixelFormat::kRgb8);
     EXPECT_EQ(view.rotation, Rotation::k0);
     EXPECT_EQ(view.width, 9);
@@ -400,8 +390,8 @@ TEST(SetOfMarkTest, MarkedImageProjectsAsRgb8K0View) {
     EXPECT_EQ(view.data, rendered.value().image.pixels.data());
 
     // An empty image projects to an invalid view.
-    mirador::MarkedImage empty;
-    EXPECT_EQ(empty.view().data, nullptr);
+    const MarkedImage empty;
+    EXPECT_EQ(marked_image_view(empty).data, nullptr);
 }
 
 }  // namespace

@@ -1,10 +1,15 @@
 #include <mirador/set_of_mark.hpp>
 
+#include <mirador/execution_context.hpp>
+#include <mirador/geometry.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/pixel_format.hpp>
+#include <mirador/result.hpp>
+#include <mirador/semantic_snapshot.hpp>
 #include <mirador/status.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -17,7 +22,7 @@ constexpr int32_t kMaxOutputDimension = 32767;
 
 // Fixed high-visibility palette (design section 17: renderer-owned colors);
 // a region's color index is stable_id % 8 so identities keep their color.
-constexpr uint8_t kPalette[][3] = {
+constexpr std::array<std::array<uint8_t, 3>, 8> kPalette = {{
     {230, 57, 70},    // red
     {42, 157, 143},   // teal
     {69, 123, 157},   // blue
@@ -26,11 +31,11 @@ constexpr uint8_t kPalette[][3] = {
     {156, 76, 159},   // purple
     {42, 109, 62},    // green
     {188, 108, 37},   // brown
-};
-constexpr int kPaletteSize = 8;
+}};
+constexpr int kPaletteSize = static_cast<int>(kPalette.size());
 
 // 3x5 pixel digit glyphs, rows top to bottom, 3 bits per row (MSB left).
-constexpr uint8_t kDigitGlyphs[10][5] = {
+constexpr std::array<std::array<uint8_t, 5>, 10> kDigitGlyphs = {{
     {0b111, 0b101, 0b101, 0b101, 0b111},  // 0
     {0b010, 0b110, 0b010, 0b010, 0b111},  // 1
     {0b111, 0b001, 0b111, 0b100, 0b111},  // 2
@@ -41,7 +46,7 @@ constexpr uint8_t kDigitGlyphs[10][5] = {
     {0b111, 0b001, 0b010, 0b010, 0b010},  // 7
     {0b111, 0b101, 0b111, 0b101, 0b111},  // 8
     {0b111, 0b101, 0b111, 0b001, 0b111},  // 9
-};
+}};
 
 Status context_status(const ExecutionContext& context) noexcept {
     if (is_cancelled(context)) {
@@ -141,7 +146,7 @@ void draw_outline(MarkedImage& image, const RectI& rect, int32_t thickness, Rgb 
 void draw_digit(MarkedImage& image, int32_t x, int32_t y, int32_t scale, int32_t digit, Rgb color) noexcept {
     for (int32_t row = 0; row < 5; ++row) {
         for (int32_t column = 0; column < 3; ++column) {
-            if ((kDigitGlyphs[digit][row] >> (2 - column)) & 0x1) {
+            if (((kDigitGlyphs[digit][row] >> (2 - column)) & 0x1) != 0) {
                 fill_rect(image, RectI{x + column * scale, y + row * scale, scale, scale}, color);
             }
         }
@@ -195,7 +200,7 @@ int32_t to_int32_clamped(double value) noexcept {
 }
 
 Rgb palette_color(uint64_t stable_id) noexcept {
-    const uint8_t* entry = kPalette[stable_id % kPaletteSize];
+    const std::array<uint8_t, 3>& entry = kPalette[stable_id % static_cast<uint64_t>(kPaletteSize)];
     return Rgb{entry[0], entry[1], entry[2]};
 }
 
@@ -221,17 +226,56 @@ std::vector<RectI> label_candidates(const RectI& box, const RectI& chip) noexcep
     };
 }
 
+/// Draws one region mark (outline plus deterministically placed label chip)
+/// into the output; appends the placed chip rect when a label was drawn.
+void draw_region_mark(MarkedImage& output, const VisualRegion& region, SoMMark& mark, const SoMRenderOptions& options,
+                      std::vector<RectI>& placed_labels) noexcept {
+    const RectI image_rect{0, 0, output.width, output.height};
+    const RectI clipped = intersect_rects(RectI{to_int32_clamped(static_cast<double>(region.bounds.x)),
+                                                to_int32_clamped(static_cast<double>(region.bounds.y)),
+                                                to_int32_clamped(static_cast<double>(region.bounds.width)),
+                                                to_int32_clamped(static_cast<double>(region.bounds.height))},
+                                          image_rect);
+    if (clipped.width <= 0 || clipped.height <= 0) {
+        return;
+    }
+    const Rgb color = palette_color(region.stable_id);
+    draw_outline(output, clipped, std::min(options.box_thickness, std::min(clipped.width, clipped.height)), color);
+    mark.drawn_bounds = clipped;
+    if (options.label_height <= 0) {
+        return;
+    }
+    const int32_t scale = std::max(1, options.label_height / 6);
+    const int32_t digits = decimal_digit_count(mark.mark_id);
+    const RectI chip{0, 0, digits * 3 * scale + 2, 5 * scale + 2};
+    for (const RectI& candidate : label_candidates(clipped, chip)) {
+        if (!inside_image(candidate, output.width, output.height)) {
+            continue;
+        }
+        const bool occluded = std::any_of(placed_labels.begin(), placed_labels.end(), [candidate](const RectI& placed) {
+            return rects_overlap(candidate, placed);
+        });
+        if (occluded) {
+            continue;
+        }
+        fill_rect(output, candidate, color);
+        draw_number(output, candidate, mark.mark_id, scale, Rgb{255, 255, 255});
+        placed_labels.push_back(candidate);
+        return;
+    }
+}
+
 }  // namespace
 
-ImageView MarkedImage::view() const noexcept {
-    if (pixels.empty() || width <= 0 || height <= 0) {
+ImageView marked_image_view(const MarkedImage& image) noexcept {
+    if (image.pixels.empty() || image.width <= 0 || image.height <= 0) {
         return ImageView{};
     }
     ImageView view;
-    view.data = pixels.data();
-    view.width = width;
-    view.height = height;
-    view.row_stride_bytes = static_cast<int64_t>(width) * 3;
+    view.data = image.pixels.data();
+    view.width = image.width;
+    view.height = image.height;
+    view.row_stride_bytes = static_cast<int64_t>(image.width) * 3;
     view.format = PixelFormat::kRgb8;
     view.rotation = Rotation::k0;
     return view;
@@ -275,7 +319,6 @@ Result<SetOfMarkResult> render_set_of_mark(const ImageView& background, const Se
         output.pixels.assign(static_cast<size_t>(output_bytes), std::byte{0});
         copy_background(output, background);
 
-        const RectI image_rect{0, 0, background.width, background.height};
         std::vector<RectI> placed_labels;
         for (size_t index = 0; index < snapshot.regions.size(); ++index) {
             if ((index % 64) == 0) {
@@ -288,39 +331,7 @@ Result<SetOfMarkResult> render_set_of_mark(const ImageView& background, const Se
             mark.mark_id = static_cast<uint32_t>(index + 1);
             mark.stable_id = region.stable_id;
             mark.anchor = region.anchor;
-
-            const RectI clipped = intersect_rects(RectI{to_int32_clamped(static_cast<double>(region.bounds.x)),
-                                                        to_int32_clamped(static_cast<double>(region.bounds.y)),
-                                                        to_int32_clamped(static_cast<double>(region.bounds.width)),
-                                                        to_int32_clamped(static_cast<double>(region.bounds.height))},
-                                                  image_rect);
-            if (clipped.width > 0 && clipped.height > 0) {
-                const Rgb color = palette_color(region.stable_id);
-                draw_outline(output, clipped, std::min(options.box_thickness, std::min(clipped.width, clipped.height)),
-                             color);
-                mark.drawn_bounds = clipped;
-
-                if (options.label_height > 0) {
-                    const int32_t scale = std::max(1, options.label_height / 6);
-                    const int32_t digits = decimal_digit_count(mark.mark_id);
-                    const RectI chip{0, 0, digits * 3 * scale + 2, 5 * scale + 2};
-                    for (const RectI& candidate : label_candidates(clipped, chip)) {
-                        if (!inside_image(candidate, output.width, output.height)) {
-                            continue;
-                        }
-                        const bool occluded =
-                            std::any_of(placed_labels.begin(), placed_labels.end(),
-                                        [candidate](const RectI& placed) { return rects_overlap(candidate, placed); });
-                        if (occluded) {
-                            continue;
-                        }
-                        fill_rect(output, candidate, color);
-                        draw_number(output, candidate, mark.mark_id, scale, Rgb{255, 255, 255});
-                        placed_labels.push_back(candidate);
-                        break;
-                    }
-                }
-            }
+            draw_region_mark(output, region, mark, options, placed_labels);
             result.marks.push_back(mark);
         }
         return result;
