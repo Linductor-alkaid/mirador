@@ -55,8 +55,9 @@ int64_t min_row_stride_bytes(PixelFormat format, int32_t plane_index, int32_t wi
     if (plane_index == 0) {
         return static_cast<int64_t>(width) * bytes_per_pixel(format);
     }
-    // Only NV12 reaches here with plane_count == 2; chroma rows are width bytes.
-    return static_cast<int64_t>(width);
+    // Only NV12 reaches here with plane_count == 2; a chroma row holds
+    // ceil(width / 2) interleaved UV pairs, so odd widths need one extra byte.
+    return static_cast<int64_t>(width) + (width % 2);
 }
 
 }  // namespace mirador

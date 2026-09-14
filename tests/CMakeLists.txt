@@ -41,14 +41,18 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 add_subdirectory("${MIRADOR_GTEST_DIR}" "${CMAKE_BINARY_DIR}/third_party/googletest" EXCLUDE_FROM_ALL)
 
-# Adds a labeled GoogleTest executable and registers it with CTest.
+# Adds a labeled GoogleTest executable and registers it with CTest. LIBS carries
+# extra first-party module targets (e.g. mirador::image) beyond mirador::core.
 function(mirador_add_test)
-    cmake_parse_arguments(ARG "" "NAME;LABELS" "SOURCES" ${ARGN})
+    cmake_parse_arguments(ARG "" "NAME;LABELS" "SOURCES;LIBS" ${ARGN})
     add_executable(${ARG_NAME} ${ARG_SOURCES})
-    target_link_libraries(${ARG_NAME} PRIVATE mirador::core gtest gtest_main)
+    target_link_libraries(${ARG_NAME} PRIVATE mirador::core ${ARG_LIBS} gtest gtest_main)
     add_test(NAME ${ARG_NAME} COMMAND ${ARG_NAME})
     set_tests_properties(${ARG_NAME} PROPERTIES LABELS "${ARG_LABELS}")
 endfunction()
 
 add_subdirectory(core)
 add_subdirectory(architecture)
+if(TARGET mirador::image)
+    add_subdirectory(image)
+endif()

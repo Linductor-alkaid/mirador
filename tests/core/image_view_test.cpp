@@ -44,9 +44,10 @@ TEST(PixelFormat, MinimumStrideHandlesOddWidths) {
     EXPECT_EQ(min_row_stride_bytes(PixelFormat::kGray8, 0, 7), 7);
     EXPECT_EQ(min_row_stride_bytes(PixelFormat::kRgb8, 0, 7), 21);
     EXPECT_EQ(min_row_stride_bytes(PixelFormat::kBgra8, 0, 7), 28);
-    // NV12 chroma rows are width bytes regardless of odd luma dimensions.
+    // NV12 chroma rows hold ceil(7 / 2) = 4 UV pairs, i.e. 8 bytes (DEC-007).
     EXPECT_EQ(min_row_stride_bytes(PixelFormat::kNv12, 0, 7), 7);
-    EXPECT_EQ(min_row_stride_bytes(PixelFormat::kNv12, 1, 7), 7);
+    EXPECT_EQ(min_row_stride_bytes(PixelFormat::kNv12, 1, 7), 8);
+    EXPECT_EQ(min_row_stride_bytes(PixelFormat::kNv12, 1, 8), 8);
     EXPECT_EQ(min_row_stride_bytes(PixelFormat::kRgb8, 1, 7), -1);
     EXPECT_EQ(min_row_stride_bytes(PixelFormat::kGray8, 0, 0), -1);
 }
@@ -118,14 +119,15 @@ TEST(ImageView, Nv12PlaneRulesPerDec007) {
     const std::vector<std::byte> luma(1024);
     const std::vector<std::byte> chroma(1024);
 
-    // Odd height: chroma rows are ceil(height / 2); stride rules only depend on width.
+    // Odd height: chroma rows are ceil(height / 2); odd width needs ceil(7 / 2)
+    // UV pairs = 8 chroma bytes per row (DEC-007, frozen in M1).
     ImageView nv12;
     nv12.data = luma.data();
     nv12.width = 7;
     nv12.height = 9;
     nv12.row_stride_bytes = 7;
     nv12.format = PixelFormat::kNv12;
-    nv12.secondary_plane = ImagePlane{chroma.data(), 7};
+    nv12.secondary_plane = ImagePlane{chroma.data(), 8};
     EXPECT_TRUE(validate(nv12).ok());
 
     auto missing_chroma = nv12;
@@ -135,7 +137,7 @@ TEST(ImageView, Nv12PlaneRulesPerDec007) {
     EXPECT_EQ(result.status().code(), ErrorCode::kInvalidArgument);
 
     auto small_chroma_stride = nv12;
-    small_chroma_stride.secondary_plane = ImagePlane{chroma.data(), 6};
+    small_chroma_stride.secondary_plane = ImagePlane{chroma.data(), 7};
     EXPECT_FALSE(validate(small_chroma_stride).ok());
 
     auto loose = nv12;

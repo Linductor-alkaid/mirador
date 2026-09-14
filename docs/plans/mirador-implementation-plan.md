@@ -12,8 +12,9 @@
 M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项与退出条件通过，CI 9/9
 绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、
 GoogleTest v1.18.0、三平台 CI 已冻结，发布说明见 [CHANGELOG](../../CHANGELOG.md)。
-下一里程碑 M1（基础图像与变化检测）启动时创建里程碑文档。整体路线沿用设计文档
-第 24 节的 M0-M5。
+M1「基础图像与变化检测」已启动（2026-09-14），里程碑文档见
+[m1-image-and-change-detection.md](m1-image-and-change-detection.md)。整体路线沿用
+设计文档第 24 节的 M0-M5。
 
 ## 交付边界
 
@@ -79,7 +80,7 @@ GoogleTest v1.18.0、三平台 CI 已冻结，发布说明见 [CHANGELOG](../../
 | 里程碑 | 名称 | 前置 | 建议发布点（暂定） | 状态 | 文档 |
 | --- | --- | --- | --- | --- | --- |
 | M0 | 边界与骨架 | — | `v0.1.0-alpha` | Completed | [m0-boundary-and-skeleton.md](m0-boundary-and-skeleton.md) |
-| M1 | 基础图像与变化检测 | M0 | `v0.1.0-beta.1` | Planned | 启动时创建 |
+| M1 | 基础图像与变化检测 | M0 | `v0.1.0-beta.1` | In Progress | [m1-image-and-change-detection.md](m1-image-and-change-detection.md) |
 | M2 | Backend SPI 与能力结果缓存 | M1 | `v0.1.0-beta.2` | Planned | 启动时创建 |
 | M3 | 传统视觉与视觉索引 | M2 | `v0.1.0-beta.3` | Planned | 启动时创建 |
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Planned | 启动时创建 |

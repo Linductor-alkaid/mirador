@@ -36,10 +36,12 @@ enum class Rotation : uint16_t { k0 = 0, k90 = 90, k180 = 180, k270 = 270 };
 /// kRgb8/kBgr8, 4 for kRgba8/kBgra8. Returns 0 for undefined format values.
 [[nodiscard]] int32_t bytes_per_pixel(PixelFormat format) noexcept;
 
-/// Minimum row stride in bytes for `plane_index` of a plane `width` pixels wide
-/// (NV12 chroma rows are `width` bytes). Returns -1 for invalid format, plane index
-/// or width. Strides in Mirador are non-negative; bottom-up buffers with negative
-/// stride must be normalized by the platform adapter before wrapping.
+/// Minimum row stride in bytes for `plane_index` of a plane `width` pixels wide.
+/// NV12 chroma rows hold `ceil(width / 2)` interleaved UV pairs, so their minimum
+/// stride is `width + (width % 2)` (DEC-007, frozen in M1). Returns -1 for invalid
+/// format, plane index or width. Strides in Mirador are non-negative; bottom-up
+/// buffers with negative stride must be normalized by the platform adapter before
+/// wrapping.
 [[nodiscard]] int64_t min_row_stride_bytes(PixelFormat format, int32_t plane_index, int32_t width) noexcept;
 
 }  // namespace mirador

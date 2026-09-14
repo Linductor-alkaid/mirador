@@ -22,6 +22,11 @@ mirador_add_test(
     LABELS unit)
 
 mirador_add_test(
+    NAME mirador.core.geometry
+    SOURCES geometry_test.cpp
+    LABELS unit)
+
+mirador_add_test(
     NAME mirador.core.transform_property
     SOURCES transform_property_test.cpp
     LABELS "property;unit")
