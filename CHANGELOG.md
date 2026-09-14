@@ -5,11 +5,15 @@
 
 ## [Unreleased]
 
-M1「基础图像与变化检测」（发布点 `v0.1.0-beta.1`），M1-01~M1-08 与 M1-10 已落地，
-M1-09（OpenCV 适配）待具备 OpenCV 的环境。
+M1「基础图像与变化检测」（发布点 `v0.1.0-beta.1`）全部工作项已落地。
 
 ### 新增
 
+- 可选 OpenCV 适配器 `mirador::adapters::opencv`（M1-09，`MIRADOR_BUILD_ADAPTERS_OPENCV`
+  默认关闭）：`cv::Mat` → 非拥有 `ImageView` 包装（CV_8UC1/3/4 按 OpenCV 通道语义映射，
+  stride 感知，ROI Mat 支持）与 NV12 约定布局（`height + ceil(height/2)` 行 CV_8UC1）
+  包装，及深拷贝有界导出 `export_mat`/`export_nv12_mat`。OpenCV 由集成方通过
+  `find_package` 提供，不随本项目分发。
 - `mirador::image` 编译目标与有界拥有缓冲 `ImageBuffer`：显式字节预算、分配前校验、
   超限返回 `kBudgetExceeded`，NV12 多平面布局遵循冻结的 `DEC-007`。
 - 确定性颜色转换 `convert_color`：文档化支持矩阵；BT.601 全范围整数定点系数，
