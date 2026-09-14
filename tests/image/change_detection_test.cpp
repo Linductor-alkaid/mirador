@@ -400,4 +400,107 @@ TEST(DetectChange, RejectsInvalidViewsAndParameters) {
     ASSERT_FALSE(outside_region.ok());
 }
 
+// --- M2-03: bounded signatures and the signature-based overload -----------------
+
+TEST(ChangeSignature, ViewAndSignaturePathsProduceIdenticalReports) {
+    const GrayImage previous = make_gray(320, 240, 320, 40);
+    GrayImage current = make_gray(320, 240, 320, 40);
+    fill_gray_rect(current, RectI{100, 80, 60, 40}, 200);
+
+    const ChangeDetectionParams defaults;
+    const auto via_views = detect_change(previous.view, current.view, defaults);
+    ASSERT_TRUE(via_views.ok());
+
+    auto previous_signature = mirador::make_change_signature(previous.view, defaults);
+    auto current_signature = mirador::make_change_signature(current.view, defaults);
+    ASSERT_TRUE(previous_signature.ok());
+    ASSERT_TRUE(current_signature.ok());
+
+    // Stride-independent stability: rebuilding the signature from a padded
+    // layout changes neither fingerprint nor thumbnail content.
+    const GrayImage padded_previous = make_gray(320, 240, 384, 40);
+    auto padded_signature = mirador::make_change_signature(padded_previous.view, defaults);
+    ASSERT_TRUE(padded_signature.ok());
+    EXPECT_EQ(padded_signature.value().fingerprint, previous_signature.value().fingerprint);
+
+    const auto via_signatures = detect_change(previous_signature.value(), current_signature.value(), defaults);
+    ASSERT_TRUE(via_signatures.ok());
+    EXPECT_EQ(via_signatures.value().classification, via_views.value().classification);
+    EXPECT_EQ(via_signatures.value().reason, via_views.value().reason);
+    EXPECT_EQ(via_signatures.value().changed_area_ratio, via_views.value().changed_area_ratio);
+    EXPECT_EQ(via_signatures.value().changed_regions, via_views.value().changed_regions);
+    EXPECT_EQ(via_signatures.value().frame_similarity, via_views.value().frame_similarity);
+
+    // ROI mapping uses the current signature's stored frame dimensions.
+    EXPECT_EQ(current_signature.value().frame_width, 320);
+    EXPECT_EQ(current_signature.value().frame_height, 240);
+    EXPECT_EQ(current_signature.value().thumbnail.format(), PixelFormat::kGray8);
+    EXPECT_EQ(current_signature.value().thumbnail.width(), defaults.thumbnail_size);
+}
+
+TEST(ChangeSignature, EarlyExitSkipsNothingButIsReportedIdentically) {
+    const GrayImage frame_a = make_gray(200, 200, 200, 10);
+    const GrayImage frame_b = make_gray(200, 200, 200, 10);
+    const ChangeDetectionParams defaults;
+
+    auto signature_a = mirador::make_change_signature(frame_a.view, defaults);
+    auto signature_b = mirador::make_change_signature(frame_b.view, defaults);
+    ASSERT_TRUE(signature_a.ok());
+    ASSERT_TRUE(signature_b.ok());
+
+    const auto via_signatures = detect_change(signature_a.value(), signature_b.value(), defaults);
+    const auto via_views = detect_change(frame_a.view, frame_b.view, defaults);
+    ASSERT_TRUE(via_signatures.ok());
+    ASSERT_TRUE(via_views.ok());
+    EXPECT_EQ(via_signatures.value().classification, ChangeClassification::kNone);
+    EXPECT_EQ(via_signatures.value().reason, ChangeReason::kFingerprintEarlyExit);
+    EXPECT_EQ(via_signatures.value().frame_similarity, via_views.value().frame_similarity);
+    EXPECT_EQ(via_signatures.value().previous_fingerprint, via_views.value().previous_fingerprint);
+}
+
+TEST(ChangeSignature, RejectsMismatchedThumbnailsAndBadParameters) {
+    const GrayImage small = make_gray(64, 64, 64, 10);
+    const GrayImage large = make_gray(320, 240, 320, 10);
+    const ChangeDetectionParams defaults;
+
+    auto small_signature = mirador::make_change_signature(small.view, defaults);
+    auto large_signature = mirador::make_change_signature(large.view, defaults);
+    ASSERT_TRUE(small_signature.ok());
+    ASSERT_TRUE(large_signature.ok());
+
+    // Thumbnail agreement comes from the signatures themselves: build one with
+    // a different thumbnail_size and compare.
+    ChangeDetectionParams smaller = defaults;
+    smaller.thumbnail_size = 32;
+    auto small_grid_signature = mirador::make_change_signature(small.view, smaller);
+    ASSERT_TRUE(small_grid_signature.ok());
+    EXPECT_EQ(small_grid_signature.value().thumbnail.width(), 32);
+    const auto mismatched = detect_change(small_grid_signature.value(), large_signature.value(), defaults);
+    ASSERT_FALSE(mismatched.ok());
+    EXPECT_EQ(mismatched.status().code(), ErrorCode::kInvalidArgument);
+
+    ChangeDetectionParams params = defaults;
+    params.block_size = defaults.thumbnail_size + 1;  // larger than the stored thumbnail edge
+    const auto oversized_block = detect_change(small_signature.value(), large_signature.value(), params);
+    ASSERT_FALSE(oversized_block.ok());
+
+    // Ignored regions are checked against the current signature's frame size.
+    params = defaults;
+    params.ignored_regions.push_back(RectI{280, 200, 40, 40});  // exactly inside 320x240
+    const auto inside = detect_change(small_signature.value(), large_signature.value(), params);
+    EXPECT_TRUE(inside.ok());
+    const auto outside = detect_change(large_signature.value(), small_signature.value(), params);
+    ASSERT_FALSE(outside.ok());
+
+    // Invalid view or thumbnail range is rejected at signature build time.
+    const ImageView invalid_view;
+    const auto invalid = mirador::make_change_signature(invalid_view, defaults);
+    ASSERT_FALSE(invalid.ok());
+
+    ChangeDetectionParams bad_thumbnail = defaults;
+    bad_thumbnail.thumbnail_size = 4;
+    const auto bad_size = mirador::make_change_signature(small.view, bad_thumbnail);
+    ASSERT_FALSE(bad_size.ok());
+}
+
 }  // namespace

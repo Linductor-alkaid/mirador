@@ -39,7 +39,7 @@ Result<ImageBuffer> gray_thumbnail(const ImageView& src, int32_t size) noexcept 
     return convert_color(thumb.view(), PixelFormat::kGray8, kChangeDetectionBudgetBytes);
 }
 
-Status validate_params(const ChangeDetectionParams& params, const ImageView& current) {
+Status validate_param_ranges(const ChangeDetectionParams& params) {
     if (!std::isfinite(params.fingerprint_similarity_threshold) || params.fingerprint_similarity_threshold < 0.0 ||
         params.fingerprint_similarity_threshold > 1.0) {
         return {ErrorCode::kInvalidArgument, "detect_change: fingerprint_similarity_threshold must be in [0, 1]"};
@@ -50,8 +50,7 @@ Status validate_params(const ChangeDetectionParams& params, const ImageView& cur
     if (params.block_size < 1 || params.block_size > params.thumbnail_size) {
         return {ErrorCode::kInvalidArgument, "detect_change: block_size must be in [1, thumbnail_size]"};
     }
-    const int32_t blocks_side = (params.thumbnail_size + params.block_size - 1) / params.block_size;
-    if (blocks_side > kMaxBlocksPerSide) {
+    if ((params.thumbnail_size + params.block_size - 1) / params.block_size > kMaxBlocksPerSide) {
         return {ErrorCode::kInvalidArgument, "detect_change: block grid exceeds 64 blocks per side"};
     }
     if (params.block_diff_threshold < 0 || params.block_diff_threshold > 255) {
@@ -60,9 +59,13 @@ Status validate_params(const ChangeDetectionParams& params, const ImageView& cur
     if (!std::isfinite(params.global_area_ratio) || params.global_area_ratio <= 0.0 || params.global_area_ratio > 1.0) {
         return {ErrorCode::kInvalidArgument, "detect_change: global_area_ratio must be in (0, 1]"};
     }
+    return Status::success();
+}
+
+Status validate_ignored_regions(const ChangeDetectionParams& params, int32_t frame_width, int32_t frame_height) {
     for (const RectI& region : params.ignored_regions) {
-        if (!is_valid(region) || region.x < 0 || region.y < 0 || region.x + region.width > current.width ||
-            region.y + region.height > current.height) {
+        if (!is_valid(region) || region.x < 0 || region.y < 0 || region.x + region.width > frame_width ||
+            region.y + region.height > frame_height) {
             return {ErrorCode::kInvalidArgument,
                     "detect_change: ignored regions must be valid rects inside the current frame"};
         }
@@ -107,13 +110,12 @@ int64_t region_diff_sum(const ImageView& previous, const ImageView& current, int
 
 /// Marks every non-ignored block whose mean absolute luma difference reaches the
 /// threshold (integer-exact: sum >= threshold * count); returns the number of
-/// marked blocks. `frame_width`/`frame_height` are the current frame's presented
-/// dimensions (the thumbnails are `thumbnail_size` squares; the block rects used
-/// for the ignore check live in frame space).
+/// marked blocks. `thumbnail_size` is the stored thumbnails' edge length;
+/// `frame_width`/`frame_height` are the current frame's presented dimensions
+/// (the block rects used for the ignore check live in frame space).
 int64_t mark_changed_blocks(const ImageView& previous_thumbnail, const ImageView& current_thumbnail,
-                            const ChangeDetectionParams& params, int32_t blocks_side, int32_t frame_width,
-                            int32_t frame_height, std::vector<uint8_t>& changed) {
-    const int32_t thumbnail_size = params.thumbnail_size;
+                            const ChangeDetectionParams& params, int32_t thumbnail_size, int32_t blocks_side,
+                            int32_t frame_width, int32_t frame_height, std::vector<uint8_t>& changed) {
     const int32_t block_size = params.block_size;
     int64_t changed_blocks = 0;
     for (int32_t by = 0; by < blocks_side; ++by) {
@@ -174,9 +176,8 @@ void visit_component(const std::vector<uint8_t>& changed, std::vector<uint8_t>& 
 /// Appends the frame-space bounding rect of every 8-connected changed-block
 /// component, in scan order of the component's first block.
 void append_component_rects(const std::vector<uint8_t>& changed, std::vector<uint8_t>& visited, int32_t blocks_side,
-                            const ChangeDetectionParams& params, int32_t frame_width, int32_t frame_height,
-                            std::vector<RectI>& regions) {
-    const int32_t thumbnail_size = params.thumbnail_size;
+                            const ChangeDetectionParams& params, int32_t thumbnail_size, int32_t frame_width,
+                            int32_t frame_height, std::vector<RectI>& regions) {
     const int32_t block_size = params.block_size;
     for (int32_t by = 0; by < blocks_side; ++by) {
         for (int32_t bx = 0; bx < blocks_side; ++bx) {
@@ -199,65 +200,52 @@ void append_component_rects(const std::vector<uint8_t>& changed, std::vector<uin
     }
 }
 
-}  // namespace
-
-Result<ChangeReport> detect_change(const ImageView& previous, const ImageView& current,
-                                   const ChangeDetectionParams& params) noexcept {
-    if (const Result<void> valid_previous = validate(previous); !valid_previous.ok()) {
-        return valid_previous.status();
-    }
-    if (const Result<void> valid_current = validate(current); !valid_current.ok()) {
-        return valid_current.status();
-    }
-    if (const Status params_status = validate_params(params, current); !params_status.ok()) {
-        return params_status;
-    }
-
-    const Result<uint64_t> previous_fingerprint = fingerprint(previous);
-    if (!previous_fingerprint.ok()) {
-        return previous_fingerprint.status();
-    }
-    const Result<uint64_t> current_fingerprint = fingerprint(current);
-    if (!current_fingerprint.ok()) {
-        return current_fingerprint.status();
-    }
-
+/// Layer-1 early-exit report: shared by both entry points so the echoed
+/// fingerprints, similarity and thresholds stay bit-identical.
+ChangeReport make_early_exit_report(uint64_t previous_fingerprint, uint64_t current_fingerprint,
+                                    const ChangeDetectionParams& params) noexcept {
     ChangeReport report;
-    report.previous_fingerprint = previous_fingerprint.value();
-    report.current_fingerprint = current_fingerprint.value();
-    report.frame_similarity = fingerprint_similarity(report.previous_fingerprint, report.current_fingerprint);
+    report.previous_fingerprint = previous_fingerprint;
+    report.current_fingerprint = current_fingerprint;
+    report.frame_similarity = fingerprint_similarity(previous_fingerprint, current_fingerprint);
     report.thresholds = ChangeThresholds{params.fingerprint_similarity_threshold, params.block_diff_threshold,
                                          params.global_area_ratio};
+    report.reason = ChangeReason::kFingerprintEarlyExit;
+    return report;
+}
 
+/// Shared layer-1 + layer-2 comparison over two built signatures. Callers have
+/// validated parameters, thumbnail agreement and ignored regions; the view-based
+/// entry point delegates the block-diff path here so both paths stay
+/// bit-identical. Layer-1 fingerprints are already stored in the signatures.
+Result<ChangeReport> detect_change_signatures(const ChangeSignature& previous, const ChangeSignature& current,
+                                              const ChangeDetectionParams& params) noexcept {
     // Layer 1: frames indistinguishable at fingerprint resolution keep every
     // cached result and skip the block diff entirely.
-    if (report.frame_similarity >= params.fingerprint_similarity_threshold) {
-        report.reason = ChangeReason::kFingerprintEarlyExit;
-        return report;
+    if (const double similarity = fingerprint_similarity(previous.fingerprint, current.fingerprint);
+        similarity >= params.fingerprint_similarity_threshold) {
+        return make_early_exit_report(previous.fingerprint, current.fingerprint, params);
     }
 
     // Layer 2: compare square grayscale thumbnails block by block.
+    ChangeReport report;
+    report.previous_fingerprint = previous.fingerprint;
+    report.current_fingerprint = current.fingerprint;
+    report.frame_similarity = fingerprint_similarity(previous.fingerprint, current.fingerprint);
+    report.thresholds = ChangeThresholds{params.fingerprint_similarity_threshold, params.block_diff_threshold,
+                                         params.global_area_ratio};
     report.reason = ChangeReason::kBlockDiff;
-    const int32_t blocks_side = (params.thumbnail_size + params.block_size - 1) / params.block_size;
+    const int32_t thumbnail_size = previous.thumbnail.width();
+    const int32_t blocks_side = (thumbnail_size + params.block_size - 1) / params.block_size;
     try {
-        Result<ImageBuffer> previous_thumbnail = gray_thumbnail(previous, params.thumbnail_size);
-        if (!previous_thumbnail.ok()) {
-            return previous_thumbnail.status();
-        }
-        Result<ImageBuffer> current_thumbnail = gray_thumbnail(current, params.thumbnail_size);
-        if (!current_thumbnail.ok()) {
-            return current_thumbnail.status();
-        }
-        const ImageBuffer previous_buffer = previous_thumbnail.take_value();
-        const ImageBuffer current_buffer = current_thumbnail.take_value();
-
         const auto block_count = static_cast<size_t>(blocks_side) * static_cast<size_t>(blocks_side);
         std::vector<uint8_t> changed(block_count, 0);
         std::vector<uint8_t> visited(block_count, 0);
-        const int64_t changed_blocks = mark_changed_blocks(previous_buffer.view(), current_buffer.view(), params,
-                                                           blocks_side, current.width, current.height, changed);
-        append_component_rects(changed, visited, blocks_side, params, current.width, current.height,
-                               report.changed_regions);
+        const int64_t changed_blocks =
+            mark_changed_blocks(previous.thumbnail.view(), current.thumbnail.view(), params, thumbnail_size,
+                                blocks_side, current.frame_width, current.frame_height, changed);
+        append_component_rects(changed, visited, blocks_side, params, thumbnail_size, current.frame_width,
+                               current.frame_height, report.changed_regions);
 
         report.changed_area_ratio = static_cast<double>(changed_blocks) / static_cast<double>(block_count);
         if (changed_blocks == 0) {
@@ -271,6 +259,102 @@ Result<ChangeReport> detect_change(const ImageView& previous, const ImageView& c
         return Status(ErrorCode::kBudgetExceeded, "detect_change: internal allocation failed");
     }
     return report;
+}
+
+}  // namespace
+
+Result<ChangeSignature> make_change_signature(const ImageView& frame, const ChangeDetectionParams& params) noexcept {
+    if (const Result<void> valid_frame = validate(frame); !valid_frame.ok()) {
+        return valid_frame.status();
+    }
+    if (const Status ranges_status = validate_param_ranges(params); !ranges_status.ok()) {
+        return ranges_status;
+    }
+
+    const Result<uint64_t> frame_fingerprint = fingerprint(frame);
+    if (!frame_fingerprint.ok()) {
+        return frame_fingerprint.status();
+    }
+    Result<ImageBuffer> thumbnail = gray_thumbnail(frame, params.thumbnail_size);
+    if (!thumbnail.ok()) {
+        return thumbnail.status();
+    }
+
+    ChangeSignature signature;
+    signature.frame_width = frame.width;
+    signature.frame_height = frame.height;
+    signature.fingerprint = frame_fingerprint.value();
+    signature.thumbnail = thumbnail.take_value();
+    return signature;
+}
+
+Result<ChangeReport> detect_change(const ChangeSignature& previous, const ChangeSignature& current,
+                                   const ChangeDetectionParams& params) noexcept {
+    if (const Status ranges_status = validate_param_ranges(params); !ranges_status.ok()) {
+        return ranges_status;
+    }
+    if (previous.thumbnail.empty() || current.thumbnail.empty()) {
+        return Status(ErrorCode::kInvalidArgument, "detect_change: signatures carry empty thumbnails");
+    }
+    if (previous.thumbnail.width() != current.thumbnail.width() ||
+        previous.thumbnail.height() != current.thumbnail.height()) {
+        return Status(ErrorCode::kInvalidArgument, "detect_change: signature thumbnails differ in size");
+    }
+    const int32_t thumbnail_size = current.thumbnail.width();
+    if (params.block_size > thumbnail_size) {
+        return Status(ErrorCode::kInvalidArgument, "detect_change: block_size exceeds the signatures' thumbnail");
+    }
+    if ((thumbnail_size + params.block_size - 1) / params.block_size > kMaxBlocksPerSide) {
+        return Status(ErrorCode::kInvalidArgument, "detect_change: block grid exceeds 64 blocks per side");
+    }
+    if (const Status ignored_status = validate_ignored_regions(params, current.frame_width, current.frame_height);
+        !ignored_status.ok()) {
+        return ignored_status;
+    }
+    return detect_change_signatures(previous, current, params);
+}
+
+Result<ChangeReport> detect_change(const ImageView& previous, const ImageView& current,
+                                   const ChangeDetectionParams& params) noexcept {
+    if (const Result<void> valid_previous = validate(previous); !valid_previous.ok()) {
+        return valid_previous.status();
+    }
+    if (const Result<void> valid_current = validate(current); !valid_current.ok()) {
+        return valid_current.status();
+    }
+    if (const Status params_status = validate_param_ranges(params); !params_status.ok()) {
+        return params_status;
+    }
+    if (const Status ignored_status = validate_ignored_regions(params, current.width, current.height);
+        !ignored_status.ok()) {
+        return ignored_status;
+    }
+
+    // Fingerprints come first so a layer-1 early exit skips the thumbnail
+    // resampling cost entirely (ChangeReason contract).
+    const Result<uint64_t> previous_fingerprint = fingerprint(previous);
+    if (!previous_fingerprint.ok()) {
+        return previous_fingerprint.status();
+    }
+    const Result<uint64_t> current_fingerprint = fingerprint(current);
+    if (!current_fingerprint.ok()) {
+        return current_fingerprint.status();
+    }
+    if (fingerprint_similarity(previous_fingerprint.value(), current_fingerprint.value()) >=
+        params.fingerprint_similarity_threshold) {
+        return make_early_exit_report(previous_fingerprint.value(), current_fingerprint.value(), params);
+    }
+
+    // Layer 2: build the comparison signatures and run the shared block diff.
+    const Result<ChangeSignature> previous_signature = make_change_signature(previous, params);
+    if (!previous_signature.ok()) {
+        return previous_signature.status();
+    }
+    const Result<ChangeSignature> current_signature = make_change_signature(current, params);
+    if (!current_signature.ok()) {
+        return current_signature.status();
+    }
+    return detect_change_signatures(previous_signature.value(), current_signature.value(), params);
 }
 
 }  // namespace mirador

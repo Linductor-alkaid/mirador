@@ -25,6 +25,8 @@ add_library(mirador_core
     src/core/image_view.cpp
     src/core/geometry.cpp
     src/core/transform.cpp
+    src/core/execution_context.cpp
+    src/core/backend_info.cpp
 )
 add_library(mirador::core ALIAS mirador_core)
 
@@ -78,9 +80,22 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
         elseif(mirador_module STREQUAL "cache")
-            add_library(mirador_${mirador_module} src/cache/frame_cache.cpp)
+            add_library(mirador_${mirador_module}
+                src/cache/frame_cache.cpp
+                src/cache/capability_cache.cpp
+            )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
+        elseif(mirador_module STREQUAL "fusion")
+            # The perception session composes image pipelines with the caches
+            # (design section 5 DAG: image -> fusion <- cache, DEC-013); the
+            # dependency direction towards core abstractions is unchanged.
+            if(NOT MIRADOR_BUILD_IMAGE OR NOT MIRADOR_BUILD_CACHE)
+                message(FATAL_ERROR "MIRADOR_BUILD_FUSION=ON requires MIRADOR_BUILD_IMAGE and MIRADOR_BUILD_CACHE")
+            endif()
+            add_library(mirador_${mirador_module} src/fusion/perception_session.cpp)
+            mirador_apply_warnings(mirador_${mirador_module})
+            target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core mirador::image mirador::cache)
         else()
             add_library(mirador_${mirador_module} INTERFACE)
             target_link_libraries(mirador_${mirador_module} INTERFACE mirador::core)

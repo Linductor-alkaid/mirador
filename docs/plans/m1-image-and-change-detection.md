@@ -256,5 +256,7 @@ GCC/Clang/MSVC/NDK 下编译通过；四个架构测试在全部 job 通过。
 linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、windows msvc/ninja、android
 ndk arm64-v8a、**gcc opencv-adapter**（新增：apt OpenCV 4.x 上适配器构建 + 全量
 ctest）、lint（开启适配器后 compile db 覆盖 adapters/）。适配器随 PR 在 GCC/Clang/
-MSVC/NDK 下编译验证（默认 OFF 的核心构建不受影响）。M1 里程碑状态置为 Complete；
-发布点 `v0.1.0-beta.1` 待发布流程启动。
+MSVC/NDK 下编译验证（默认 OFF 的核心构建不受影响）。M1 里程碑状态置为 Complete。
+
+2026-09-14：发布点 `v0.1.0-beta.1` 发布（经用户授权的发布流程）：tag 打在 PR #5 合并
+提交（M1 收尾点），GitHub Pre-release，发布说明见 CHANGELOG 对应版本段。

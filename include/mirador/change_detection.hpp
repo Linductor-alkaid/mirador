@@ -2,9 +2,9 @@
 #define MIRADOR_CHANGE_DETECTION_HPP
 
 #include <mirador/geometry.hpp>
+#include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/result.hpp>
-#include <mirador/status.hpp>
 
 #include <cstdint>
 #include <vector>
@@ -27,6 +27,10 @@ enum class ChangeReason : uint8_t {
     kFingerprintEarlyExit,
     /// Layer 2: the decision comes from the thumbnail block diff.
     kBlockDiff,
+    /// Stateful consumers only (sessions, M2): no previous signature exists for
+    /// this source yet, so everything counts as changed (classification kGlobal,
+    /// similarity 1.0, no comparison was run).
+    kFirstFrame,
 };
 
 /// Thresholds actually applied during a detection, echoed in every ChangeReport
@@ -112,6 +116,46 @@ struct ChangeReport {
 /// inside the current frame), kBudgetExceeded for internal allocation failure.
 /// Never throws.
 [[nodiscard]] Result<ChangeReport> detect_change(const ImageView& previous, const ImageView& current,
+                                                 const ChangeDetectionParams& params) noexcept;
+
+/// Bounded per-frame state for stateful consumers (design section 18: the
+/// session keeps the previous frame's compact signature, never the full
+/// frame): frame dimensions, the layer-1 dHash fingerprint and the layer-2
+/// square grayscale thumbnail (`params.thumbnail_size` pixels per side, ≤ 64
+/// KiB). Move-only through its ImageBuffer member.
+struct ChangeSignature {
+    /// Presented dimensions of the source view the signature was built from;
+    /// ROI mapping for `detect_change` uses the current signature's values.
+    int32_t frame_width = 0;
+    int32_t frame_height = 0;
+    uint64_t fingerprint = 0;
+    /// Grayscale comparison thumbnail (kGray8, square, tight stride).
+    ImageBuffer thumbnail;
+};
+
+/// Builds the compact signature of one frame with the same layer semantics as
+/// `detect_change` (fingerprint + square gray thumbnail). Parameter ranges
+/// involving `thumbnail_size`/`block_size` are validated here so any signature
+/// is usable later; ignored regions are a detection-time concern and are not
+/// checked.
+///
+/// Errors: kInvalidArgument for invalid views or out-of-range parameters,
+/// kBudgetExceeded for internal allocation failure. Never throws.
+[[nodiscard]] Result<ChangeSignature> make_change_signature(const ImageView& frame,
+                                                            const ChangeDetectionParams& params) noexcept;
+
+/// Layered change detection between two previously built signatures. Bit-identical
+/// to the view-based `detect_change` on the same frames: the comparison grid comes
+/// from the signatures' stored thumbnails (both must share one thumbnail size,
+/// otherwise kInvalidArgument), so `params.thumbnail_size` is unused here, and
+/// `params.block_size` must fit that stored size. ROIs refer to the current
+/// signature's frame dimensions.
+///
+/// Errors: kInvalidArgument for out-of-range thresholds, block_size larger than
+/// the signatures' thumbnail, mismatched thumbnail sizes or ignored regions not
+/// inside the current frame; kBudgetExceeded for internal allocation failure.
+/// Never throws.
+[[nodiscard]] Result<ChangeReport> detect_change(const ChangeSignature& previous, const ChangeSignature& current,
                                                  const ChangeDetectionParams& params) noexcept;
 
 }  // namespace mirador
