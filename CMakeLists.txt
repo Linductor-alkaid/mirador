@@ -90,6 +90,7 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
             add_library(mirador_${mirador_module}
                 src/cache/frame_cache.cpp
                 src/cache/capability_cache.cpp
+                src/cache/visual_index.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
