@@ -5,8 +5,14 @@
 
 ## [Unreleased]
 
-M3「传统视觉、检测/OCR 通用组件与视觉索引」实现完成（分支
-`feat/m3-traditional-vision-and-index`，跨平台 CI 证据回填后随 `v0.1.0-beta.3` 发布）。
+无。
+
+## [0.1.0-beta.3] - 2026-09-15
+
+M3「传统视觉、检测/OCR 通用组件与视觉索引」全部工作项落地：`mirador::geometry`
+线段能力、`mirador::image` 检测/OCR 通用组件与 `mirador::cache` 有界视觉索引，
+集成方式与组件契约冻结于 `DEC-009`/`DEC-014`
+（[PR #8](https://github.com/Linductor-alkaid/mirador/pull/8)，CI 10/10 全绿）。
 
 ### 新增
 
