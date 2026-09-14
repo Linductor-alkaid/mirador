@@ -66,3 +66,9 @@ mirador_add_test(
     SOURCES crop_refine_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.patch_fingerprint
+    SOURCES patch_fingerprint_test.cpp
+    LIBS mirador::image
+    LABELS unit)
