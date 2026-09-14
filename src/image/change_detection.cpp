@@ -107,9 +107,12 @@ int64_t region_diff_sum(const ImageView& previous, const ImageView& current, int
 
 /// Marks every non-ignored block whose mean absolute luma difference reaches the
 /// threshold (integer-exact: sum >= threshold * count); returns the number of
-/// marked blocks.
-int64_t mark_changed_blocks(const ImageView& previous, const ImageView& current, const ChangeDetectionParams& params,
-                            int32_t blocks_side, std::vector<uint8_t>& changed) {
+/// marked blocks. `frame_width`/`frame_height` are the current frame's presented
+/// dimensions (the thumbnails are `thumbnail_size` squares; the block rects used
+/// for the ignore check live in frame space).
+int64_t mark_changed_blocks(const ImageView& previous_thumbnail, const ImageView& current_thumbnail,
+                            const ChangeDetectionParams& params, int32_t blocks_side, int32_t frame_width,
+                            int32_t frame_height, std::vector<uint8_t>& changed) {
     const int32_t thumbnail_size = params.thumbnail_size;
     const int32_t block_size = params.block_size;
     int64_t changed_blocks = 0;
@@ -119,12 +122,12 @@ int64_t mark_changed_blocks(const ImageView& previous, const ImageView& current,
             const int32_t y0 = by * block_size;
             const int32_t x1 = std::min(x0 + block_size, thumbnail_size);
             const int32_t y1 = std::min(y0 + block_size, thumbnail_size);
-            const RectI block_rect = frame_rect_for_span(x0, x1, y0, y1, current.width, current.height, thumbnail_size);
+            const RectI block_rect = frame_rect_for_span(x0, x1, y0, y1, frame_width, frame_height, thumbnail_size);
             if (is_ignored(block_rect, params.ignored_regions)) {
                 continue;
             }
             const auto pixels = static_cast<int64_t>(y1 - y0) * static_cast<int64_t>(x1 - x0);
-            if (region_diff_sum(previous, current, x0, y0, x1, y1) >=
+            if (region_diff_sum(previous_thumbnail, current_thumbnail, x0, y0, x1, y1) >=
                 static_cast<int64_t>(params.block_diff_threshold) * pixels) {
                 changed[static_cast<size_t>(by) * blocks_side + bx] = 1;
                 ++changed_blocks;
@@ -251,8 +254,8 @@ Result<ChangeReport> detect_change(const ImageView& previous, const ImageView& c
         const auto block_count = static_cast<size_t>(blocks_side) * static_cast<size_t>(blocks_side);
         std::vector<uint8_t> changed(block_count, 0);
         std::vector<uint8_t> visited(block_count, 0);
-        const int64_t changed_blocks =
-            mark_changed_blocks(previous_buffer.view(), current_buffer.view(), params, blocks_side, changed);
+        const int64_t changed_blocks = mark_changed_blocks(previous_buffer.view(), current_buffer.view(), params,
+                                                           blocks_side, current.width, current.height, changed);
         append_component_rects(changed, visited, blocks_side, params, current.width, current.height,
                                report.changed_regions);
 

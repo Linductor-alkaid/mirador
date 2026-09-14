@@ -292,6 +292,33 @@ TEST(DetectChange, Nv12LumaChangeIsDetected) {
     EXPECT_EQ(report.value().changed_regions[0], (RectI{16, 24, 16, 16}));
 }
 
+TEST(DetectChange, IgnoredRegionsUseFrameCoordinatesOnScaledFrames) {
+    // Regression: the ignore check must compare frame-space block rects against
+    // frame-space regions even when the frame is larger than the thumbnail
+    // (320x240 frame, 64x64 thumbnail, 40x30-frame-pixel blocks).
+    RgbaImage previous = make_rgba(320, 240, int64_t{320} * 4, 30);
+    RgbaImage current = make_rgba(320, 240, int64_t{320} * 4, 30);
+    fill_rgba_rect(current, RectI{120, 90, 80, 60}, 230);
+
+    ChangeDetectionParams params;
+    params.fingerprint_similarity_threshold = 1.0;
+    params.ignored_regions.push_back(RectI{80, 60, 160, 120});  // exactly blocks (2..5, 2..5)
+
+    const auto suppressed = detect_change(previous.view, current.view, params);
+    ASSERT_TRUE(suppressed.ok());
+    EXPECT_EQ(suppressed.value().classification, ChangeClassification::kNone);
+    EXPECT_TRUE(suppressed.value().changed_regions.empty());
+
+    fill_rgba_rect(current, RectI{120, 90, 80, 60}, 30);   // restore the background
+    fill_rgba_rect(current, RectI{240, 60, 40, 30}, 230);  // outside the ignored region
+
+    const auto detected = detect_change(previous.view, current.view, params);
+    ASSERT_TRUE(detected.ok());
+    EXPECT_EQ(detected.value().classification, ChangeClassification::kPartial);
+    ASSERT_EQ(detected.value().changed_regions.size(), 1U);
+    EXPECT_EQ(detected.value().changed_regions[0], (RectI{240, 60, 40, 30}));
+}
+
 TEST(DetectChange, RejectsInvalidViewsAndParameters) {
     const GrayImage frame = make_gray(64, 64, 64, 0);
     const ChangeDetectionParams defaults;

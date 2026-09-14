@@ -119,10 +119,13 @@ int main() {
     fill_rect(partial, RectI{160, 120, 320, 240}, 250);
     const BenchImage rotated = make_frame(true);
     BenchImage animated = make_frame(false);
-    fill_rect(animated, RectI{880, 520, 160, 120}, 250);
+    // Block-aligned on 1280x720 with the default grid: blocks are 160x90 frame
+    // pixels, so the ignored region fully covers the animation's blocks.
+    fill_rect(animated, RectI{840, 480, 240, 120}, 250);
 
     ChangeDetectionParams ignored_params;
-    ignored_params.ignored_regions.push_back(RectI{840, 480, 240, 200});
+    ignored_params.fingerprint_similarity_threshold = 1.0;  // force the block layer
+    ignored_params.ignored_regions.push_back(RectI{800, 450, 320, 180});
 
     std::printf("detect_change %dx%d RGBA, %d iterations after %d warmups\n", kWidth, kHeight, kIterations, kWarmups);
     run_scenario("unchanged", base.view, identical.view, ChangeDetectionParams{});
