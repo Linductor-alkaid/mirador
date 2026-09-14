@@ -6,7 +6,8 @@
 ## [Unreleased]
 
 M1「基础图像与变化检测」（发布点 `v0.1.0-beta.1`）全部工作项已落地。
-M2「Backend SPI 与能力结果缓存」（发布点 `v0.1.0-beta.2`）进行中。
+M2「Backend SPI 与能力结果缓存」（发布点 `v0.1.0-beta.2`）全部工作项已落地
+（[PR #6](https://github.com/Linductor-alkaid/mirador/pull/6)，CI 全绿）。
 
 ### 新增
 

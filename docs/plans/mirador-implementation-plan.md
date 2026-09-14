@@ -13,8 +13,9 @@ M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项
 绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、
 GoogleTest v1.18.0、三平台 CI 已冻结，发布说明见 [CHANGELOG](../../CHANGELOG.md)。
 M1「基础图像与变化检测」已完成（2026-09-14，PR #3/#4/#5 合入，跨平台 CI 全绿；发布点
-`v0.1.0-beta.1` 待发布流程启动）。M2「Backend SPI 与能力结果缓存」已启动（2026-09-14），
-里程碑文档见 [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md)。
+`v0.1.0-beta.1` 待发布流程启动）。M2「Backend SPI 与能力结果缓存」已完成（2026-09-14，PR #6 CI 全绿；工作项与退出
+条件全部通过，里程碑文档见 [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md)，
+发布点 `v0.1.0-beta.2` 待发布流程启动）。
 整体路线沿用设计文档第 24 节的 M0-M5。
 
 ## 交付边界
@@ -82,7 +83,7 @@ M1「基础图像与变化检测」已完成（2026-09-14，PR #3/#4/#5 合入�
 | --- | --- | --- | --- | --- | --- |
 | M0 | 边界与骨架 | — | `v0.1.0-alpha` | Completed | [m0-boundary-and-skeleton.md](m0-boundary-and-skeleton.md) |
 | M1 | 基础图像与变化检测 | M0 | `v0.1.0-beta.1` | Completed | [m1-image-and-change-detection.md](m1-image-and-change-detection.md) |
-| M2 | Backend SPI 与能力结果缓存 | M1 | `v0.1.0-beta.2` | In Progress | [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md) |
+| M2 | Backend SPI 与能力结果缓存 | M1 | `v0.1.0-beta.2` | Completed | [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md) |
 | M3 | 传统视觉与视觉索引 | M2 | `v0.1.0-beta.3` | Planned | 启动时创建 |
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Planned | 启动时创建 |
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Planned | 启动时创建 |
@@ -95,7 +96,7 @@ M1「基础图像与变化检测」已完成（2026-09-14，PR #3/#4/#5 合入�
 | 编号 | 主题 | 暂定默认值 | 负责人 | 最迟冻结 |
 | --- | --- | --- | --- | --- |
 | [DEC-007](../decisions/DEC-007-multiplane-image-representation.md) | NV12 等多平面格式表示 | 扩展 `ImagePlane`，不假定单连续平面（M0-03 已按草案实现） | linductor | M1 |
-| `DEC-008` | 缓存默认字节预算 | 帧 4 MiB、能力结果 16 MiB（参照设计 §25 示例）；M2 随 `PerceptionSession` 落地冻结 | linductor | M2 |
+| `DEC-008` | 缓存默认字节预算 | 已冻结：帧 4 MiB、能力结果 16 MiB（见 [DEC-008](../decisions/DEC-008-cache-default-byte-budgets.md)） | linductor | M2 |
 | `DEC-009` | ELSED 集成方式 | 源码引入可选模块并完成许可证审查 | linductor | M3 |
 | `DEC-010` | 稳定 ID 匹配算法 | 门控后贪心匹配起步 | linductor | M4 |
 | `DEC-011` | 基准设备清单 | 设计 §20 三平台中端代表设备 | linductor | M5 |

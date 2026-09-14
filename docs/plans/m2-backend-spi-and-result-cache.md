@@ -1,6 +1,6 @@
 # M2：Backend SPI 与能力结果缓存
 
-> 状态：In Progress
+> 状态：Complete
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M1
@@ -63,7 +63,7 @@ Fake Backend 端到端测试；无 runtime 示例更新。
 - [x] `M2-06` 无 runtime 示例与文档同步：示例演示"提交帧 → 变化检测 → Fake/桩 Backend
   执行 → 缓存命中"，公共 API 纳入编译验证；设计文档、README、CHANGELOG、`DEC-008`/
   `DEC-012`/`DEC-013` 同步。
-- [ ] `M2-07` 里程碑收尾：全 Linux 预设矩阵与 lint 通过、跨平台 CI 证据回填、验证记录
+- [x] `M2-07` 里程碑收尾：全 Linux 预设矩阵与 lint 通过、跨平台 CI 证据回填、验证记录
   与计划状态更新。
 
 ## 风险与阻塞
@@ -79,21 +79,21 @@ Fake Backend 端到端测试；无 runtime 示例更新。
 
 ## 测试与退出条件
 
-- [ ] 全部 6 个 Linux 预设（debug/release/warnings/asan/ubsan/tsan）配置、构建、ctest
+- [x] 全部 6 个 Linux 预设（debug/release/warnings/asan/ubsan/tsan）配置、构建、ctest
   通过；触及文件 `clang-format`/`clang-tidy` 无告警。
-- [ ] 缓存键：`RULE-07` 每个字段单独变化产生不同摘要；相同字段跨进程内稳定一致。
-- [ ] 缓存预算与失效：LRU 淘汰顺序、替换旧值失效、单条目超预算显式错误且缓存不变；
+- [x] 缓存键：`RULE-07` 每个字段单独变化产生不同摘要；相同字段跨进程内稳定一致。
+- [x] 缓存预算与失效：LRU 淘汰顺序、替换旧值失效、单条目超预算显式错误且缓存不变；
   `kRefresh` 绕过读取、`kReadOnly` 不写入（负向路径，不只验证命中，`DOD-04`）。
-- [ ] 会话闭环：Fake Backend 下提交帧 → `analyze_change` → `run_ocr`/`run_detector`
+- [x] 会话闭环：Fake Backend 下提交帧 → `analyze_change` → `run_ocr`/`run_detector`
   全链路通过；第二次相同请求命中缓存（Fake 调用计数不变）。
-- [ ] 坐标恢复：0/90/180/270 方向、非连续 stride、奇数尺寸、ROI 裁剪与 `max_side`
+- [x] 坐标恢复：0/90/180/270 方向、非连续 stride、奇数尺寸、ROI 裁剪与 `max_side`
   缩放组合下，恢复坐标与解析期望在容差内一致（`DOD-03` 矩阵）。
-- [ ] 取消与超时：`is_cancelled` 与过期 deadline 分别显式报 `kCancelled`/`kTimeout`，
+- [x] 取消与超时：`is_cancelled` 与过期 deadline 分别显式报 `kCancelled`/`kTimeout`，
   不静默吞掉；Backend 缺失/信息非法报 `kBackendUnavailable`，格式不可达报
   `kUnsupportedFormat`。
-- [ ] 架构测试演进后：fusion 链接闭包仅 core+image+cache + 标准库；公共头与 `src/`
+- [x] 架构测试演进后：fusion 链接闭包仅 core+image+cache + 标准库；公共头与 `src/`
   无第三方与线程令牌；CI 全部 job 运行。
-- [ ] `DEC-008`/`DEC-012`/`DEC-013` 冻结为 Accepted；设计文档 §9/§13/§18 与示例同步。
+- [x] `DEC-008`/`DEC-012`/`DEC-013` 冻结为 Accepted；设计文档 §9/§13/§18 与示例同步。
 
 ## 验证记录
 
@@ -137,3 +137,12 @@ Fake Backend 端到端测试；无 runtime 示例更新。
     kGlobal/kFirstFrame、缓存 1 条目 169 字节、kRefresh 覆盖）。
 - 限制：跨平台编译证据待 CI 运行回填（`M2-07`）；变化检测基准入口在 release 构建中
   可运行，本里程碑未新增性能声明。
+
+2026-09-14：`M2-01`~`M2-07` 跨平台编译证据回填，里程碑状态置为 Complete。GitHub
+Actions run `34810114741`（[PR #6](https://github.com/Linductor-alkaid/mirador/pull/6)）
+10/10 job success：linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、gcc
+opencv-adapter、windows msvc/ninja、android ndk arm64-v8a、clang-format/clang-tidy lint。
+SPI/cache/session 公共头在 GCC、Clang、MSVC 下编译通过，NDK arm64-v8a 交叉编译通过；
+架构测试（source_scan、link_closure、link_closure_image、link_closure_cache、
+link_closure_fusion）在全部 job 通过。发布点 `v0.1.0-beta.2` 待发布流程启动（PR #6 待
+评审合并，合并需用户授权）。
