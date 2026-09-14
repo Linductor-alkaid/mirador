@@ -28,6 +28,11 @@ struct RectI {
     int32_t y = 0;
     int32_t width = 0;
     int32_t height = 0;
+
+    /// Component-wise equality.
+    [[nodiscard]] friend bool operator==(const RectI& lhs, const RectI& rhs) noexcept {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width && lhs.height == rhs.height;
+    }
 };
 
 /// True when the rectangle has a non-negative size and its right/bottom edges
