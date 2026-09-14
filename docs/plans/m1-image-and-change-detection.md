@@ -187,3 +187,12 @@ commit `15784a2`..`3c113ea`）。
   改为块对齐并强制第二层后输出分类 none，与场景语义一致。
 - 限制：跨平台编译证据待 CI 运行回填；M1-09（OpenCV 适配）受本机环境限制未开始，
   按 RISK-2026-06 保持未勾选。
+
+2026-09-14：`M1-06`~`M1-08` 跨平台编译证据回填。GitHub Actions run
+`34797361637`（[PR #4](https://github.com/Linductor-alkaid/mirador/pull/4)）9/9 job
+success：linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、windows msvc/ninja、
+android ndk arm64-v8a（configure+build）、lint。首轮 run `34796765864` 的 lint job
+抓出新增回归测试中一处 `misc-const-correctness`（本地 tidy 未复跑该文件，已修复并
+以 `git ls-files` 全量格式/lint 门禁复验）；其余 8 job 首轮即绿，架构测试
+（source_scan、link_closure、link_closure_image、link_closure_cache）在全部 job
+通过。
