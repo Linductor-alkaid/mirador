@@ -60,3 +60,9 @@ mirador_add_test(
     SOURCES text_normalize_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.crop_refine
+    SOURCES crop_refine_test.cpp
+    LIBS mirador::image
+    LABELS unit)
