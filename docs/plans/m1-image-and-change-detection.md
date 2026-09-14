@@ -49,13 +49,13 @@
 - [x] `M1-05` dHash 指纹：9×8 灰度 64 位差分哈希、汉明距离与相似度；`fingerprint()`
   组合入口（内部缓冲有界，接受全部六种格式）；同内容不同布局指纹相同、不同内容区分度
   测试。
-- [ ] `M1-06` `ChangeReport` 与 `detect_change` 分层变化检测：指纹早退 → 缩略灰度分块
+- [x] `M1-06` `ChangeReport` 与 `detect_change` 分层变化检测：指纹早退 → 缩略灰度分块
   差分 → 相邻块合并为变化 ROI 并回映原图坐标；输出帧相似度、变化面积比例、ROI 列表、
   阈值与分类（无变化/局部/全局）；支持忽略区域；不变画面零 ROI、局部变化 ROI 精确、
   旋转分类为全局的测试矩阵。
-- [ ] `M1-07` `FrameCache` 帧级有界缓存：字节预算、LRU 淘汰、单条目超预算显式
+- [x] `M1-07` `FrameCache` 帧级有界缓存：字节预算、LRU 淘汰、单条目超预算显式
   `kBudgetExceeded`、键替换与失效路径测试（不只验证命中）。
-- [ ] `M1-08` 变化检测基准入口（`benchmarks/`）：不变画面、局部变化、旋转、动态区域忽略
+- [x] `M1-08` 变化检测基准入口（`benchmarks/`）：不变画面、局部变化、旋转、动态区域忽略
   四场景，确定性合成帧，输出 p50/p95；本机（Linux）首个数字写入验证记录，不做跨平台
   性能声明。
 - [ ] `M1-09` OpenCV 适配（`adapters/opencv`，可选依赖默认关闭）：`cv::Mat` →
@@ -147,3 +147,43 @@ success：linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、windows msvc/ni
 android ndk arm64-v8a（configure+build）、lint。公共头在 GCC、Clang、MSVC 下编译通过，
 NDK arm64-v8a 交叉编译通过；架构测试（source_scan、link_closure、link_closure_image）
 在全部 job 运行通过。
+
+2026-09-14：`M1-06`、`M1-07`、`M1-08` 实施完成（分支 `feat/image-m1-change-cache`，
+commit `15784a2`..`3c113ea`）。
+
+- 落地内容：
+  - `M1-06`：core `RectI` 相等比较；`detect_change`/`ChangeReport` 两层实现（dHash
+    指纹早退 → 64×64 灰度缩略图 8×8 分块整数平均差 → 忽略区域整块覆盖剔除 →
+    8 连通合并回映帧坐标，floor/ceil 保证 ROI 覆盖；none/partial/global 分类）。
+    报告携带帧相似度、变化面积比例、生效阈值、原因与两帧指纹（供会话携带）。
+    内部缓冲固定 512 KiB 预算（RULE-06）；`std::isfinite` 显式拒绝 NaN 阈值。
+  - `M1-07`：`mirador::cache` 转编译目标；`FrameCache` 有界 LRU（uint64 键 →
+    不可变字节载荷），每条目计 payload + 64 B 固定开销（条目数上界可证）；超总预算
+    条目与超预算替换均显式 `kBudgetExceeded` 且缓存状态不变；lookup 晋升、contains
+    不动序；miss 为携带空指针的 ok Result。无锁无线程，属单一会话（同步边界）。
+  - `M1-08`：`benchmarks/` 变化检测基准（非 ctest 目标），1280×720 RGBA 确定性
+    合成场景（无随机），四场景 × 300 次迭代（20 次预热）输出 p50/p95 与分类。
+  - `perf(image)`：基准发现 `resize_area` 内核逐样本重复计算覆盖权重且逐通道重扫，
+    改为按源行/列预计算权重表（覆盖窗口构成划分，每行/列恰一权重）并单趟多通道
+    累积；权重值与原公式相同，输出位精确不变，17 项测试未改动全通过。
+- 本地验证（Ubuntu 24.04 x64，GCC 13.3.0、CMake 3.28.3 + Ninja、
+  clang-format/clang-tidy 18.1.3）：
+  - 全部 6 个 Linux 预设 configure + build + `ctest` 17/17 通过（unit 12、
+    property 1、architecture 4；tsan 经 `setarch "$(uname -m)" -R`）。
+  - 触及文件 `clang-format --dry-run --Werror` 与
+    `clang-tidy --warnings-as-errors='*'` 无告警。
+  - `MIRADOR_BUILD_IMAGE=OFF` + `MIRADOR_BUILD_CACHE=OFF` 构建绿（仅 core）。
+  - 基准数字（release 构建，`./build/release/benchmarks/mirador_bench_change_detection`）：
+    unchanged p50=3.48ms / p95=3.54ms（分类 none，指纹早退）；partial-change
+    p50=7.38ms / p95=7.54ms（partial）；rotation-180 p50=7.38ms / p95=7.51ms（global）；
+    dynamic-ignored p50=7.36ms / p95=7.51ms（none，动画块被忽略区域完整覆盖）。
+    数字仅对本机环境有效，不做跨平台声明；调优前（debug 构建 + 逐样本权重）分别为
+    ~44ms/~108ms，说明内核优化动机。
+- **缺陷记录（基准发现并修复）**：M1-08 基准的 dynamic-ignored 场景暴露
+  `mark_changed_blocks` 将忽略区域检查用的块矩形按缩略图视图尺寸回映（得到缩略图
+  坐标），与帧坐标的忽略区域永不匹配；单测未覆盖"非 64×64 帧 + 忽略区域"组合，
+  ROI 回映测试又未组合忽略区域，故 debug 期未发现。修复为显式传入当前帧尺寸
+  （commit `fix(image)`），并新增 320×240 帧上忽略/检出双向回归测试；基准场景
+  改为块对齐并强制第二层后输出分类 none，与场景语义一致。
+- 限制：跨平台编译证据待 CI 运行回填；M1-09（OpenCV 适配）受本机环境限制未开始，
+  按 RISK-2026-06 保持未勾选。
