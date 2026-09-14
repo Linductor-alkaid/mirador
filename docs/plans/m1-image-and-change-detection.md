@@ -211,3 +211,9 @@ android ndk arm64-v8a（configure+build）、lint。首轮 run `34796765864` 的
 - 限制：M1 里程碑仅余 `M1-09`（OpenCV 适配，RISK-2026-06：本机无 OpenCV 环境，
   补跑条件：具备 OpenCV 开发包的 Linux 或 Windows 环境，启用 `adapters/opencv`
   构建并运行其测试矩阵）；示例/基准的跨平台编译证据随本分支 CI 回填。
+
+2026-09-14：`M1-06`~`M1-08`、`M1-10` 跨平台编译证据回填。GitHub Actions run
+`34798092058`（[PR #4](https://github.com/Linductor-alkaid/mirador/pull/4)，含示例与
+文档提交）9/9 job success：linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、
+windows msvc/ninja、android ndk arm64-v8a（configure+build）、lint。示例与基准在
+GCC/Clang/MSVC/NDK 下编译通过；四个架构测试在全部 job 通过。
