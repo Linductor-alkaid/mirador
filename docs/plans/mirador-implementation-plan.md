@@ -12,11 +12,12 @@
 M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项与退出条件通过，CI 9/9
 绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、
 GoogleTest v1.18.0、三平台 CI 已冻结，发布说明见 [CHANGELOG](../../CHANGELOG.md)。
-M1「基础图像与变化检测」已完成（2026-09-14，PR #3/#4/#5 合入，跨平台 CI 全绿；发布点
-`v0.1.0-beta.1` 待发布流程启动）。M2「Backend SPI 与能力结果缓存」已完成（2026-09-14，PR #6 CI 全绿；工作项与退出
-条件全部通过，里程碑文档见 [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md)，
-发布点 `v0.1.0-beta.2` 待发布流程启动）。
-整体路线沿用设计文档第 24 节的 M0-M5。
+M1「基础图像与变化检测」已完成并发布 `v0.1.0-beta.1`（PR #3/#4/#5 合入，tag 打在
+PR #5 合并提交）。M2「Backend SPI 与能力结果缓存」已完成并发布 `v0.1.0-beta.2`
+（2026-09-14，PR #6 经用户授权合入，CI 两次 run 全绿；里程碑文档见
+[m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md)，tag 打在
+PR #6 合并提交）。下一里程碑 M3「传统视觉与视觉索引」待启动。整体路线沿用设计文档
+第 24 节的 M0-M5。
 
 ## 交付边界
 

@@ -144,5 +144,9 @@ Actions run `34810114741`（[PR #6](https://github.com/Linductor-alkaid/mirador/
 opencv-adapter、windows msvc/ninja、android ndk arm64-v8a、clang-format/clang-tidy lint。
 SPI/cache/session 公共头在 GCC、Clang、MSVC 下编译通过，NDK arm64-v8a 交叉编译通过；
 架构测试（source_scan、link_closure、link_closure_image、link_closure_cache、
-link_closure_fusion）在全部 job 通过。发布点 `v0.1.0-beta.2` 待发布流程启动（PR #6 待
-评审合并，合并需用户授权）。
+link_closure_fusion）在全部 job 通过。
+
+2026-09-14：PR #6 经用户授权合并（merge commit），发布点 `v0.1.0-beta.2` 发布：tag 打在
+PR #6 合并提交，GitHub Pre-release，发布说明见 CHANGELOG 对应版本段。`v0.1.0-beta.1`
+同批补齐发布（tag 打在 PR #5 合并提交，即 M1 收尾点）。M2 全部工作项、退出条件与
+发布点均已闭合。

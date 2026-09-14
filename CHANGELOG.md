@@ -5,9 +5,13 @@
 
 ## [Unreleased]
 
-M1「基础图像与变化检测」（发布点 `v0.1.0-beta.1`）全部工作项已落地。
-M2「Backend SPI 与能力结果缓存」（发布点 `v0.1.0-beta.2`）全部工作项已落地
-（[PR #6](https://github.com/Linductor-alkaid/mirador/pull/6)，CI 全绿）。
+无。
+
+## [0.1.0-beta.2] - 2026-09-14
+
+M2「Backend SPI 与能力结果缓存」：Backend SPI 契约冻结（`DEC-012`）、能力结果缓存
+与 `PerceptionSession` 感知闭环（`DEC-013`）全部工作项落地
+（[PR #6](https://github.com/Linductor-alkaid/mirador/pull/6)，CI 10/10 全绿）。
 
 ### 新增
 
@@ -28,6 +32,22 @@ M2「Backend SPI 与能力结果缓存」（发布点 `v0.1.0-beta.2`）全部�
   读/写/强制刷新缓存策略、取消与 deadline 显式报错）；无 runtime 示例
   `perception_session_tour` 纳入默认构建。
 
+### 兼容性影响
+
+- 全部为增量公共 API；M0/M1 既有 API 不变（`ChangeReason` 枚举新增 `kFirstFrame` 值，
+  视图版 `detect_change` 行为与成本语义不变）。
+- 公共头在 GCC、Clang、MSVC 下编译通过；Android NDK arm64-v8a 交叉编译通过。
+- `MIRADOR_BUILD_FUSION=ON` 现要求 `MIRADOR_BUILD_IMAGE` 与 `MIRADOR_BUILD_CACHE`
+  同时开启（configure 时校验）。
+- 已知限制：NDK 侧仍仅 configure/build 验证，设备侧测试按计划在 M5 补跑；ncnn/ONNX
+  Runtime 示例适配（`POST-05`）按触发条件延后。
+
+## [0.1.0-beta.1] - 2026-09-14
+
+M1「基础图像与变化检测」：`mirador::image` 落地 CPU 基础图像操作与分层变化检测，
+为"低负载"建立首个可量化闭环（PR #3/#4/#5，CI 全绿）。
+
+### 新增
 - 可选 OpenCV 适配器 `mirador::adapters::opencv`（M1-09，`MIRADOR_BUILD_ADAPTERS_OPENCV`
   默认关闭）：`cv::Mat` → 非拥有 `ImageView` 包装（CV_8UC1/3/4 按 OpenCV 通道语义映射，
   stride 感知，ROI Mat 支持）与 NV12 约定布局（`height + ceil(height/2)` 行 CV_8UC1）
@@ -54,6 +74,11 @@ M2「Backend SPI 与能力结果缓存」（发布点 `v0.1.0-beta.2`）全部�
 
 - `resize_area` 覆盖权重改为按源行/列预计算，输出位精确不变，720p 检测路径约 3 倍
   提速（本机 release 数字）。
+
+### 兼容性影响
+
+- 已知限制：变化检测基准数字依赖运行机器，不做跨平台比较；OpenCV 适配器的
+  Windows/macOS 编译证据待具备环境时补跑（Linux 本地 + CI 已验证）。
 
 ## [0.1.0-alpha] - 2026-09-14
 
