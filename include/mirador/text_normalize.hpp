@@ -1,7 +1,6 @@
 #ifndef MIRADOR_TEXT_NORMALIZE_HPP
 #define MIRADOR_TEXT_NORMALIZE_HPP
 
-#include <mirador/geometry.hpp>
 #include <mirador/ocr_backend.hpp>
 #include <mirador/result.hpp>
 
@@ -41,18 +40,18 @@ struct LineMergeParams {
 /// decoded for classification and invalid bytes pass through unchanged;
 /// non-transformed code points keep their original bytes. Unicode NFC/NFKC is
 /// explicitly out of scope.
-enum class TextNormalizeFlags : uint32_t {
+enum class TextNormalizeFlags : uint8_t {
     kNone = 0,
     /// Strip leading/trailing ASCII whitespace. Fold U+3000 first with
     /// kFoldFullwidthAscii when ideographic spaces matter.
-    kTrim = 1u << 0,
+    kTrim = 1U << 0,
     /// Fold internal ASCII whitespace runs to a single space.
-    kCollapseWhitespace = 1u << 1,
+    kCollapseWhitespace = 1U << 1,
     /// Remove C0 control characters except \t, \n, \r, plus DEL and C1.
-    kStripControl = 1u << 2,
+    kStripControl = 1U << 2,
     /// Fold fullwidth ASCII forms U+FF01..FF5E to U+0021..U+007E and
     /// U+3000 (ideographic space) to a plain space.
-    kFoldFullwidthAscii = 1u << 3,
+    kFoldFullwidthAscii = 1U << 3,
 };
 
 [[nodiscard]] std::string normalize_text(std::string_view text, uint32_t flags);

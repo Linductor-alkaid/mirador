@@ -1,8 +1,15 @@
+#include <cstddef>
+#include <cstdint>
 #include <mirador/detection_postprocess.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <span>
+#include <vector>
+#include "mirador/detector_backend.hpp"
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
 
 namespace mirador {
 namespace {
@@ -10,6 +17,32 @@ namespace {
 bool is_finite(const DetectionRegion& region) noexcept {
     return std::isfinite(region.bounds.x) && std::isfinite(region.bounds.y) && std::isfinite(region.bounds.width) &&
            std::isfinite(region.bounds.height) && std::isfinite(region.confidence);
+}
+
+[[nodiscard]] Status validate_regions(std::span<const DetectionRegion> regions) noexcept {
+    for (const DetectionRegion& region : regions) {
+        if (!is_finite(region)) {
+            return {ErrorCode::kInvalidArgument, "detections must carry finite coordinates"};
+        }
+    }
+    return Status::success();
+}
+
+/// Marks every unconsumed candidate suppressed by the just-kept proposal.
+void suppress_overlaps(std::span<const DetectionRegion> regions, std::span<const size_t> order, size_t kept_index,
+                       std::vector<bool>& suppressed, const NmsParams& params) noexcept {
+    for (const size_t j : order) {
+        if (j == kept_index || suppressed[j]) {
+            continue;
+        }
+        if (params.class_aware && regions[j].class_id != regions[kept_index].class_id) {
+            continue;
+        }
+        if (intersection_over_union(regions[kept_index].bounds, regions[j].bounds) >
+            static_cast<double>(params.iou_threshold)) {
+            suppressed[j] = true;
+        }
+    }
 }
 
 }  // namespace
@@ -37,10 +70,8 @@ Result<std::vector<DetectionRegion>> nms(std::span<const DetectionRegion> region
     if (params.max_output < 0) {
         return Status(ErrorCode::kInvalidArgument, "max_output must be non-negative");
     }
-    for (const DetectionRegion& region : regions) {
-        if (!is_finite(region)) {
-            return Status(ErrorCode::kInvalidArgument, "detections must carry finite coordinates");
-        }
+    if (const Status invalid = validate_regions(regions); !invalid.ok()) {
+        return invalid;
     }
 
     std::vector<size_t> order(regions.size());
@@ -64,18 +95,7 @@ Result<std::vector<DetectionRegion>> nms(std::span<const DetectionRegion> region
             break;
         }
         kept.push_back(regions[i]);
-        for (const size_t j : order) {
-            if (j == i || suppressed[j]) {
-                continue;
-            }
-            if (params.class_aware && regions[j].class_id != regions[i].class_id) {
-                continue;
-            }
-            if (intersection_over_union(regions[i].bounds, regions[j].bounds) >
-                static_cast<double>(params.iou_threshold)) {
-                suppressed[j] = true;
-            }
-        }
+        suppress_overlaps(regions, order, i, suppressed, params);
     }
     return kept;
 }
@@ -85,10 +105,8 @@ Result<std::vector<DetectionRegion>> filter_detections(std::span<const Detection
     if (!std::isfinite(params.min_confidence) || params.min_confidence < 0.0F) {
         return Status(ErrorCode::kInvalidArgument, "min_confidence must be a finite non-negative value");
     }
-    for (const DetectionRegion& region : regions) {
-        if (!is_finite(region)) {
-            return Status(ErrorCode::kInvalidArgument, "detections must carry finite coordinates");
-        }
+    if (const Status invalid = validate_regions(regions); !invalid.ok()) {
+        return invalid;
     }
 
     const auto keeps_class = [&params](int32_t class_id) {

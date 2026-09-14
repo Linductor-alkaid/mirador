@@ -1,13 +1,18 @@
+#include <cstddef>
 #include <mirador/patch_fingerprint.hpp>
 
 #include <mirador/color_convert.hpp>
 #include <mirador/fingerprint.hpp>
 #include <mirador/resize.hpp>
 
-#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include "mirador/image_view.hpp"
+#include "mirador/pixel_format.hpp"
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
+#include "mirador/visual_fingerprint.hpp"
 
 namespace mirador {
 namespace {
@@ -56,7 +61,7 @@ Result<VisualPatchFingerprint> make_visual_patch_fingerprint(const ImageView& pa
     VisualPatchFingerprint result;
     result.thumb_width = params.thumb_side;
     result.thumb_height = params.thumb_side;
-    const size_t bytes = static_cast<size_t>(thumb_bytes);
+    const auto bytes = static_cast<size_t>(thumb_bytes);
     result.thumbnail_gray.resize(bytes);
     std::memcpy(result.thumbnail_gray.data(), thumbnail.data(), bytes);
     result.content_hash = fnv1a_64(result.thumbnail_gray.data(), bytes);

@@ -1,12 +1,19 @@
+#include <cstddef>
 #include <mirador/line_detector.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
+#include <span>
+#include <vector>
+#include "mirador/geometry.hpp"
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
 
 namespace mirador {
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
+constexpr double kPi = std::numbers::pi;
 
 /// True when the value is a finite number (filters and merges reject NaN/inf
 /// coordinates as invalid input rather than propagating them silently).
@@ -118,6 +125,30 @@ struct Interval {
     return merged;
 }
 
+/// Angle window test with wrap-around through the 0/180 seam when the window
+/// bounds are reversed.
+[[nodiscard]] bool angle_in_window(double angle, const LineFilterParams& params) noexcept {
+    if (params.min_angle_deg <= params.max_angle_deg) {
+        return angle >= params.min_angle_deg && angle <= params.max_angle_deg;
+    }
+    return angle >= params.min_angle_deg || angle <= params.max_angle_deg;
+}
+
+/// Every active bound of `params` must hold for the segment to be kept.
+[[nodiscard]] bool passes_filter(const LineSegment& segment, const LineFilterParams& params) noexcept {
+    const double length = segment_length(segment);
+    if (params.min_length > 0.0 && length < params.min_length) {
+        return false;
+    }
+    if (params.max_length > 0.0 && length > params.max_length) {
+        return false;
+    }
+    if (!angle_in_window(segment_angle_deg(segment), params)) {
+        return false;
+    }
+    return params.min_confidence <= 0.0F || segment.confidence >= params.min_confidence;
+}
+
 }  // namespace
 
 double segment_length(const LineSegment& segment) noexcept {
@@ -139,49 +170,88 @@ double segment_angle_deg(const LineSegment& segment) noexcept {
     return degrees;
 }
 
-Result<std::vector<LineSegment>> filter_segments(std::span<const LineSegment> segments,
-                                                 const LineFilterParams& params) {
+namespace {
+
+[[nodiscard]] Status validate_filter_params(const LineFilterParams& params) noexcept {
     if (!std::isfinite(params.min_length) || !std::isfinite(params.max_length) ||
         !std::isfinite(params.min_angle_deg) || !std::isfinite(params.max_angle_deg) ||
         !std::isfinite(static_cast<double>(params.min_confidence))) {
-        return Status(ErrorCode::kInvalidArgument, "filter bounds must be finite");
+        return {ErrorCode::kInvalidArgument, "filter bounds must be finite"};
     }
     if (params.min_length < 0.0 || params.max_length < 0.0) {
-        return Status(ErrorCode::kInvalidArgument, "length bounds must be non-negative");
+        return {ErrorCode::kInvalidArgument, "length bounds must be non-negative"};
     }
     if (params.min_angle_deg < 0.0 || params.max_angle_deg > 180.0) {
-        return Status(ErrorCode::kInvalidArgument, "angle bounds must lie in [0, 180]");
+        return {ErrorCode::kInvalidArgument, "angle bounds must lie in [0, 180]"};
     }
     if (params.min_confidence < 0.0F || params.min_confidence > 1.0F) {
-        return Status(ErrorCode::kInvalidArgument, "min_confidence must lie in [0, 1]");
+        return {ErrorCode::kInvalidArgument, "min_confidence must lie in [0, 1]"};
     }
+    return Status::success();
+}
+
+[[nodiscard]] Status validate_merge_params(const CollinearMergeParams& params) noexcept {
+    if (!std::isfinite(params.angle_tolerance_deg) || !std::isfinite(params.distance_tolerance) ||
+        !std::isfinite(params.gap_tolerance)) {
+        return {ErrorCode::kInvalidArgument, "merge tolerances must be finite"};
+    }
+    if (params.angle_tolerance_deg < 0.0 || params.angle_tolerance_deg > 90.0 || params.distance_tolerance < 0.0 ||
+        params.gap_tolerance < 0.0) {
+        return {ErrorCode::kInvalidArgument, "merge tolerances must be non-negative (angle up to 90)"};
+    }
+    return Status::success();
+}
+
+[[nodiscard]] Status validate_segments(std::span<const LineSegment> segments) noexcept {
     for (const LineSegment& segment : segments) {
         if (!is_finite(segment)) {
-            return Status(ErrorCode::kInvalidArgument, "segments must carry finite coordinates");
+            return {ErrorCode::kInvalidArgument, "segments must carry finite coordinates"};
         }
+    }
+    return Status::success();
+}
+
+/// Absorbs every collinear unconsumed segment into the seed until fixpoint.
+/// Marks absorbed entries in `consumed`. Precondition: the seed is not
+/// consumed and has positive length.
+[[nodiscard]] LineSegment absorb_seed(std::span<const LineSegment> segments, size_t seed, std::vector<bool>& consumed,
+                                      const CollinearMergeParams& params) {
+    LineSegment current = segments[seed];
+    bool grew = true;
+    while (grew) {
+        grew = false;
+        for (size_t candidate = 0; candidate < segments.size(); ++candidate) {
+            if (consumed[candidate] || segment_length(segments[candidate]) <= 0.0) {
+                continue;
+            }
+            if (!can_merge(current, segments[candidate], params)) {
+                continue;
+            }
+            current = absorb(current, segments[candidate]);
+            consumed[candidate] = true;
+            grew = true;
+        }
+    }
+    return current;
+}
+
+}  // namespace
+
+Result<std::vector<LineSegment>> filter_segments(std::span<const LineSegment> segments,
+                                                 const LineFilterParams& params) {
+    if (const Status invalid = validate_filter_params(params); !invalid.ok()) {
+        return invalid;
+    }
+    if (const Status invalid = validate_segments(segments); !invalid.ok()) {
+        return invalid;
     }
 
     std::vector<LineSegment> kept;
     kept.reserve(segments.size());
     for (const LineSegment& segment : segments) {
-        const double length = segment_length(segment);
-        if (params.min_length > 0.0 && length < params.min_length) {
-            continue;
+        if (passes_filter(segment, params)) {
+            kept.push_back(segment);
         }
-        if (params.max_length > 0.0 && length > params.max_length) {
-            continue;
-        }
-        const double angle = segment_angle_deg(segment);
-        const bool in_window = params.min_angle_deg <= params.max_angle_deg
-                                   ? angle >= params.min_angle_deg && angle <= params.max_angle_deg
-                                   : angle >= params.min_angle_deg || angle <= params.max_angle_deg;
-        if (!in_window) {
-            continue;
-        }
-        if (params.min_confidence > 0.0F && segment.confidence < params.min_confidence) {
-            continue;
-        }
-        kept.push_back(segment);
     }
     return kept;
 }
@@ -191,18 +261,11 @@ Result<std::vector<LineSegment>> merge_collinear(std::span<const LineSegment> se
     if (segments.size() > kMaxMergeSegments) {
         return Status(ErrorCode::kBudgetExceeded, "too many segments for collinear merge");
     }
-    if (!std::isfinite(params.angle_tolerance_deg) || !std::isfinite(params.distance_tolerance) ||
-        !std::isfinite(params.gap_tolerance)) {
-        return Status(ErrorCode::kInvalidArgument, "merge tolerances must be finite");
+    if (const Status invalid = validate_merge_params(params); !invalid.ok()) {
+        return invalid;
     }
-    if (params.angle_tolerance_deg < 0.0 || params.angle_tolerance_deg > 90.0 || params.distance_tolerance < 0.0 ||
-        params.gap_tolerance < 0.0) {
-        return Status(ErrorCode::kInvalidArgument, "merge tolerances must be non-negative (angle up to 90)");
-    }
-    for (const LineSegment& segment : segments) {
-        if (!is_finite(segment)) {
-            return Status(ErrorCode::kInvalidArgument, "segments must carry finite coordinates");
-        }
+    if (const Status invalid = validate_segments(segments); !invalid.ok()) {
+        return invalid;
     }
 
     std::vector<bool> consumed(segments.size(), false);
@@ -215,23 +278,7 @@ Result<std::vector<LineSegment>> merge_collinear(std::span<const LineSegment> se
         if (segment_length(segments[seed]) <= 0.0) {
             continue;  // zero-length segments are dropped, not merged
         }
-        LineSegment current = segments[seed];
-        bool grew = true;
-        while (grew) {
-            grew = false;
-            for (size_t candidate = 0; candidate < segments.size(); ++candidate) {
-                if (consumed[candidate] || segment_length(segments[candidate]) <= 0.0) {
-                    continue;
-                }
-                if (!can_merge(current, segments[candidate], params)) {
-                    continue;
-                }
-                current = absorb(current, segments[candidate]);
-                consumed[candidate] = true;
-                grew = true;
-            }
-        }
-        merged.push_back(current);
+        merged.push_back(absorb_seed(segments, seed, consumed, params));
     }
     return merged;
 }

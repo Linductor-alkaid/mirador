@@ -2,6 +2,11 @@
 // into the link closure so the NEEDED-entry check covers the whole geometry
 // module, including the LineDetector SPI dispatch through the abstract base.
 #include <mirador/line_detector.hpp>
+#include "mirador/backend_info.hpp"
+#include "mirador/execution_context.hpp"
+#include "mirador/geometry.hpp"
+#include "mirador/image_view.hpp"
+#include "mirador/result.hpp"
 
 namespace {
 
@@ -9,8 +14,9 @@ class ProbeDetector final : public mirador::LineDetector {
 public:
     [[nodiscard]] mirador::BackendInfo info() const override { return {}; }
 
-    mirador::Result<mirador::LineSegmentSet> detect(const mirador::ImageView&, const mirador::LineDetectRequest&,
-                                                    const mirador::ExecutionContext&) override {
+    mirador::Result<mirador::LineSegmentSet> detect(const mirador::ImageView& /*gray*/,
+                                                    const mirador::LineDetectRequest& /*request*/,
+                                                    const mirador::ExecutionContext& /*context*/) override {
         mirador::LineSegmentSet set;
         set.segments.push_back(mirador::LineSegment{{0.0F, 0.0F}, {10.0F, 0.0F}, 1.0F});
         return set;

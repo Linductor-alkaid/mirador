@@ -11,9 +11,13 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
+#include "mirador/backend_info.hpp"
+#include "mirador/geometry.hpp"
+#include "mirador/status.hpp"
+#include "mirador/transform.hpp"
 
 namespace {
 
@@ -29,7 +33,6 @@ using mirador::LineFilterParams;
 using mirador::LineSegment;
 using mirador::LineSegmentSet;
 using mirador::PixelFormat;
-using mirador::RectI;
 using mirador::Result;
 using mirador::Status;
 
@@ -93,7 +96,7 @@ TEST(LineDetectorSpi, InjectsAndDispatchesThroughBasePointer) {
     ASSERT_EQ(info.accepted_formats.size(), 1U);
     ASSERT_EQ(info.accepted_formats[0], PixelFormat::kGray8);
 
-    LineDetectRequest request;
+    LineDetectRequest const request;
     const auto detected = spi->detect(gray_view(), request, ExecutionContext{});
     ASSERT_TRUE(detected.ok());
     ASSERT_EQ(detected.value().space, CoordinateSpaceId::kOriented);

@@ -1,13 +1,18 @@
 // M3-07: unit tests for the text reference components line merge and
 // normalization (design section 13, DEC-014 reference adaptation scope).
 
+#include <cstdint>
 #include <mirador/text_normalize.hpp>
 
 #include <gtest/gtest.h>
 
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
+#include "mirador/geometry.hpp"
+#include "mirador/ocr_backend.hpp"
+#include "mirador/status.hpp"
 
 namespace {
 
@@ -57,7 +62,7 @@ TEST(MergeTextLines, SortsOutputByYThenXAndPreservesInput) {
         make_line(10.0F, 5.0F, 5.0F, 5.0F, "1"),
         make_line(10.0F, 20.0F, 5.0F, 5.0F, "2"),
     };
-    const std::vector<TextRegion> copy = lines;
+    const std::vector<TextRegion>& copy = lines;
     const auto merged = mirador::merge_text_lines(lines, LineMergeParams{});
     ASSERT_TRUE(merged.ok());
     ASSERT_EQ(merged.value().size(), 3U);

@@ -1,6 +1,8 @@
 // M3-04: unit tests for the pixel-space letterbox combinator (design sections
 // 7, 14; DEC-014 reference adaptation scope).
 
+#include <cstddef>
+#include <cstdint>
 #include <mirador/image_buffer.hpp>
 #include <mirador/letterbox.hpp>
 #include <mirador/resize.hpp>
@@ -9,8 +11,12 @@
 
 #include <cmath>
 #include <cstring>
-#include <string>
 #include <vector>
+#include "mirador/geometry.hpp"
+#include "mirador/image_view.hpp"
+#include "mirador/pixel_format.hpp"
+#include "mirador/status.hpp"
+#include "mirador/transform.hpp"
 
 namespace {
 
@@ -21,33 +27,33 @@ using mirador::ImageView;
 using mirador::LetterboxRequest;
 using mirador::PixelFormat;
 using mirador::PointF;
-using mirador::Transform2D;
 
-/// Solid-gradient gray view over its own buffer.
+/// Test-owned gray ramp buffer plus a free projection to a valid view.
 struct GrayImage {
     std::vector<uint8_t> pixels;
     int32_t width = 0;
     int32_t height = 0;
-
-    [[nodiscard]] ImageView view() const {
-        ImageView v;
-        v.data = reinterpret_cast<const std::byte*>(pixels.data());
-        v.width = width;
-        v.height = height;
-        v.row_stride_bytes = width;
-        v.format = PixelFormat::kGray8;
-        return v;
-    }
 };
+
+[[nodiscard]] ImageView gray_view(const GrayImage& image) {
+    ImageView v;
+    v.data = reinterpret_cast<const std::byte*>(image.pixels.data());
+    v.width = image.width;
+    v.height = image.height;
+    v.row_stride_bytes = image.width;
+    v.format = PixelFormat::kGray8;
+    return v;
+}
 
 [[nodiscard]] GrayImage make_ramp(int32_t width, int32_t height) {
     GrayImage image;
     image.width = width;
     image.height = height;
-    image.pixels.resize(static_cast<size_t>(width) * height);
+    image.pixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
     for (int32_t y = 0; y < height; ++y) {
         for (int32_t x = 0; x < width; ++x) {
-            image.pixels[static_cast<size_t>(y) * width + x] = static_cast<uint8_t>((x * 7 + y * 13) % 256);
+            image.pixels[static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)] =
+                static_cast<uint8_t>((x * 7 + y * 13) % 256);
         }
     }
     return image;
@@ -59,7 +65,7 @@ TEST(Letterbox, SameAspectRatioFillsWithoutPadding) {
     request.dst_width = 4;
     request.dst_height = 4;
     request.pad_value = 42;
-    const auto result = mirador::letterbox(src.view(), request, 4096);
+    const auto result = mirador::letterbox(gray_view(src), request, 4096);
     ASSERT_TRUE(result.ok()) << result.status().message();
 
     EXPECT_EQ(result.value().resized_width, 4);
@@ -69,7 +75,7 @@ TEST(Letterbox, SameAspectRatioFillsWithoutPadding) {
     ASSERT_EQ(result.value().buffer.height(), 4);
 
     // The content covers the whole destination; no padded byte remains.
-    const auto expected = mirador::resize_area(src.view(), 4, 4, 4096);
+    const auto expected = mirador::resize_area(gray_view(src), 4, 4, 4096);
     ASSERT_TRUE(expected.ok());
     EXPECT_EQ(std::memcmp(result.value().buffer.view().data, expected.value().view().data, 16), 0);
 
@@ -90,21 +96,23 @@ TEST(Letterbox, CentersContentAndFillsPadValue) {
     request.dst_width = 8;
     request.dst_height = 8;
     request.pad_value = 7;
-    const auto result = mirador::letterbox(src.view(), request, 4096);
+    const auto result = mirador::letterbox(gray_view(src), request, 4096);
     ASSERT_TRUE(result.ok()) << result.status().message();
     // scale = min(1, 2) = 1: content 8x4 centered vertically (rows 2..5).
     ASSERT_EQ(result.value().resized_width, 8);
     ASSERT_EQ(result.value().resized_height, 4);
 
     const ImageView view = result.value().buffer.view();
-    const auto byte_at = [view](int32_t x, int32_t y) { return *(view.data + y * view.row_stride_bytes + x); };
+    const auto byte_at = [view](int32_t x, int32_t y) {
+        return *(view.data + static_cast<int64_t>(y) * view.row_stride_bytes + x);
+    };
     for (int32_t x = 0; x < 8; ++x) {
         EXPECT_EQ(byte_at(x, 0), std::byte{7});
         EXPECT_EQ(byte_at(x, 1), std::byte{7});
         EXPECT_EQ(byte_at(x, 6), std::byte{7});
         EXPECT_EQ(byte_at(x, 7), std::byte{7});
     }
-    const auto direct = mirador::resize_area(src.view(), 8, 4, 4096);
+    const auto direct = mirador::resize_area(gray_view(src), 8, 4, 4096);
     ASSERT_TRUE(direct.ok());
     const ImageView direct_view = direct.value().view();
     for (int32_t y = 0; y < 4; ++y) {
@@ -118,9 +126,11 @@ TEST(Letterbox, CentersContentAndFillsPadValue) {
     EXPECT_NEAR(mapped.y, 2.0, 1e-6);
 }
 
-TEST(Letterbox, MultiChannelPadAndContentPlacement) {
-    // 4x2 RGB upscaled into 8x8: scale 2, content 8x4 at offset (0, 2).
-    std::vector<uint8_t> rgb(4 * 2 * 3);
+namespace {
+
+/// Builds the RGB source view of the MultiChannel scenario (4x2, tight-ish stride 12).
+[[nodiscard]] ImageView make_rgb_source(std::vector<uint8_t>& rgb) {
+    rgb.assign(48U, 0);
     for (size_t i = 0; i < rgb.size(); ++i) {
         rgb[i] = static_cast<uint8_t>(i % 251);
     }
@@ -130,33 +140,54 @@ TEST(Letterbox, MultiChannelPadAndContentPlacement) {
     src.height = 2;
     src.row_stride_bytes = 12;
     src.format = PixelFormat::kRgb8;
+    return src;
+}
 
+[[nodiscard]] mirador::LetterboxRequest rgb_request() {
     LetterboxRequest request;
     request.dst_width = 8;
     request.dst_height = 8;
     request.pad_value = 200;
-    const auto result = mirador::letterbox(src, request, 4096);
+    return request;
+}
+
+}  // namespace
+
+TEST(Letterbox, MultiChannelPadRowsUsePadValueOnEveryChannel) {
+    std::vector<uint8_t> rgb;
+    const ImageView src = make_rgb_source(rgb);
+    const auto result = mirador::letterbox(src, rgb_request(), 4096);
     ASSERT_TRUE(result.ok()) << result.status().message();
 
+    // Scale 2, content 8x4 at offset (0, 2): rows 0-1 and 6-7 are padding.
     const ImageView view = result.value().buffer.view();
-    const auto byte_at = [view](int32_t x, int32_t y, int32_t channel) {
-        return *(view.data + y * view.row_stride_bytes + x * 3 + channel);
-    };
-    for (int32_t y = 0; y < 8; ++y) {
+    for (const int32_t y : {0, 1, 6, 7}) {
         for (int32_t x = 0; x < 8; ++x) {
-            const bool padded = y < 2 || y >= 6;
             for (int32_t c = 0; c < 3; ++c) {
-                if (padded) {
-                    EXPECT_EQ(byte_at(x, y, c), std::byte{200});
-                }
+                EXPECT_EQ(
+                    *(view.data + static_cast<int64_t>(y) * view.row_stride_bytes + static_cast<int64_t>(x) * 3 + c),
+                    std::byte{200});
             }
         }
     }
-    // Same-size area resize is a row copy: content rows replicate the source.
+}
+
+TEST(Letterbox, MultiChannelContentRowsReplicateSource) {
+    std::vector<uint8_t> rgb;
+    const ImageView src = make_rgb_source(rgb);
+    const auto result = mirador::letterbox(src, rgb_request(), 4096);
+    ASSERT_TRUE(result.ok()) << result.status().message();
+
+    // Same-size area resize is a row copy: each source pixel appears four
+    // times (2x2) at offset (0, 2).
+    const ImageView view = result.value().buffer.view();
     for (int32_t y = 0; y < 2; ++y) {
         for (int32_t x = 0; x < 4; ++x) {
             for (int32_t c = 0; c < 3; ++c) {
-                EXPECT_EQ(byte_at(x * 2, y * 2 + 2, c), std::byte{rgb[static_cast<size_t>(y) * 12 + x * 3 + c]});
+                const size_t src_byte = static_cast<size_t>(y) * 12U + static_cast<size_t>(x) * 3U + c;
+                const auto dst_byte = static_cast<size_t>(y * 2 + 2) * static_cast<size_t>(view.row_stride_bytes) +
+                                      static_cast<size_t>(x * 2) * 3U + c;
+                EXPECT_EQ(*(view.data + static_cast<int64_t>(dst_byte)), std::byte{rgb[src_byte]});
             }
         }
     }
@@ -167,7 +198,7 @@ TEST(Letterbox, TransformMatchesContinuousIdealWithinOnePixel) {
     LetterboxRequest request;
     request.dst_width = 12;
     request.dst_height = 10;
-    const auto result = mirador::letterbox(src.view(), request, 4096);
+    const auto result = mirador::letterbox(gray_view(src), request, 4096);
     ASSERT_TRUE(result.ok());
     const auto ideal =
         mirador::make_letterbox(6, 4, 12, 10, CoordinateSpaceId::kOriented, CoordinateSpaceId::kModelInput);
@@ -187,8 +218,8 @@ TEST(Letterbox, DeterministicAndInputPreserving) {
     request.dst_height = 12;
     request.pad_value = 1;
     const std::vector<uint8_t> src_copy = src.pixels;
-    const auto first = mirador::letterbox(src.view(), request, 8192);
-    const auto second = mirador::letterbox(src.view(), request, 8192);
+    const auto first = mirador::letterbox(gray_view(src), request, 8192);
+    const auto second = mirador::letterbox(gray_view(src), request, 8192);
     ASSERT_TRUE(first.ok());
     ASSERT_TRUE(second.ok());
     ASSERT_EQ(first.value().buffer.byte_size(), second.value().buffer.byte_size());
@@ -204,19 +235,19 @@ TEST(Letterbox, ExplicitErrors) {
     LetterboxRequest zero;
     zero.dst_width = 0;
     zero.dst_height = 4;
-    ASSERT_EQ(mirador::letterbox(src.view(), zero, 4096).status().code(), ErrorCode::kInvalidArgument);
+    ASSERT_EQ(mirador::letterbox(gray_view(src), zero, 4096).status().code(), ErrorCode::kInvalidArgument);
 
     LetterboxRequest huge;
     huge.dst_width = 70000;
     huge.dst_height = 4;
-    ASSERT_EQ(mirador::letterbox(src.view(), huge, 1 << 30).status().code(), ErrorCode::kInvalidArgument);
+    ASSERT_EQ(mirador::letterbox(gray_view(src), huge, 1 << 30).status().code(), ErrorCode::kInvalidArgument);
 
     LetterboxRequest request;
     request.dst_width = 8;
     request.dst_height = 8;
-    ASSERT_EQ(mirador::letterbox(src.view(), request, 16).status().code(), ErrorCode::kBudgetExceeded);
+    ASSERT_EQ(mirador::letterbox(gray_view(src), request, 16).status().code(), ErrorCode::kBudgetExceeded);
 
-    ImageView invalid;
+    ImageView const invalid;
     ASSERT_EQ(mirador::letterbox(invalid, request, 4096).status().code(), ErrorCode::kInvalidArgument);
 
     // NV12 rejected pending the chroma padding decision (DEC-014).

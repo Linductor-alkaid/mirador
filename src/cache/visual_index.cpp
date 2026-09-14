@@ -1,9 +1,16 @@
+#include <cstddef>
+#include <cstdint>
 #include <mirador/visual_index.hpp>
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <optional>
+#include <vector>
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
+#include "mirador/visual_fingerprint.hpp"
 
 namespace mirador {
 namespace {
@@ -43,6 +50,47 @@ double thumbnail_ncc(const VisualPatchFingerprint& query, const VisualPatchFinge
     return covariance / denominator;
 }
 
+/// True when the fingerprint carries exactly this index's thumbnail geometry.
+[[nodiscard]] bool geometry_matches(int32_t thumb_side, const VisualPatchFingerprint& fingerprint) noexcept {
+    const auto side = static_cast<size_t>(thumb_side);
+    return fingerprint.thumb_width == thumb_side && fingerprint.thumb_height == thumb_side &&
+           fingerprint.thumbnail_gray.size() == side * side;
+}
+
+/// Strongest evidence of `entry` against the query fingerprint; nullopt when
+/// no active layer accepts it.
+[[nodiscard]] std::optional<VisualCandidate> match_entry(uint64_t entry_id, const VisualPatchFingerprint& entry,
+                                                         const VisualPatchFingerprint& query,
+                                                         const VisualQueryParams& params) noexcept {
+    VisualCandidate candidate;
+    candidate.entry_id = entry_id;
+    if (entry.content_hash == query.content_hash && entry.thumbnail_gray == query.thumbnail_gray) {
+        candidate.evidence = VisualEvidenceKind::kExactContent;
+        candidate.similarity = 1.0;
+        return candidate;
+    }
+    // A layer is active when its threshold is below 1.0; thresholds at 1.0
+    // collapse the query to exact content matches (header contract).
+    if (params.perceptual_similarity_threshold < 1.0) {
+        const auto distance = static_cast<uint64_t>(std::popcount(entry.dhash ^ query.dhash));
+        const double similarity = 1.0 - static_cast<double>(distance) / 64.0;
+        if (similarity >= params.perceptual_similarity_threshold) {
+            candidate.evidence = VisualEvidenceKind::kPerceptualHash;
+            candidate.similarity = similarity;
+            return candidate;
+        }
+    }
+    if (params.template_ncc_threshold < 1.0) {
+        const double correlation = thumbnail_ncc(query, entry);
+        if (correlation >= params.template_ncc_threshold) {
+            candidate.evidence = VisualEvidenceKind::kTemplate;
+            candidate.similarity = correlation;
+            return candidate;
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace
 
 VisualIndex::VisualIndex(int64_t max_bytes, int32_t thumb_side) noexcept
@@ -59,8 +107,7 @@ Result<VisualIndex> VisualIndex::create(int64_t max_bytes, int32_t thumb_side) n
 }
 
 Result<void> VisualIndex::insert(uint64_t entry_id, const VisualPatchFingerprint& fingerprint) noexcept {
-    if (fingerprint.thumb_width != thumb_side_ || fingerprint.thumb_height != thumb_side_ ||
-        fingerprint.thumbnail_gray.size() != static_cast<size_t>(thumb_side_) * thumb_side_) {
+    if (!geometry_matches(thumb_side_, fingerprint)) {
         return Status(ErrorCode::kInvalidArgument, "fingerprint geometry does not match the index");
     }
     const int64_t entry_bytes = kEntryBytes(thumb_side_);
@@ -96,8 +143,7 @@ bool VisualIndex::contains(uint64_t entry_id) const noexcept {
 
 Result<std::vector<VisualCandidate>> VisualIndex::query(const VisualPatchFingerprint& fingerprint,
                                                         const VisualQueryParams& params) noexcept {
-    if (fingerprint.thumb_width != thumb_side_ || fingerprint.thumb_height != thumb_side_ ||
-        fingerprint.thumbnail_gray.size() != static_cast<size_t>(thumb_side_) * thumb_side_) {
+    if (!geometry_matches(thumb_side_, fingerprint)) {
         return Status(ErrorCode::kInvalidArgument, "fingerprint geometry does not match the index");
     }
     if (!(params.perceptual_similarity_threshold >= 0.0) || params.perceptual_similarity_threshold > 1.0 ||
@@ -110,32 +156,10 @@ Result<std::vector<VisualCandidate>> VisualIndex::query(const VisualPatchFingerp
     }
 
     std::vector<VisualCandidate> hits;
-    // A layer is active when its threshold is below 1.0; thresholds at 1.0
-    // collapse the query to exact content matches (header contract).
-    const bool perceptual_active = params.perceptual_similarity_threshold < 1.0;
-    const bool template_active = params.template_ncc_threshold < 1.0;
-    for (auto it = entries_.begin(); it != entries_.end(); ++it) {
-        const VisualPatchFingerprint& entry = it->fingerprint;
-        VisualCandidate candidate;
-        candidate.entry_id = it->entry_id;
-        if (entry.content_hash == fingerprint.content_hash && entry.thumbnail_gray == fingerprint.thumbnail_gray) {
-            candidate.evidence = VisualEvidenceKind::kExactContent;
-            candidate.similarity = 1.0;
-        } else {
-            const uint64_t distance = static_cast<uint64_t>(std::popcount(entry.dhash ^ fingerprint.dhash));
-            const double similarity = 1.0 - static_cast<double>(distance) / 64.0;
-            const double correlation = thumbnail_ncc(fingerprint, entry);
-            if (perceptual_active && similarity >= params.perceptual_similarity_threshold) {
-                candidate.evidence = VisualEvidenceKind::kPerceptualHash;
-                candidate.similarity = similarity;
-            } else if (template_active && correlation >= params.template_ncc_threshold) {
-                candidate.evidence = VisualEvidenceKind::kTemplate;
-                candidate.similarity = correlation;
-            } else {
-                continue;  // no layer accepted this entry
-            }
+    for (auto& entrie : entries_) {
+        if (auto candidate = match_entry(entrie.entry_id, entrie.fingerprint, fingerprint, params)) {
+            hits.push_back(*candidate);
         }
-        hits.push_back(candidate);
     }
 
     std::sort(hits.begin(), hits.end(), [](const VisualCandidate& a, const VisualCandidate& b) {

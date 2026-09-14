@@ -12,12 +12,13 @@
 #include <mirador/patch_fingerprint.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
-#include <mirador/visual_fingerprint.hpp>
 #include <mirador/visual_index.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -27,7 +28,6 @@ using mirador::PatchFingerprintParams;
 using mirador::PixelFormat;
 using mirador::VisualCandidate;
 using mirador::VisualEvidenceKind;
-using mirador::VisualPatchFingerprint;
 using mirador::VisualQueryParams;
 
 constexpr int32_t kSide = 32;
@@ -44,12 +44,13 @@ std::vector<std::byte> paint_icon(bool on) {
             const int32_t dy = y - center;
             const int32_t radius_sq = dx * dx + dy * dy;
             if (radius_sq <= 121) {  // disc radius 11
-                at(x, y) = static_cast<std::byte>(on ? 220 : 220);
-                if (!on && radius_sq >= 64) {
+                if (on) {
+                    // Bright disc with a dimmed core.
+                    at(x, y) = static_cast<std::byte>(radius_sq >= 64 ? 120 : 220);
+                } else if (radius_sq >= 64) {
                     at(x, y) = static_cast<std::byte>(24);  // hollow the ring
-                }
-                if (on && radius_sq >= 64) {
-                    at(x, y) = static_cast<std::byte>(120);  // dimmed inner disc
+                } else {
+                    at(x, y) = static_cast<std::byte>(220);  // ring band
                 }
             }
         }
@@ -61,9 +62,8 @@ std::vector<std::byte> paint_icon(bool on) {
 /// +3/-3 depending on position. Deterministic, bounded, no randomness.
 void perturb(std::vector<std::byte>& bytes) {
     for (size_t i = 0; i < bytes.size(); i += 7) {
-        const int delta = (i % 14 == 0) ? 3 : -3;
-        const int value = std::to_integer<int>(bytes[i]) + delta;
-        bytes[i] = static_cast<std::byte>(value < 0 ? 0 : (value > 255 ? 255 : value));
+        const int value = std::to_integer<int>(bytes[i]) + (i % 14 == 0 ? 3 : -3);
+        bytes[i] = static_cast<std::byte>(std::clamp(value, 0, 255));
     }
 }
 
@@ -93,7 +93,7 @@ const char* evidence_name(VisualEvidenceKind kind) {
 
 int main() {
     // Enrollment: one entry per known icon state.
-    auto index_result = mirador::VisualIndex::create(64 * 1024, kSide);
+    auto index_result = mirador::VisualIndex::create(int64_t{64} * 1024, kSide);
     if (!index_result.ok()) {
         std::printf("index creation failed\n");
         return 1;

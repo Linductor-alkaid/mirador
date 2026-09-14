@@ -1,3 +1,5 @@
+#include <cstddef>
+#include <cstdint>
 #include <mirador/crop_refine.hpp>
 
 #include <mirador/backend_info.hpp>
@@ -9,9 +11,17 @@
 
 #include <algorithm>
 #include <cmath>
-#include <optional>
+#include <span>
 #include <string>
 #include <utility>
+#include <vector>
+#include "mirador/detector_backend.hpp"
+#include "mirador/execution_context.hpp"
+#include "mirador/geometry.hpp"
+#include "mirador/image_buffer.hpp"
+#include "mirador/image_view.hpp"
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
 
 namespace mirador {
 namespace {
@@ -79,6 +89,117 @@ Result<ImageBuffer> prepare_crop(const ImageView& cropped, const CropRefineParam
     return resize_area(cropped, dst_width, dst_height, params.per_crop_budget_bytes);
 }
 
+/// Selects candidates to refine: below the confidence bar or below the area
+/// bar, ordered by ascending confidence (ties by input index), capped at
+/// `params.max_refine_candidates` (explicit deterministic drop).
+[[nodiscard]] std::vector<CandidateRef> select_candidates(std::span<const DetectionRegion> initial,
+                                                          const CropRefineParams& params, int32_t source_width,
+                                                          int32_t source_height) {
+    const double source_area = static_cast<double>(source_width) * source_height;
+    std::vector<CandidateRef> candidates;
+    for (size_t i = 0; i < initial.size(); ++i) {
+        const DetectionRegion& region = initial[i];
+        const double area = static_cast<double>(region.bounds.width) * region.bounds.height;
+        const bool low_confidence = static_cast<double>(region.confidence) < params.refine_confidence_below;
+        const bool small = params.small_box_area_ratio > 0.0 && area / source_area < params.small_box_area_ratio;
+        if (low_confidence || small) {
+            candidates.push_back(CandidateRef{i, region.confidence});
+        }
+    }
+    std::sort(candidates.begin(), candidates.end(), [](const CandidateRef& a, const CandidateRef& b) {
+        if (a.confidence != b.confidence) {
+            return a.confidence < b.confidence;
+        }
+        return a.index < b.index;
+    });
+    if (candidates.size() > static_cast<size_t>(params.max_refine_candidates)) {
+        candidates.resize(static_cast<size_t>(params.max_refine_candidates));  // explicit deterministic drop
+    }
+    return candidates;
+}
+
+/// Format gating: returns an owning buffer in a backend-accepted format —
+/// a same-format copy when the crop already qualifies, otherwise the first
+/// reachable conversion. Errors: kUnsupportedFormat when nothing is reachable.
+[[nodiscard]] Result<ImageBuffer> ensure_accepted_format(const ImageView& cropped,
+                                                         std::span<const PixelFormat> accepted_formats,
+                                                         int64_t budget) noexcept {
+    if (std::find(accepted_formats.begin(), accepted_formats.end(), cropped.format) != accepted_formats.end()) {
+        return copy_to_buffer(cropped, budget);
+    }
+    for (const PixelFormat accepted : accepted_formats) {
+        auto converted_buffer = convert_color(cropped, accepted, budget);
+        if (converted_buffer.ok()) {
+            return converted_buffer.take_value();
+        }
+    }
+    return Status(ErrorCode::kUnsupportedFormat, "no backend-accepted format reachable from the crop");
+}
+
+}  // namespace
+namespace {
+
+/// Refines one candidate and returns its recovered boxes mapped back to the
+/// source-pixel space through the exact inverse crop+resize chain.
+[[nodiscard]] Result<std::vector<DetectionRegion>> refine_candidate(const ImageView& source, DetectorBackend& backend,
+                                                                    const BackendInfo& info, size_t index,
+                                                                    std::span<const DetectionRegion> initial,
+                                                                    const CropRefineParams& params,
+                                                                    const DetectionRequest& request,
+                                                                    const ExecutionContext& context) {
+    const RectI roi = crop_roi(initial[index].bounds, params.expand_ratio, source.width, source.height);
+    auto cropped_result = crop(source, roi, params.per_crop_budget_bytes);
+    if (!cropped_result.ok()) {
+        return Status(cropped_result.status().code(),
+                      std::string("crop-refine crop failed: ") + cropped_result.status().message());
+    }
+    const ImageView cropped_view = cropped_result.value().view();
+    auto accepted_buffer = ensure_accepted_format(cropped_view, info.accepted_formats, params.per_crop_budget_bytes);
+    if (!accepted_buffer.ok()) {
+        return Status(accepted_buffer.status().code(), accepted_buffer.status().message());
+    }
+    auto prepared_buffer = prepare_crop(accepted_buffer.value().view(), params);
+    if (!prepared_buffer.ok()) {
+        return Status(prepared_buffer.status().code(),
+                      std::string("crop-refine prepare failed: ") + prepared_buffer.status().message());
+    }
+    const ImageView model_view = prepared_buffer.value().view();
+
+    // Exact inverse of crop -> (convert) -> resize, applied to model-space boxes.
+    const auto to_cropped = make_crop(RectF{static_cast<float>(roi.x), static_cast<float>(roi.y),
+                                            static_cast<float>(roi.width), static_cast<float>(roi.height)},
+                                      CoordinateSpaceId::kOriented, CoordinateSpaceId::kCropped);
+    const auto to_model = make_scale(static_cast<double>(model_view.width) / static_cast<double>(roi.width),
+                                     static_cast<double>(model_view.height) / static_cast<double>(roi.height),
+                                     CoordinateSpaceId::kCropped, CoordinateSpaceId::kModelInput);
+    auto forward = compose(to_cropped, to_model);
+    if (!forward.ok()) {
+        return Status(forward.status().code(),
+                      std::string("crop-refine transform failed: ") + forward.status().message());
+    }
+    auto backward = inverse(forward.value());
+    if (!backward.ok()) {
+        return Status(backward.status().code(),
+                      std::string("crop-refine inverse failed: ") + backward.status().message());
+    }
+
+    auto detected = backend.detect(model_view, request, context);
+    if (!detected.ok()) {
+        return Status(detected.status().code(),
+                      std::string("crop-refine backend failed: ") + detected.status().message());
+    }
+    std::vector<DetectionRegion> refined;
+    for (const DetectionRegion& found : detected.value()) {
+        if (found.confidence < params.min_refined_confidence) {
+            continue;
+        }
+        DetectionRegion recovered = found;
+        recovered.bounds = transform_rect(backward.value(), found.bounds);
+        refined.push_back(std::move(recovered));
+    }
+    return refined;
+}
+
 }  // namespace
 
 Result<std::vector<DetectionRegion>> refine_small_detections(const ImageView& source, DetectorBackend* backend,
@@ -108,33 +229,12 @@ Result<std::vector<DetectionRegion>> refine_small_detections(const ImageView& so
         return Status(ErrorCode::kTimeout, "deadline reached before refinement");
     }
 
-    // Select candidates: below the confidence bar or below the area bar.
-    const double source_area = static_cast<double>(source.width) * source.height;
-    std::vector<CandidateRef> candidates;
-    for (size_t i = 0; i < initial.size(); ++i) {
-        const DetectionRegion& region = initial[i];
-        const double area = static_cast<double>(region.bounds.width) * region.bounds.height;
-        const bool low_confidence = static_cast<double>(region.confidence) < params.refine_confidence_below;
-        const bool small = params.small_box_area_ratio > 0.0 && area / source_area < params.small_box_area_ratio;
-        if (low_confidence || small) {
-            candidates.push_back(CandidateRef{i, region.confidence});
-        }
-    }
-    std::sort(candidates.begin(), candidates.end(), [](const CandidateRef& a, const CandidateRef& b) {
-        if (a.confidence != b.confidence) {
-            return a.confidence < b.confidence;
-        }
-        return a.index < b.index;
-    });
-    if (candidates.size() > static_cast<size_t>(params.max_refine_candidates)) {
-        candidates.resize(static_cast<size_t>(params.max_refine_candidates));  // explicit deterministic drop
-    }
-
     std::vector<DetectionRegion> output(initial.begin(), initial.end());
     DetectionRequest request;
     request.min_confidence = params.backend_min_confidence;
     request.backend_params = params.backend_params;
 
+    const std::vector<CandidateRef> candidates = select_candidates(initial, params, source.width, source.height);
     for (const CandidateRef candidate : candidates) {
         if (is_cancelled(context)) {
             return Status(ErrorCode::kCancelled, "cancelled during refinement");
@@ -142,84 +242,21 @@ Result<std::vector<DetectionRegion>> refine_small_detections(const ImageView& so
         if (deadline_reached(context)) {
             return Status(ErrorCode::kTimeout, "deadline reached during refinement");
         }
-        const RectI roi = crop_roi(initial[candidate.index].bounds, params.expand_ratio, source.width, source.height);
-        auto cropped_result = crop(source, roi, params.per_crop_budget_bytes);
-        if (!cropped_result.ok()) {
-            return Status(cropped_result.status().code(),
-                          std::string("crop-refine crop failed: ") + cropped_result.status().message());
+        auto refined = refine_candidate(source, *backend, info, candidate.index, initial, params, request, context);
+        if (!refined.ok()) {
+            return Status(refined.status().code(), refined.status().message());
         }
-        const ImageView cropped_view = cropped_result.value().view();
-
-        // Format gating: convert to the first backend-accepted format.
-        ImageView prepared = cropped_view;
-        std::optional<ImageBuffer> converted;
-        if (std::find(info.accepted_formats.begin(), info.accepted_formats.end(), cropped_view.format) ==
-            info.accepted_formats.end()) {
-            bool reachable = false;
-            for (const PixelFormat accepted : info.accepted_formats) {
-                auto converted_buffer = convert_color(cropped_view, accepted, params.per_crop_budget_bytes);
-                if (converted_buffer.ok()) {
-                    converted.emplace(converted_buffer.take_value());
-                    prepared = converted->view();
-                    reachable = true;
-                    break;
-                }
-            }
-            if (!reachable) {
-                return Status(ErrorCode::kUnsupportedFormat, "no backend-accepted format reachable from the crop");
-            }
-        }
-
-        auto prepared_buffer = prepare_crop(prepared, params);
-        if (!prepared_buffer.ok()) {
-            return Status(prepared_buffer.status().code(),
-                          std::string("crop-refine prepare failed: ") + prepared_buffer.status().message());
-        }
-        const ImageView model_view = prepared_buffer.value().view();
-
-        // Exact inverse of crop -> (convert) -> resize, applied to model-space boxes.
-        const auto to_cropped = make_crop(RectF{static_cast<float>(roi.x), static_cast<float>(roi.y),
-                                                static_cast<float>(roi.width), static_cast<float>(roi.height)},
-                                          CoordinateSpaceId::kOriented, CoordinateSpaceId::kCropped);
-        const auto to_model = make_scale(static_cast<double>(model_view.width) / static_cast<double>(roi.width),
-                                         static_cast<double>(model_view.height) / static_cast<double>(roi.height),
-                                         CoordinateSpaceId::kCropped, CoordinateSpaceId::kModelInput);
-        auto forward = compose(to_cropped, to_model);
-        if (!forward.ok()) {
-            return Status(forward.status().code(),
-                          std::string("crop-refine transform failed: ") + forward.status().message());
-        }
-        auto backward = inverse(forward.value());
-        if (!backward.ok()) {
-            return Status(backward.status().code(),
-                          std::string("crop-refine inverse failed: ") + backward.status().message());
-        }
-
-        auto detected = backend->detect(model_view, request, context);
-        if (!detected.ok()) {
-            return Status(detected.status().code(),
-                          std::string("crop-refine backend failed: ") + detected.status().message());
-        }
-
-        // Replace the candidate slot with the recovered refined results.
-        std::vector<DetectionRegion> refined;
-        for (const DetectionRegion& found : detected.value()) {
-            if (found.confidence < params.min_refined_confidence) {
+        // Replace the candidate slot in place with the recovered refined
+        // results, preserving the input order.
+        std::vector<DetectionRegion> merged;
+        merged.reserve(output.size() - 1 + refined.value().size());
+        for (size_t i = 0; i < output.size(); ++i) {
+            if (i != candidate.index) {
+                merged.push_back(output[i]);
                 continue;
             }
-            DetectionRegion recovered = found;
-            recovered.bounds = transform_rect(backward.value(), found.bounds);
-            refined.push_back(std::move(recovered));
-        }
-
-        std::vector<DetectionRegion> merged;
-        for (size_t i = 0; i < output.size(); ++i) {
-            if (i == candidate.index) {
-                for (const DetectionRegion& region : refined) {
-                    merged.push_back(region);
-                }
-            } else {
-                merged.push_back(output[i]);
+            for (const DetectionRegion& region : refined.value()) {
+                merged.push_back(region);
             }
         }
         output = std::move(merged);

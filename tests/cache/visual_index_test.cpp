@@ -8,11 +8,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include "mirador/status.hpp"
+#include "mirador/visual_fingerprint.hpp"
 
 namespace {
 
 using mirador::ErrorCode;
-using mirador::VisualCandidate;
 using mirador::VisualEvidenceKind;
 using mirador::VisualIndex;
 using mirador::VisualPatchFingerprint;
@@ -44,7 +45,7 @@ TEST(VisualIndex, ExactMatchDominates) {
     const VisualPatchFingerprint stored = make_fingerprint(0xAAAA, 0x1234, 100, 8, 2);
     ASSERT_TRUE(index.insert(1, stored).ok());
 
-    VisualQueryParams params;
+    VisualQueryParams const params;
     const auto hits = index.query(stored, params);
     ASSERT_TRUE(hits.ok()) << hits.status().message();
     ASSERT_EQ(hits.value().size(), 1U);
@@ -60,7 +61,7 @@ TEST(VisualIndex, PerceptualLayerMatchesSmallHashDistance) {
     ASSERT_TRUE(index.insert(7, make_fingerprint(0x1111, 0, 100, 8, 2)).ok());
 
     VisualQueryParams params;
-    VisualPatchFingerprint probe = make_fingerprint(0x2222, 1, 100, 8, 2);  // hamming distance 1
+    VisualPatchFingerprint const probe = make_fingerprint(0x2222, 1, 100, 8, 2);  // hamming distance 1
     auto hits = index.query(probe, params);
     ASSERT_TRUE(hits.ok());
     ASSERT_EQ(hits.value().size(), 1U);
@@ -84,7 +85,7 @@ TEST(VisualIndex, TemplateLayerMatchesHighCorrelationOnly) {
     VisualQueryParams params;
     // Same texture as the entry (NCC = 1.0) but a dHash far above the
     // perceptual bar, so only the template layer can accept it.
-    VisualPatchFingerprint probe = make_fingerprint(0x4444, ~0ULL, 120, 6, 2);
+    VisualPatchFingerprint const probe = make_fingerprint(0x4444, ~0ULL, 120, 6, 2);
     auto hits = index.query(probe, params);
     ASSERT_TRUE(hits.ok());
     ASSERT_EQ(hits.value().size(), 1U);
@@ -149,7 +150,7 @@ TEST(VisualIndex, BudgetEvictionAndPromotion) {
     EXPECT_EQ(index.byte_size(), kEntryBytes * 2);
 
     // Query entry 1: it is promoted above entry 2.
-    VisualQueryParams params;
+    VisualQueryParams const params;
     const auto hits = index.query(make_fingerprint(1, 0, 80, 8, 2), params);
     ASSERT_TRUE(hits.ok());
     // Insert entry 3: entry 2 (least recently used) is evicted, entry 1 survives.
@@ -181,7 +182,7 @@ TEST(VisualIndex, ExplicitErrors) {
     VisualPatchFingerprint foreign = make_fingerprint(1, 0, 80, 8, 2);
     foreign.thumb_width = 8;
     ASSERT_EQ(index.insert(1, foreign).status().code(), ErrorCode::kInvalidArgument);
-    VisualQueryParams params;
+    VisualQueryParams const params;
     ASSERT_EQ(index.query(foreign, params).status().code(), ErrorCode::kInvalidArgument);
 
     // Entry alone above the budget.

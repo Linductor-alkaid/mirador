@@ -1,9 +1,16 @@
+#include <cstddef>
 #include <mirador/text_postprocess.hpp>
 
 #include "connected_components.h"
+#include "mirador/geometry.hpp"
+#include "mirador/image_view.hpp"
+#include "mirador/ocr_backend.hpp"
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace mirador {
 namespace {

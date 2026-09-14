@@ -6,7 +6,6 @@
 // pipeline serves screen-divider detection on desktop terminals; nothing here
 // is Android-specific, no model runs and no network or disk is touched.
 
-#include <mirador/execution_context.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/line_detector.hpp>
 #include <mirador/pixel_format.hpp>
@@ -18,6 +17,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <vector>
+#include "mirador/geometry.hpp"
 
 namespace {
 
@@ -27,7 +27,6 @@ using mirador::LineFilterParams;
 using mirador::LineSegment;
 using mirador::PixelFormat;
 using mirador::SegmentGrowingLineDetector;
-using mirador::SegmentGrowingParams;
 
 constexpr int32_t kWidth = 200;
 constexpr int32_t kHeight = 150;

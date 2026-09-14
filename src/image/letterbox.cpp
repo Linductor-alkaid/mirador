@@ -1,3 +1,5 @@
+#include <cstddef>
+#include <cstdint>
 #include <mirador/letterbox.hpp>
 
 #include <mirador/resize.hpp>
@@ -6,6 +8,13 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <utility>
+#include "mirador/image_buffer.hpp"
+#include "mirador/image_view.hpp"
+#include "mirador/pixel_format.hpp"
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
+#include "mirador/transform.hpp"
 
 namespace mirador {
 

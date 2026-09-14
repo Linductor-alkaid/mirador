@@ -1,12 +1,18 @@
 // M3-05: unit tests for the detection reference components NMS and
 // category filter (design section 14).
 
+#include <cstdint>
 #include <mirador/detection_postprocess.hpp>
 
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <string>
+#include <utility>
 #include <vector>
+#include "mirador/detector_backend.hpp"
+#include "mirador/geometry.hpp"
+#include "mirador/status.hpp"
 
 namespace {
 

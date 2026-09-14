@@ -1,8 +1,17 @@
+#include <cstddef>
+#include <cstdint>
 #include <mirador/text_normalize.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <span>
+#include <string_view>
+#include <utility>
+#include <vector>
+#include "mirador/ocr_backend.hpp"
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
 
 namespace mirador {
 namespace {
@@ -78,19 +87,75 @@ bool transform_code_point(uint32_t code_point, uint32_t flags, uint32_t& out, bo
 
 }  // namespace
 
-Result<std::vector<TextRegion>> merge_text_lines(std::span<const TextRegion> lines, const LineMergeParams& params) {
+namespace {
+
+[[nodiscard]] Status validate_merge_lines(std::span<const TextRegion> lines, const LineMergeParams& params) noexcept {
     if (lines.size() > static_cast<size_t>(params.max_lines)) {
-        return Status(ErrorCode::kBudgetExceeded, "too many lines for merging");
+        return {ErrorCode::kBudgetExceeded, "too many lines for merging"};
     }
     if (!(params.max_center_offset_ratio >= 0.0) || !std::isfinite(params.max_center_offset_ratio) ||
         !(params.max_gap_ratio >= 0.0) || !std::isfinite(params.max_gap_ratio)) {
-        return Status(ErrorCode::kInvalidArgument, "merge ratios must be finite and non-negative");
+        return {ErrorCode::kInvalidArgument, "merge ratios must be finite and non-negative"};
     }
     for (const TextRegion& line : lines) {
         if (!std::isfinite(line.bounds.x) || !std::isfinite(line.bounds.y) || !std::isfinite(line.bounds.width) ||
             !std::isfinite(line.bounds.height) || !std::isfinite(line.confidence)) {
-            return Status(ErrorCode::kInvalidArgument, "lines must carry finite bounds and confidence");
+            return {ErrorCode::kInvalidArgument, "lines must carry finite bounds and confidence"};
         }
+    }
+    return Status::success();
+}
+
+/// Same visual line: vertical centers within tolerance and horizontal gap
+/// (0 when the boxes overlap) within tolerance, both relative to min height.
+[[nodiscard]] bool same_line(const TextRegion& a, const TextRegion& b, const LineMergeParams& params) noexcept {
+    const double min_height = std::min<double>(a.bounds.height, b.bounds.height);
+    if (min_height <= 0.0) {
+        return false;
+    }
+    const double center_a = a.bounds.y + a.bounds.height / 2.0;
+    const double center_b = b.bounds.y + b.bounds.height / 2.0;
+    if (std::fabs(center_a - center_b) > params.max_center_offset_ratio * min_height) {
+        return false;
+    }
+    const double left_edge = std::max<double>(a.bounds.x, b.bounds.x);
+    const double right_edge = std::min<double>(a.bounds.x + a.bounds.width, b.bounds.x + b.bounds.width);
+    const double gap = left_edge >= right_edge ? left_edge - right_edge : 0.0;  // overlap merges
+    return gap <= params.max_gap_ratio * min_height;
+}
+
+/// Absorbs every unconsumed same-line box into `current` until fixpoint.
+void absorb_lines(std::span<const TextRegion> lines, std::span<const size_t> order, TextRegion& current,
+                  std::vector<bool>& consumed, const LineMergeParams& params) {
+    bool grew = true;
+    while (grew) {
+        grew = false;
+        for (const size_t candidate : order) {
+            if (consumed[candidate] || !same_line(current, lines[candidate], params)) {
+                continue;
+            }
+            const TextRegion& other = lines[candidate];
+            const float left = std::min(current.bounds.x, other.bounds.x);
+            const float top = std::min(current.bounds.y, other.bounds.y);
+            const float right = std::max(current.bounds.x + current.bounds.width, other.bounds.x + other.bounds.width);
+            const float bottom =
+                std::max(current.bounds.y + current.bounds.height, other.bounds.y + other.bounds.height);
+            current.bounds = RectF{left, top, right - left, bottom - top};
+            current.utf8_text += params.text_separator;
+            current.utf8_text += other.utf8_text;
+            current.confidence = std::min(current.confidence, other.confidence);
+            current.polygon.clear();
+            consumed[candidate] = true;
+            grew = true;
+        }
+    }
+}
+
+}  // namespace
+
+Result<std::vector<TextRegion>> merge_text_lines(std::span<const TextRegion> lines, const LineMergeParams& params) {
+    if (const Status invalid = validate_merge_lines(lines, params); !invalid.ok()) {
+        return invalid;
     }
 
     // Deterministic processing order: top row, then left column.
@@ -103,22 +168,6 @@ Result<std::vector<TextRegion>> merge_text_lines(std::span<const TextRegion> lin
         return lines[a].bounds.x < lines[b].bounds.x;
     });
 
-    const auto same_line = [params](const TextRegion& a, const TextRegion& b) {
-        const double min_height = std::min<double>(a.bounds.height, b.bounds.height);
-        if (min_height <= 0.0) {
-            return false;
-        }
-        const double center_a = a.bounds.y + a.bounds.height / 2.0;
-        const double center_b = b.bounds.y + b.bounds.height / 2.0;
-        if (std::fabs(center_a - center_b) > params.max_center_offset_ratio * min_height) {
-            return false;
-        }
-        const double left_edge = std::max<double>(a.bounds.x, b.bounds.x);
-        const double right_edge = std::min<double>(a.bounds.x + a.bounds.width, b.bounds.x + b.bounds.width);
-        const double gap = left_edge >= right_edge ? left_edge - right_edge : 0.0;  // overlap merges
-        return gap <= params.max_gap_ratio * min_height;
-    };
-
     std::vector<bool> consumed(lines.size(), false);
     std::vector<TextRegion> merged;
     for (const size_t seed : order) {
@@ -127,48 +176,22 @@ Result<std::vector<TextRegion>> merge_text_lines(std::span<const TextRegion> lin
         }
         consumed[seed] = true;
         TextRegion current = lines[seed];
-        bool grew = true;
-        while (grew) {
-            grew = false;
-            for (const size_t candidate : order) {
-                if (consumed[candidate]) {
-                    continue;
-                }
-                if (!same_line(current, lines[candidate])) {
-                    continue;
-                }
-                const TextRegion& other = lines[candidate];
-                const float left = std::min(current.bounds.x, other.bounds.x);
-                const float top = std::min(current.bounds.y, other.bounds.y);
-                const float right =
-                    std::max(current.bounds.x + current.bounds.width, other.bounds.x + other.bounds.width);
-                const float bottom =
-                    std::max(current.bounds.y + current.bounds.height, other.bounds.y + other.bounds.height);
-                current.bounds = RectF{left, top, right - left, bottom - top};
-                current.utf8_text += params.text_separator;
-                current.utf8_text += other.utf8_text;
-                current.confidence = std::min(current.confidence, other.confidence);
-                current.polygon.clear();
-                consumed[candidate] = true;
-                grew = true;
-            }
-        }
+        absorb_lines(lines, order, current, consumed, params);
         merged.push_back(std::move(current));
     }
     return merged;
 }
 
-std::string normalize_text(std::string_view text, uint32_t flags) {
-    std::string out;
-    out.reserve(text.size());
+namespace {
+
+/// Character pass: decode, transform or drop every code point.
+void transform_characters(std::string_view text, uint32_t flags, std::string& out) {
     size_t offset = 0;
-    // Character pass: decode, transform or drop.
     while (offset < text.size()) {
         const DecodedSequence decoded = decode_utf8(text, offset);
         uint32_t transformed = 0;
         bool dropped = false;
-        const bool keep = transform_code_point(decoded.code_point, flags, transformed, dropped);
-        if (keep) {
+        if (transform_code_point(decoded.code_point, flags, transformed, dropped)) {
             if (transformed == decoded.code_point) {
                 out.append(text.substr(offset, decoded.length));  // original bytes
             } else {
@@ -177,40 +200,55 @@ std::string normalize_text(std::string_view text, uint32_t flags) {
         }
         offset += decoded.length;
     }
+}
 
-    if ((flags & static_cast<uint32_t>(TextNormalizeFlags::kCollapseWhitespace)) != 0) {
-        std::string collapsed;
-        collapsed.reserve(out.size());
-        bool in_whitespace = false;
-        for (const char byte : out) {
-            const bool whitespace =
-                (static_cast<unsigned char>(byte) < 0x80) && is_whitespace(static_cast<uint8_t>(byte));
-            // U+3000 was folded to a space when the fold flag is set; raw
-            // multi-byte whitespace stays untouched by design (documented).
-            if (whitespace) {
-                in_whitespace = true;
-                continue;
-            }
-            if (in_whitespace && !collapsed.empty()) {
-                collapsed.push_back(' ');
-            }
-            in_whitespace = false;
-            collapsed.push_back(byte);
+/// Folds internal ASCII whitespace runs to single spaces.
+[[nodiscard]] std::string collapse_whitespace(const std::string& text) {
+    std::string collapsed;
+    collapsed.reserve(text.size());
+    bool in_whitespace = false;
+    for (const char byte : text) {
+        const bool whitespace = (static_cast<unsigned char>(byte) < 0x80) && is_whitespace(static_cast<uint8_t>(byte));
+        // U+3000 was folded to a space when the fold flag is set; raw
+        // multi-byte whitespace stays untouched by design (documented).
+        if (whitespace) {
+            in_whitespace = true;
+            continue;
         }
-        out = std::move(collapsed);
+        if (in_whitespace && !collapsed.empty()) {
+            collapsed.push_back(' ');
+        }
+        in_whitespace = false;
+        collapsed.push_back(byte);
     }
+    return collapsed;
+}
 
+/// Strips leading/trailing ASCII whitespace.
+[[nodiscard]] std::string trim(const std::string& text) {
+    const auto is_space = [](unsigned char byte) { return byte == 0x20 || (byte >= 0x09 && byte <= 0x0D); };
+    size_t begin = 0;
+    size_t end = text.size();
+    while (begin < end && is_space(static_cast<unsigned char>(text[begin]))) {
+        ++begin;
+    }
+    while (end > begin && is_space(static_cast<unsigned char>(text[end - 1]))) {
+        --end;
+    }
+    return text.substr(begin, end - begin);
+}
+
+}  // namespace
+
+std::string normalize_text(std::string_view text, uint32_t flags) {
+    std::string out;
+    out.reserve(text.size());
+    transform_characters(text, flags, out);
+    if ((flags & static_cast<uint32_t>(TextNormalizeFlags::kCollapseWhitespace)) != 0) {
+        out = collapse_whitespace(out);
+    }
     if ((flags & static_cast<uint32_t>(TextNormalizeFlags::kTrim)) != 0) {
-        const auto is_space = [](unsigned char byte) { return byte == 0x20 || (byte >= 0x09 && byte <= 0x0D); };
-        size_t begin = 0;
-        size_t end = out.size();
-        while (begin < end && is_space(static_cast<unsigned char>(out[begin]))) {
-            ++begin;
-        }
-        while (end > begin && is_space(static_cast<unsigned char>(out[end - 1]))) {
-            --end;
-        }
-        out = out.substr(begin, end - begin);
+        out = trim(out);
     }
     return out;
 }

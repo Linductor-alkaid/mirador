@@ -1,6 +1,8 @@
 // M3-08: unit tests for the small-target crop-refine combinator (design
 // section 14, DEC-014 reference adaptation scope).
 
+#include <cstddef>
+#include <cstdint>
 #include <mirador/crop_refine.hpp>
 #include <mirador/image_buffer.hpp>
 
@@ -9,11 +11,18 @@
 #include <chrono>
 #include <utility>
 #include <vector>
+#include "mirador/backend_info.hpp"
+#include "mirador/detector_backend.hpp"
+#include "mirador/execution_context.hpp"
+#include "mirador/geometry.hpp"
+#include "mirador/image_view.hpp"
+#include "mirador/pixel_format.hpp"
+#include "mirador/result.hpp"
+#include "mirador/status.hpp"
 
 namespace {
 
 using mirador::BackendInfo;
-using mirador::CoordinateSpaceId;
 using mirador::CropRefineParams;
 using mirador::DetectionRegion;
 using mirador::DetectionRequest;
@@ -22,7 +31,6 @@ using mirador::ExecutionContext;
 using mirador::ImageView;
 using mirador::PixelFormat;
 using mirador::RectF;
-using mirador::RectI;
 using mirador::Status;
 
 /// Records the prepared view of every call and returns fixed model-space
@@ -59,10 +67,10 @@ public:
         return kept;
     }
 
-    int calls() const noexcept { return calls_; }
-    PixelFormat last_format() const noexcept { return last_format_; }
-    int32_t last_width() const noexcept { return last_width_; }
-    int32_t last_height() const noexcept { return last_height_; }
+    [[nodiscard]] int calls() const noexcept { return calls_; }
+    [[nodiscard]] PixelFormat last_format() const noexcept { return last_format_; }
+    [[nodiscard]] int32_t last_width() const noexcept { return last_width_; }
+    [[nodiscard]] int32_t last_height() const noexcept { return last_height_; }
     void set_accepted_formats(std::vector<PixelFormat> formats) { accepted_formats_ = std::move(formats); }
 
 private:
@@ -85,7 +93,7 @@ DetectionRegion make_region(float x, float y, float w, float h, float confidence
 }
 
 ImageView gray_view(std::vector<uint8_t>& pixels, int32_t width, int32_t height) {
-    pixels.assign(static_cast<size_t>(width) * height, 128);
+    pixels.assign(static_cast<size_t>(width) * static_cast<size_t>(height), 128);
     ImageView view;
     view.data = reinterpret_cast<const std::byte*>(pixels.data());
     view.width = width;
@@ -163,7 +171,7 @@ TEST(CropRefine, AreaRuleAndCandidateCapSelectDeterministically) {
 }
 
 TEST(CropRefine, ConvertsFormatForGrayOnlyBackend) {
-    std::vector<uint8_t> rgb_pixels(64 * 64 * 3, 90);
+    std::vector<uint8_t> rgb_pixels(12288U, 90);
     ImageView source;
     source.data = reinterpret_cast<const std::byte*>(rgb_pixels.data());
     source.width = 64;
@@ -177,30 +185,54 @@ TEST(CropRefine, ConvertsFormatForGrayOnlyBackend) {
     valid.data = reinterpret_cast<const std::byte*>(placeholder.data());
     const std::vector<DetectionRegion> initial{make_region(10.0F, 10.0F, 20.0F, 20.0F, 0.3F)};
 
-    CropRefineParams params;
+    CropRefineParams const params;
     const auto refined = mirador::refine_small_detections(source, &detector, initial, params, {});
     ASSERT_TRUE(refined.ok()) << refined.status().message();
     EXPECT_EQ(detector.last_format(), PixelFormat::kGray8);  // converted before the call
 }
 
-TEST(CropRefine, ExplicitErrors) {
+TEST(CropRefine, BackendAndViewErrors) {
     std::vector<uint8_t> pixels;
     const ImageView source = gray_view(pixels, 64, 64);
     const std::vector<DetectionRegion> initial{make_region(8.0F, 8.0F, 16.0F, 16.0F, 0.3F)};
     RecordingDetector detector({make_region(1.0F, 1.0F, 4.0F, 4.0F, 0.8F)});
 
-    CropRefineParams params;
-    ASSERT_EQ(mirador::refine_small_detections(source, nullptr, initial, params, {}).status().code(),
+    ASSERT_EQ(mirador::refine_small_detections(source, nullptr, initial, CropRefineParams{}, {}).status().code(),
               ErrorCode::kBackendUnavailable);
 
-    // Invalid backend capability report.
-    RecordingDetector unnamed({});
-    // (name/implementation fields left empty by default only in a fresh info();
-    // RecordingDetector sets them, so wrap with an anonymous backend instead.)
     struct NullInfoDetector final : public mirador::DetectorBackend {
         [[nodiscard]] BackendInfo info() const override { return {}; }
-        mirador::Result<std::vector<DetectionRegion>> detect(const ImageView&, const DetectionRequest&,
-                                                             const ExecutionContext&) override {
+        mirador::Result<std::vector<DetectionRegion>> detect(const ImageView& /*source*/,
+                                                             const DetectionRequest& /*request*/,
+                                                             const ExecutionContext& /*context*/) override {
+            return Status(ErrorCode::kBackendFailure, "unused");
+        }
+    } bad_info;
+    ASSERT_EQ(mirador::refine_small_detections(source, &bad_info, initial, CropRefineParams{}, {}).status().code(),
+              ErrorCode::kBackendUnavailable);
+
+    // NV12 sources are rejected pending the chroma decision.
+    auto nv12 = mirador::ImageBuffer::create(PixelFormat::kNv12, 32, 32, 8192);
+    ASSERT_TRUE(nv12.ok());
+    ASSERT_EQ(mirador::refine_small_detections(nv12.value().view(), &detector, initial, CropRefineParams{}, {})
+                  .status()
+                  .code(),
+              ErrorCode::kUnsupportedFormat);
+}
+
+TEST(CropRefine, ParameterErrors) {
+    std::vector<uint8_t> pixels;
+    const ImageView source = gray_view(pixels, 64, 64);
+    const std::vector<DetectionRegion> initial{make_region(8.0F, 8.0F, 16.0F, 16.0F, 0.3F)};
+    RecordingDetector detector({make_region(1.0F, 1.0F, 4.0F, 4.0F, 0.8F)});
+    const CropRefineParams params;
+
+    // Invalid backend capability report: a fresh BackendInfo has no identity.
+    struct NullInfoDetector final : public mirador::DetectorBackend {
+        [[nodiscard]] BackendInfo info() const override { return {}; }
+        mirador::Result<std::vector<DetectionRegion>> detect(const ImageView& /*prepared_image*/,
+                                                             const DetectionRequest& /*request*/,
+                                                             const ExecutionContext& /*context*/) override {
             return Status(ErrorCode::kBackendFailure, "unused");
         }
     } bad_info;
@@ -211,6 +243,14 @@ TEST(CropRefine, ExplicitErrors) {
     bad_params.expand_ratio = -1.0F;
     ASSERT_EQ(mirador::refine_small_detections(source, &detector, initial, bad_params, {}).status().code(),
               ErrorCode::kInvalidArgument);
+}
+
+TEST(CropRefine, ContextAndBudgetErrors) {
+    std::vector<uint8_t> pixels;
+    const ImageView source = gray_view(pixels, 64, 64);
+    const std::vector<DetectionRegion> initial{make_region(8.0F, 8.0F, 16.0F, 16.0F, 0.3F)};
+    RecordingDetector detector({make_region(1.0F, 1.0F, 4.0F, 4.0F, 0.8F)});
+    const CropRefineParams params;
 
     // A valid-but-tight per-candidate budget: the expanded crop cannot fit.
     std::vector<uint8_t> big_pixels;
