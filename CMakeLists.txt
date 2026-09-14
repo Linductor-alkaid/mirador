@@ -93,6 +93,7 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
             # detector dependency in the default build).
             add_library(mirador_${mirador_module}
                 src/geometry/line_filter.cpp
+                src/geometry/segment_growing_line_detector.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)

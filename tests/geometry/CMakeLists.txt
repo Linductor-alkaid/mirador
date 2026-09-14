@@ -6,3 +6,9 @@ mirador_add_test(
     SOURCES line_detector_test.cpp
     LIBS mirador::geometry
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.geometry.segment_growing
+    SOURCES segment_growing_test.cpp
+    LIBS mirador::geometry
+    LABELS unit)
