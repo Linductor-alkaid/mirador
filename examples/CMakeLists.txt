@@ -26,3 +26,12 @@ if(TARGET mirador::cache AND TARGET mirador::image)
     target_link_libraries(mirador_example_icon_state_index PRIVATE mirador::cache mirador::image)
     mirador_apply_warnings(mirador_example_icon_state_index)
 endif()
+
+# M4-07: the design-section-24 M4 demo - Accessibility regions, OCR and
+# detector evidence fused into a tracked SemanticSnapshot, rendered as a
+# Set-of-Mark image, with generation checks refusing stale references.
+if(TARGET mirador::render)
+    add_executable(mirador_example_hybrid_localization hybrid_localization_tour.cpp)
+    target_link_libraries(mirador_example_hybrid_localization PRIVATE mirador::render)
+    mirador_apply_warnings(mirador_example_hybrid_localization)
+endif()
