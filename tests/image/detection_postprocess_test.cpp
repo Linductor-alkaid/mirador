@@ -38,8 +38,8 @@ TEST(IntersectionOverUnion, IdenticalBoxesAreOneAndDisjointAreZero) {
 TEST(Nms, SuppressesOverlappingKeepsDistinct) {
     const std::vector<DetectionRegion> regions{
         make_region(0.0F, 0.0F, 10.0F, 10.0F, 0.9F),
-        make_region(1.0F, 0.0F, 10.0F, 10.0F, 0.8F),   // IoU 9/11 > 0.5 with the first
-        make_region(50.0F, 50.0F, 10.0F, 10.0F, 0.7F), // disjoint
+        make_region(1.0F, 0.0F, 10.0F, 10.0F, 0.8F),    // IoU 9/11 > 0.5 with the first
+        make_region(50.0F, 50.0F, 10.0F, 10.0F, 0.7F),  // disjoint
     };
     const auto kept = mirador::nms(regions, NmsParams{});
     ASSERT_TRUE(kept.ok()) << kept.status().message();
@@ -67,8 +67,7 @@ TEST(Nms, ClassAwareSuppressionIsolatesClasses) {
 
 TEST(Nms, EqualConfidenceBreaksTieByInputOrder) {
     const std::vector<DetectionRegion> regions{
-        make_region(1.0F, 1.0F, 4.0F, 4.0F, 0.5F),
-        make_region(20.0F, 20.0F, 4.0F, 4.0F, 0.5F),
+        make_region(1.0F, 1.0F, 4.0F, 4.0F, 0.5F), make_region(20.0F, 20.0F, 4.0F, 4.0F, 0.5F),
         make_region(0.5F, 0.5F, 4.0F, 4.0F, 0.5F),  // overlaps box 0: suppressed by it
     };
     const auto kept = mirador::nms(regions, NmsParams{0.1F, false, 0});
@@ -96,8 +95,8 @@ TEST(Nms, RejectsInvalidParamsAndInputs) {
     ASSERT_EQ(mirador::nms(regions, NmsParams{1.5F, true, 0}).status().code(), ErrorCode::kInvalidArgument);
     ASSERT_EQ(mirador::nms(regions, NmsParams{0.5F, true, -1}).status().code(), ErrorCode::kInvalidArgument);
 
-    std::vector<DetectionRegion> nan_input{make_region(0.0F, 0.0F, 4.0F, 4.0F,
-                                                       std::numeric_limits<float>::quiet_NaN())};
+    std::vector<DetectionRegion> nan_input{
+        make_region(0.0F, 0.0F, 4.0F, 4.0F, std::numeric_limits<float>::quiet_NaN())};
     ASSERT_EQ(mirador::nms(nan_input, NmsParams{}).status().code(), ErrorCode::kInvalidArgument);
 }
 

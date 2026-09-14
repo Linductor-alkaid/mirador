@@ -97,9 +97,7 @@ TEST(Letterbox, CentersContentAndFillsPadValue) {
     ASSERT_EQ(result.value().resized_height, 4);
 
     const ImageView view = result.value().buffer.view();
-    const auto byte_at = [view](int32_t x, int32_t y) {
-        return *(view.data + y * view.row_stride_bytes + x);
-    };
+    const auto byte_at = [view](int32_t x, int32_t y) { return *(view.data + y * view.row_stride_bytes + x); };
     for (int32_t x = 0; x < 8; ++x) {
         EXPECT_EQ(byte_at(x, 0), std::byte{7});
         EXPECT_EQ(byte_at(x, 1), std::byte{7});
@@ -158,8 +156,7 @@ TEST(Letterbox, MultiChannelPadAndContentPlacement) {
     for (int32_t y = 0; y < 2; ++y) {
         for (int32_t x = 0; x < 4; ++x) {
             for (int32_t c = 0; c < 3; ++c) {
-                EXPECT_EQ(byte_at(x * 2, y * 2 + 2, c),
-                          std::byte{rgb[static_cast<size_t>(y) * 12 + x * 3 + c]});
+                EXPECT_EQ(byte_at(x * 2, y * 2 + 2, c), std::byte{rgb[static_cast<size_t>(y) * 12 + x * 3 + c]});
             }
         }
     }
@@ -172,8 +169,8 @@ TEST(Letterbox, TransformMatchesContinuousIdealWithinOnePixel) {
     request.dst_height = 10;
     const auto result = mirador::letterbox(src.view(), request, 4096);
     ASSERT_TRUE(result.ok());
-    const auto ideal = mirador::make_letterbox(6, 4, 12, 10, CoordinateSpaceId::kOriented,
-                                               CoordinateSpaceId::kModelInput);
+    const auto ideal =
+        mirador::make_letterbox(6, 4, 12, 10, CoordinateSpaceId::kOriented, CoordinateSpaceId::kModelInput);
     ASSERT_TRUE(ideal.ok());
     for (const PointF& corner : {PointF{0.0F, 0.0F}, PointF{6.0F, 0.0F}, PointF{6.0F, 4.0F}, PointF{0.0F, 4.0F}}) {
         const PointF actual = mirador::transform_point(result.value().transform, corner);
@@ -196,7 +193,8 @@ TEST(Letterbox, DeterministicAndInputPreserving) {
     ASSERT_TRUE(second.ok());
     ASSERT_EQ(first.value().buffer.byte_size(), second.value().buffer.byte_size());
     EXPECT_EQ(std::memcmp(first.value().buffer.view().data, second.value().buffer.view().data,
-                          static_cast<size_t>(first.value().buffer.byte_size())), 0);
+                          static_cast<size_t>(first.value().buffer.byte_size())),
+              0);
     EXPECT_EQ(src.pixels, src_copy);  // RULE-04
 }
 
@@ -224,8 +222,7 @@ TEST(Letterbox, ExplicitErrors) {
     // NV12 rejected pending the chroma padding decision (DEC-014).
     auto nv12 = ImageBuffer::create(PixelFormat::kNv12, 8, 8, 4096);
     ASSERT_TRUE(nv12.ok());
-    ASSERT_EQ(mirador::letterbox(nv12.value().view(), request, 4096).status().code(),
-              ErrorCode::kUnsupportedFormat);
+    ASSERT_EQ(mirador::letterbox(nv12.value().view(), request, 4096).status().code(), ErrorCode::kUnsupportedFormat);
 }
 
 }  // namespace

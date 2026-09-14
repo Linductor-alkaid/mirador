@@ -62,9 +62,11 @@ struct CropRefineParams {
 /// kBackendUnavailable (null backend or invalid `info()`), kBackendFailure /
 /// kCancelled / kTimeout from the backend or context, kBudgetExceeded
 /// (per-candidate buffers). Never throws.
-[[nodiscard]] Result<std::vector<DetectionRegion>>
-refine_small_detections(const ImageView& source, DetectorBackend* backend, std::span<const DetectionRegion> initial,
-                        const CropRefineParams& params, const ExecutionContext& context = {});
+[[nodiscard]] Result<std::vector<DetectionRegion>> refine_small_detections(const ImageView& source,
+                                                                           DetectorBackend* backend,
+                                                                           std::span<const DetectionRegion> initial,
+                                                                           const CropRefineParams& params,
+                                                                           const ExecutionContext& context = {});
 
 }  // namespace mirador
 

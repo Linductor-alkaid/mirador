@@ -11,12 +11,12 @@
 namespace {
 
 using mirador::ContourBoxParams;
+using mirador::DbPostprocessParams;
 using mirador::ErrorCode;
 using mirador::ImageView;
 using mirador::PixelFormat;
 using mirador::RectF;
 using mirador::TextRegion;
-using mirador::DbPostprocessParams;
 
 /// Gray view over a byte grid with explicit stride control.
 struct Map {
@@ -93,9 +93,9 @@ TEST(DbPostprocess, ScanOrderAndMultipleBoxes) {
 
 TEST(DbPostprocess, FiltersSmallAndDimComponents) {
     Map map = make_map(40, 30, 40);
-    fill_rect(map, 1, 1, 2, 2, 250);    // 4 px: exactly at the default min_box_pixels, kept
-    fill_rect(map, 10, 1, 1, 1, 250);   // 1 px: dropped by min_box_pixels
-    fill_rect(map, 20, 1, 5, 5, 100);   // mean 100/255 ≈ 0.39: dropped by min_mean_score
+    fill_rect(map, 1, 1, 2, 2, 250);   // 4 px: exactly at the default min_box_pixels, kept
+    fill_rect(map, 10, 1, 1, 1, 250);  // 1 px: dropped by min_box_pixels
+    fill_rect(map, 20, 1, 5, 5, 100);  // mean 100/255 ≈ 0.39: dropped by min_mean_score
 
     const auto boxes = mirador::db_postprocess_aabb(map.view(), DbPostprocessParams{});
     ASSERT_TRUE(boxes.ok());
@@ -107,7 +107,7 @@ TEST(DbPostprocess, FiltersSmallAndDimComponents) {
 
 TEST(DbPostprocess, BoxCapFailsExplicitlyAndClampsExpansion) {
     Map map = make_map(20, 20, 20);
-    fill_rect(map, 0, 0, 4, 4, 200);     // corner box: expansion clamps to the map
+    fill_rect(map, 0, 0, 4, 4, 200);  // corner box: expansion clamps to the map
     fill_rect(map, 10, 10, 4, 4, 200);
 
     DbPostprocessParams params;
@@ -189,7 +189,7 @@ TEST(ContourBoxes, ExactBoundsInScanOrder) {
     const auto boxes = mirador::recover_contour_boxes(map.view(), params);
     ASSERT_TRUE(boxes.ok()) << boxes.status().message();
     ASSERT_EQ(boxes.value().size(), 2U);
-    EXPECT_EQ(boxes.value()[0], (RectF{2.0F, 2.0F, 2.0F, 3.0F}));   // exact AABB, no expansion
+    EXPECT_EQ(boxes.value()[0], (RectF{2.0F, 2.0F, 2.0F, 3.0F}));  // exact AABB, no expansion
     EXPECT_EQ(boxes.value()[1], (RectF{15.0F, 10.0F, 6.0F, 3.0F}));
 }
 

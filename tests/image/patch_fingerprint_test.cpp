@@ -102,8 +102,7 @@ TEST(PatchFingerprint, ColorInputConvertsToGray) {
         for (int32_t x = 0; x < 8; ++x) {
             const size_t offset = static_cast<size_t>(y) * 24 + x * 3;
             const int expected = (77 * rgb[offset] + 150 * rgb[offset + 1] + 29 * rgb[offset + 2] + 128) >> 8;
-            EXPECT_EQ(std::to_integer<uint8_t>(fp.value().thumbnail_gray[static_cast<size_t>(y) * 8 + x]),
-                      expected);
+            EXPECT_EQ(std::to_integer<uint8_t>(fp.value().thumbnail_gray[static_cast<size_t>(y) * 8 + x]), expected);
         }
     }
 }

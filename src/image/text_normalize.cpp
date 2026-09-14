@@ -11,8 +11,8 @@ namespace {
 /// ideographic space U+3000 (which stays a fold target under
 /// kFoldFullwidthAscii as well).
 bool is_whitespace(uint32_t code_point) noexcept {
-    return code_point == 0x20 || code_point == 0x09 || code_point == 0x0A || code_point == 0x0B ||
-           code_point == 0x0C || code_point == 0x0D || code_point == 0x3000;
+    return code_point == 0x20 || code_point == 0x09 || code_point == 0x0A || code_point == 0x0B || code_point == 0x0C ||
+           code_point == 0x0D || code_point == 0x3000;
 }
 
 /// Decodes one UTF-8 sequence. Returns the code point and its byte length;
@@ -78,8 +78,7 @@ bool transform_code_point(uint32_t code_point, uint32_t flags, uint32_t& out, bo
 
 }  // namespace
 
-Result<std::vector<TextRegion>> merge_text_lines(std::span<const TextRegion> lines,
-                                                 const LineMergeParams& params) {
+Result<std::vector<TextRegion>> merge_text_lines(std::span<const TextRegion> lines, const LineMergeParams& params) {
     if (lines.size() > static_cast<size_t>(params.max_lines)) {
         return Status(ErrorCode::kBudgetExceeded, "too many lines for merging");
     }
@@ -88,9 +87,8 @@ Result<std::vector<TextRegion>> merge_text_lines(std::span<const TextRegion> lin
         return Status(ErrorCode::kInvalidArgument, "merge ratios must be finite and non-negative");
     }
     for (const TextRegion& line : lines) {
-        if (!std::isfinite(line.bounds.x) || !std::isfinite(line.bounds.y) ||
-            !std::isfinite(line.bounds.width) || !std::isfinite(line.bounds.height) ||
-            !std::isfinite(line.confidence)) {
+        if (!std::isfinite(line.bounds.x) || !std::isfinite(line.bounds.y) || !std::isfinite(line.bounds.width) ||
+            !std::isfinite(line.bounds.height) || !std::isfinite(line.confidence)) {
             return Status(ErrorCode::kInvalidArgument, "lines must carry finite bounds and confidence");
         }
     }
@@ -142,10 +140,10 @@ Result<std::vector<TextRegion>> merge_text_lines(std::span<const TextRegion> lin
                 const TextRegion& other = lines[candidate];
                 const float left = std::min(current.bounds.x, other.bounds.x);
                 const float top = std::min(current.bounds.y, other.bounds.y);
-                const float right = std::max(current.bounds.x + current.bounds.width,
-                                             other.bounds.x + other.bounds.width);
-                const float bottom = std::max(current.bounds.y + current.bounds.height,
-                                              other.bounds.y + other.bounds.height);
+                const float right =
+                    std::max(current.bounds.x + current.bounds.width, other.bounds.x + other.bounds.width);
+                const float bottom =
+                    std::max(current.bounds.y + current.bounds.height, other.bounds.y + other.bounds.height);
                 current.bounds = RectF{left, top, right - left, bottom - top};
                 current.utf8_text += params.text_separator;
                 current.utf8_text += other.utf8_text;
@@ -185,8 +183,8 @@ std::string normalize_text(std::string_view text, uint32_t flags) {
         collapsed.reserve(out.size());
         bool in_whitespace = false;
         for (const char byte : out) {
-            const bool whitespace = (static_cast<unsigned char>(byte) < 0x80) &&
-                                    is_whitespace(static_cast<uint8_t>(byte));
+            const bool whitespace =
+                (static_cast<unsigned char>(byte) < 0x80) && is_whitespace(static_cast<uint8_t>(byte));
             // U+3000 was folded to a space when the fold flag is set; raw
             // multi-byte whitespace stays untouched by design (documented).
             if (whitespace) {
@@ -203,9 +201,7 @@ std::string normalize_text(std::string_view text, uint32_t flags) {
     }
 
     if ((flags & static_cast<uint32_t>(TextNormalizeFlags::kTrim)) != 0) {
-        const auto is_space = [](unsigned char byte) {
-            return byte == 0x20 || (byte >= 0x09 && byte <= 0x0D);
-        };
+        const auto is_space = [](unsigned char byte) { return byte == 0x20 || (byte >= 0x09 && byte <= 0x0D); };
         size_t begin = 0;
         size_t end = out.size();
         while (begin < end && is_space(static_cast<unsigned char>(out[begin]))) {

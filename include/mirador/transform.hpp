@@ -61,8 +61,7 @@ struct Transform2D {
 
 /// Translates coordinates by (dx, dy): p -> p + (dx, dy). Useful for the centering
 /// offset of pixel-space letterbox pipelines (M3-04).
-[[nodiscard]] Transform2D make_translation(double dx, double dy, CoordinateSpaceId from,
-                                           CoordinateSpaceId to) noexcept;
+[[nodiscard]] Transform2D make_translation(double dx, double dy, CoordinateSpaceId from, CoordinateSpaceId to) noexcept;
 
 /// Maps source coordinates into a crop-local space: p -> p - crop.origin.
 [[nodiscard]] Transform2D make_crop(const RectF& crop, CoordinateSpaceId from, CoordinateSpaceId to) noexcept;

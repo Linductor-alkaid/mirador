@@ -11,12 +11,12 @@
 
 namespace {
 
+using mirador::ErrorCode;
 using mirador::VisualCandidate;
 using mirador::VisualEvidenceKind;
 using mirador::VisualIndex;
 using mirador::VisualPatchFingerprint;
 using mirador::VisualQueryParams;
-using mirador::ErrorCode;
 
 constexpr int32_t kSide = 16;
 constexpr int64_t kEntryBytes = static_cast<int64_t>(kSide) * kSide + VisualIndex::kEntryOverheadBytes;

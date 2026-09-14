@@ -33,8 +33,8 @@ Result<LetterboxResult> letterbox(const ImageView& src, const LetterboxRequest& 
     const int32_t offset_y = (request.dst_height - resized_height) / 2;
 
     // Budget: the resized intermediate and the padded destination must both fit.
-    const int64_t destination_bytes = static_cast<int64_t>(request.dst_width) * request.dst_height *
-                                      bytes_per_pixel(src.format);
+    const int64_t destination_bytes =
+        static_cast<int64_t>(request.dst_width) * request.dst_height * bytes_per_pixel(src.format);
     if (destination_bytes > max_bytes) {
         return Status(ErrorCode::kBudgetExceeded, "letterbox destination exceeds the byte budget");
     }
@@ -70,8 +70,8 @@ Result<LetterboxResult> letterbox(const ImageView& src, const LetterboxRequest& 
     result.resized_height = resized_height;
     // Exact forward mapping of the executed pixels: p_model = p_src * (rw/sw, rh/sh) + offset.
     auto scaled = make_scale(static_cast<double>(resized_width) / static_cast<double>(src.width),
-                             static_cast<double>(resized_height) / static_cast<double>(src.height),
-                             request.from_space, request.to_space);
+                             static_cast<double>(resized_height) / static_cast<double>(src.height), request.from_space,
+                             request.to_space);
     auto with_offset = compose(scaled, make_translation(static_cast<double>(offset_x), static_cast<double>(offset_y),
                                                         request.to_space, request.to_space));
     if (!with_offset.ok()) {

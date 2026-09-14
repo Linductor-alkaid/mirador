@@ -36,9 +36,7 @@ constexpr int32_t kSide = 32;
 /// `!on` leaves a ring. Deterministic bytes only.
 std::vector<std::byte> paint_icon(bool on) {
     std::vector<std::byte> bytes(static_cast<size_t>(kSide) * kSide, std::byte{24});  // panel background
-    const auto at = [&](int32_t x, int32_t y) -> std::byte& {
-        return bytes[static_cast<size_t>(y) * kSide + x];
-    };
+    const auto at = [&](int32_t x, int32_t y) -> std::byte& { return bytes[static_cast<size_t>(y) * kSide + x]; };
     const int32_t center = kSide / 2;
     for (int32_t y = 4; y < kSide - 4; ++y) {
         for (int32_t x = 4; x < kSide - 4; ++x) {

@@ -67,8 +67,8 @@ Result<std::vector<TextRegion>> db_postprocess_aabb(const ImageView& probability
     }
     const RectF map_rect{0.0F, 0.0F, static_cast<float>(probability_map.width),
                          static_cast<float>(probability_map.height)};
-    auto components = image_internal::find_components(probability_map, params.binarize_threshold,
-                                                      params.work_budget_bytes);
+    auto components =
+        image_internal::find_components(probability_map, params.binarize_threshold, params.work_budget_bytes);
     if (!components.ok()) {
         return Status(components.status().code(), components.status().message());
     }
@@ -81,8 +81,8 @@ Result<std::vector<TextRegion>> db_postprocess_aabb(const ImageView& probability
         if (component.pixel_count < params.min_box_pixels) {
             continue;
         }
-        const double mean_score = static_cast<double>(component.value_sum) / 255.0 /
-                                  static_cast<double>(component.pixel_count);
+        const double mean_score =
+            static_cast<double>(component.value_sum) / 255.0 / static_cast<double>(component.pixel_count);
         if (mean_score < params.min_mean_score) {
             continue;
         }

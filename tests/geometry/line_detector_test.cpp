@@ -23,15 +23,15 @@ using mirador::CoordinateSpaceId;
 using mirador::ErrorCode;
 using mirador::ExecutionContext;
 using mirador::ImageView;
+using mirador::LineDetector;
+using mirador::LineDetectRequest;
+using mirador::LineFilterParams;
+using mirador::LineSegment;
+using mirador::LineSegmentSet;
 using mirador::PixelFormat;
 using mirador::RectI;
 using mirador::Result;
 using mirador::Status;
-using mirador::LineDetectRequest;
-using mirador::LineDetector;
-using mirador::LineFilterParams;
-using mirador::LineSegment;
-using mirador::LineSegmentSet;
 
 /// Fake detector injected through the SPI (DEC-012 pattern): returns a fixed
 /// set and enforces the grayscale input contract the SPI documents.
@@ -101,8 +101,8 @@ TEST(LineDetectorSpi, InjectsAndDispatchesThroughBasePointer) {
 }
 
 TEST(LineDetectorSpi, FakeHonorsConfidenceGateAndFormatContract) {
-    FakeLineDetector fake({LineSegment{{0.0F, 0.0F}, {4.0F, 0.0F}, 0.4F},
-                           LineSegment{{0.0F, 1.0F}, {4.0F, 1.0F}, 0.8F}});
+    FakeLineDetector fake(
+        {LineSegment{{0.0F, 0.0F}, {4.0F, 0.0F}, 0.4F}, LineSegment{{0.0F, 1.0F}, {4.0F, 1.0F}, 0.8F}});
 
     LineDetectRequest request;
     request.min_confidence = 0.5F;
@@ -143,9 +143,9 @@ TEST(SegmentMath, LengthAndOrientationAreDirectionIndependent) {
 
 TEST(FilterSegments, LengthBoundsAreInclusiveAndZeroDisables) {
     const std::vector<LineSegment> segments{
-        LineSegment{{0.0F, 0.0F}, {2.0F, 0.0F}, 1.0F},   // length 2
-        LineSegment{{0.0F, 1.0F}, {5.0F, 1.0F}, 1.0F},   // length 5
-        LineSegment{{0.0F, 2.0F}, {9.0F, 2.0F}, 1.0F},   // length 9
+        LineSegment{{0.0F, 0.0F}, {2.0F, 0.0F}, 1.0F},  // length 2
+        LineSegment{{0.0F, 1.0F}, {5.0F, 1.0F}, 1.0F},  // length 5
+        LineSegment{{0.0F, 2.0F}, {9.0F, 2.0F}, 1.0F},  // length 9
     };
     LineFilterParams params;
     params.min_length = 2.0;  // inclusive: the length-2 segment stays
@@ -163,9 +163,9 @@ TEST(FilterSegments, LengthBoundsAreInclusiveAndZeroDisables) {
 
 TEST(FilterSegments, AngleWindowSupportsWrapAround180) {
     const std::vector<LineSegment> segments{
-        LineSegment{{0.0F, 0.0F}, {10.0F, 0.9F}, 1.0F},    // ~5.1 degrees
-        LineSegment{{0.0F, 0.0F}, {-10.0F, 0.9F}, 1.0F},   // ~174.9 degrees
-        LineSegment{{0.0F, 0.0F}, {5.0F, 5.0F}, 1.0F},     // 45 degrees
+        LineSegment{{0.0F, 0.0F}, {10.0F, 0.9F}, 1.0F},   // ~5.1 degrees
+        LineSegment{{0.0F, 0.0F}, {-10.0F, 0.9F}, 1.0F},  // ~174.9 degrees
+        LineSegment{{0.0F, 0.0F}, {5.0F, 5.0F}, 1.0F},    // 45 degrees
     };
     LineFilterParams params;
     params.min_angle_deg = 170.0;
@@ -173,7 +173,7 @@ TEST(FilterSegments, AngleWindowSupportsWrapAround180) {
     auto kept = mirador::filter_segments(segments, params);
     ASSERT_TRUE(kept.ok());
     ASSERT_EQ(kept.value().size(), 2U);
-    EXPECT_LT(mirador::segment_angle_deg(kept.value()[0]), 10.0);   // input order preserved
+    EXPECT_LT(mirador::segment_angle_deg(kept.value()[0]), 10.0);  // input order preserved
     EXPECT_GT(mirador::segment_angle_deg(kept.value()[1]), 170.0);
 
     params.min_angle_deg = 40.0;
@@ -219,10 +219,9 @@ TEST(FilterSegments, RejectsInvalidParamsAndInputs) {
     params.min_length = std::numeric_limits<double>::quiet_NaN();
     ASSERT_EQ(mirador::filter_segments(segments, params).status().code(), ErrorCode::kInvalidArgument);
 
-    const std::vector<LineSegment> nan_segment{LineSegment{{0.0F, 0.0F}, {1.0F, 0.0F},
-                                                            std::numeric_limits<float>::quiet_NaN()}};
-    ASSERT_EQ(mirador::filter_segments(nan_segment, LineFilterParams{}).status().code(),
-              ErrorCode::kInvalidArgument);
+    const std::vector<LineSegment> nan_segment{
+        LineSegment{{0.0F, 0.0F}, {1.0F, 0.0F}, std::numeric_limits<float>::quiet_NaN()}};
+    ASSERT_EQ(mirador::filter_segments(nan_segment, LineFilterParams{}).status().code(), ErrorCode::kInvalidArgument);
 }
 
 TEST(MergeCollinear, MergesGapWithinToleranceAndKeepsMaxConfidence) {
@@ -243,8 +242,7 @@ TEST(MergeCollinear, RejectsAngleDistanceAndGapBeyondTolerance) {
 
     // 3 degrees of orientation difference exceeds the 1-degree tolerance.
     const std::vector<LineSegment> angled{
-        LineSegment{{0.0F, 0.0F}, {8.0F, 0.0F}, 1.0F},
-        LineSegment{{0.0F, 0.0F}, {8.0F, 0.42F}, 1.0F},  // ~3 degrees
+        LineSegment{{0.0F, 0.0F}, {8.0F, 0.0F}, 1.0F}, LineSegment{{0.0F, 0.0F}, {8.0F, 0.42F}, 1.0F},  // ~3 degrees
     };
     auto merged = mirador::merge_collinear(angled, tight);
     ASSERT_TRUE(merged.ok());
@@ -272,7 +270,7 @@ TEST(MergeCollinear, RejectsAngleDistanceAndGapBeyondTolerance) {
 TEST(MergeCollinear, TransitiveAbsorptionReachesFixpoint) {
     const std::vector<LineSegment> segments{
         LineSegment{{0.0F, 0.0F}, {3.0F, 0.0F}, 0.4F},
-        LineSegment{{8.0F, 0.0F}, {9.0F, 0.0F}, 0.6F},   // only reachable via the middle piece
+        LineSegment{{8.0F, 0.0F}, {9.0F, 0.0F}, 0.6F},  // only reachable via the middle piece
         LineSegment{{4.0F, 0.0F}, {7.0F, 0.0F}, 0.5F},
     };
     const auto merged = mirador::merge_collinear(segments, CollinearMergeParams{});
@@ -310,10 +308,8 @@ TEST(MergeCollinear, ExplicitErrors) {
     params.distance_tolerance = std::numeric_limits<double>::infinity();
     ASSERT_EQ(mirador::merge_collinear(segments, params).status().code(), ErrorCode::kInvalidArgument);
 
-    std::vector<LineSegment> too_many(mirador::kMaxMergeSegments + 1,
-                                      LineSegment{{0.0F, 0.0F}, {1.0F, 0.0F}, 1.0F});
-    ASSERT_EQ(mirador::merge_collinear(too_many, CollinearMergeParams{}).status().code(),
-              ErrorCode::kBudgetExceeded);
+    std::vector<LineSegment> too_many(mirador::kMaxMergeSegments + 1, LineSegment{{0.0F, 0.0F}, {1.0F, 0.0F}, 1.0F});
+    ASSERT_EQ(mirador::merge_collinear(too_many, CollinearMergeParams{}).status().code(), ErrorCode::kBudgetExceeded);
 }
 
 }  // namespace

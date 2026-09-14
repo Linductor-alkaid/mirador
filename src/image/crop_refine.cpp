@@ -114,8 +114,7 @@ Result<std::vector<DetectionRegion>> refine_small_detections(const ImageView& so
     for (size_t i = 0; i < initial.size(); ++i) {
         const DetectionRegion& region = initial[i];
         const double area = static_cast<double>(region.bounds.width) * region.bounds.height;
-        const bool low_confidence =
-            static_cast<double>(region.confidence) < params.refine_confidence_below;
+        const bool low_confidence = static_cast<double>(region.confidence) < params.refine_confidence_below;
         const bool small = params.small_box_area_ratio > 0.0 && area / source_area < params.small_box_area_ratio;
         if (low_confidence || small) {
             candidates.push_back(CandidateRef{i, region.confidence});
@@ -180,12 +179,11 @@ Result<std::vector<DetectionRegion>> refine_small_detections(const ImageView& so
 
         // Exact inverse of crop -> (convert) -> resize, applied to model-space boxes.
         const auto to_cropped = make_crop(RectF{static_cast<float>(roi.x), static_cast<float>(roi.y),
-                                                 static_cast<float>(roi.width), static_cast<float>(roi.height)},
+                                                static_cast<float>(roi.width), static_cast<float>(roi.height)},
                                           CoordinateSpaceId::kOriented, CoordinateSpaceId::kCropped);
-        const auto to_model =
-            make_scale(static_cast<double>(model_view.width) / static_cast<double>(roi.width),
-                       static_cast<double>(model_view.height) / static_cast<double>(roi.height),
-                       CoordinateSpaceId::kCropped, CoordinateSpaceId::kModelInput);
+        const auto to_model = make_scale(static_cast<double>(model_view.width) / static_cast<double>(roi.width),
+                                         static_cast<double>(model_view.height) / static_cast<double>(roi.height),
+                                         CoordinateSpaceId::kCropped, CoordinateSpaceId::kModelInput);
         auto forward = compose(to_cropped, to_model);
         if (!forward.ok()) {
             return Status(forward.status().code(),

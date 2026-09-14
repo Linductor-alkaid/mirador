@@ -43,9 +43,8 @@ TEST(MergeTextLines, JoinsSameRowWithSeparatorAndMinConfidence) {
 
 TEST(MergeTextLines, KeepsRowsApartWhenGapOrOffsetExceedsTolerance) {
     const std::vector<TextRegion> lines{
-        make_line(0.0F, 10.0F, 20.0F, 8.0F, "a"),
-        make_line(40.0F, 10.0F, 20.0F, 8.0F, "b"),  // gap 20 > 1.0 * 8
-        make_line(70.0F, 30.0F, 20.0F, 8.0F, "c"),  // different row
+        make_line(0.0F, 10.0F, 20.0F, 8.0F, "a"), make_line(40.0F, 10.0F, 20.0F, 8.0F, "b"),  // gap 20 > 1.0 * 8
+        make_line(70.0F, 30.0F, 20.0F, 8.0F, "c"),                                            // different row
     };
     const auto merged = mirador::merge_text_lines(lines, LineMergeParams{});
     ASSERT_TRUE(merged.ok());
@@ -90,14 +89,12 @@ TEST(MergeTextLines, ExplicitErrors) {
     bad_ratio.max_gap_ratio = -1.0;
     ASSERT_EQ(mirador::merge_text_lines({}, bad_ratio).status().code(), ErrorCode::kInvalidArgument);
 
-    std::vector<TextRegion> nan_line{make_line(0.0F, 0.0F, 4.0F, 4.0F, "x",
-                                               std::numeric_limits<float>::quiet_NaN())};
+    std::vector<TextRegion> nan_line{make_line(0.0F, 0.0F, 4.0F, 4.0F, "x", std::numeric_limits<float>::quiet_NaN())};
     ASSERT_EQ(mirador::merge_text_lines(nan_line, LineMergeParams{}).status().code(), ErrorCode::kInvalidArgument);
 
     LineMergeParams capped;
     capped.max_lines = 1;
-    const std::vector<TextRegion> two{make_line(0.0F, 0.0F, 4.0F, 4.0F, "a"),
-                                      make_line(0.0F, 20.0F, 4.0F, 4.0F, "b")};
+    const std::vector<TextRegion> two{make_line(0.0F, 0.0F, 4.0F, 4.0F, "a"), make_line(0.0F, 20.0F, 4.0F, 4.0F, "b")};
     ASSERT_EQ(mirador::merge_text_lines(two, capped).status().code(), ErrorCode::kBudgetExceeded);
 }
 
@@ -105,7 +102,8 @@ TEST(NormalizeText, TrimsCollapsesAndStripsControl) {
     const auto trimmed = mirador::normalize_text("  hello\tworld \n", static_cast<uint32_t>(TextNormalizeFlags::kTrim));
     EXPECT_EQ(trimmed, "hello\tworld");
 
-    const auto collapsed = mirador::normalize_text("a \t\n b", static_cast<uint32_t>(TextNormalizeFlags::kCollapseWhitespace));
+    const auto collapsed =
+        mirador::normalize_text("a \t\n b", static_cast<uint32_t>(TextNormalizeFlags::kCollapseWhitespace));
     EXPECT_EQ(collapsed, "a b");
 
     // Control characters other than \t\n\r disappear; they never merge bytes.
@@ -114,17 +112,18 @@ TEST(NormalizeText, TrimsCollapsesAndStripsControl) {
         mirador::normalize_text(with_control, static_cast<uint32_t>(TextNormalizeFlags::kStripControl));
     EXPECT_EQ(stripped, "ab");
 
-    const auto all = mirador::normalize_text(
-        "  " + with_control + " x ", static_cast<uint32_t>(TextNormalizeFlags::kTrim) |
-                                          static_cast<uint32_t>(TextNormalizeFlags::kCollapseWhitespace) |
-                                          static_cast<uint32_t>(TextNormalizeFlags::kStripControl));
+    const auto all = mirador::normalize_text("  " + with_control + " x ",
+                                             static_cast<uint32_t>(TextNormalizeFlags::kTrim) |
+                                                 static_cast<uint32_t>(TextNormalizeFlags::kCollapseWhitespace) |
+                                                 static_cast<uint32_t>(TextNormalizeFlags::kStripControl));
     EXPECT_EQ(all, "ab x");
 }
 
 TEST(NormalizeText, FoldsFullwidthAsciiAndIdeographicSpace) {
     // "Ｈｅｌｌｏ　１２３" — fullwidth forms plus U+3000.
     const std::string fullwidth = "Ｈｅｌｌｏ　１２３";
-    const auto folded = mirador::normalize_text(fullwidth, static_cast<uint32_t>(TextNormalizeFlags::kFoldFullwidthAscii));
+    const auto folded =
+        mirador::normalize_text(fullwidth, static_cast<uint32_t>(TextNormalizeFlags::kFoldFullwidthAscii));
     EXPECT_EQ(folded, "Hello 123");
 
     const auto trimmed_fold = mirador::normalize_text("\xEF\xBC\xA8\xE3\x80\x80x",

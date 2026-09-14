@@ -10,7 +10,9 @@ constexpr double kPi = 3.14159265358979323846;
 
 /// True when the value is a finite number (filters and merges reject NaN/inf
 /// coordinates as invalid input rather than propagating them silently).
-bool is_finite(double value) noexcept { return std::isfinite(value); }
+bool is_finite(double value) noexcept {
+    return std::isfinite(value);
+}
 
 bool is_finite(const LineSegment& segment) noexcept {
     return is_finite(static_cast<double>(segment.begin.x)) && is_finite(static_cast<double>(segment.begin.y)) &&
@@ -54,7 +56,8 @@ struct Interval {
     double end = 0.0;
 };
 
-[[nodiscard]] Interval projected_interval(const LineSegment& segment, const PointF& origin, const Direction& d) noexcept {
+[[nodiscard]] Interval projected_interval(const LineSegment& segment, const PointF& origin,
+                                          const Direction& d) noexcept {
     const double t0 = projection(segment.begin, origin, d);
     const double t1 = projection(segment.end, origin, d);
     return t0 <= t1 ? Interval{t0, t1} : Interval{t1, t0};

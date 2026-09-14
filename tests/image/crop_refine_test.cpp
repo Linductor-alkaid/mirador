@@ -128,8 +128,8 @@ TEST(CropRefine, ResamplesCropAndRecoversCoordinates) {
     RecordingDetector detector({make_region(4.0F, 4.0F, 20.0F, 20.0F, 0.8F)});
 
     CropRefineParams params;
-    params.expand_ratio = 0.25F;      // crop (5,5,30,30)
-    params.refine_target_side = 60;   // resample x2 -> 60x60 model input
+    params.expand_ratio = 0.25F;     // crop (5,5,30,30)
+    params.refine_target_side = 60;  // resample x2 -> 60x60 model input
     const auto refined = mirador::refine_small_detections(source, &detector, initial, params, {});
     ASSERT_TRUE(refined.ok()) << refined.status().message();
     ASSERT_EQ(detector.calls(), 1);
@@ -152,7 +152,7 @@ TEST(CropRefine, AreaRuleAndCandidateCapSelectDeterministically) {
     CropRefineParams params;
     params.small_box_area_ratio = 0.01;  // 9 px of 10000 < 0.01
     params.refine_confidence_below = 0.0;
-    params.max_refine_candidates = 1;    // tie on confidence: index 0 wins
+    params.max_refine_candidates = 1;  // tie on confidence: index 0 wins
     const auto refined = mirador::refine_small_detections(source, &detector, initial, params, {});
     ASSERT_TRUE(refined.ok());
     ASSERT_EQ(detector.calls(), 1);

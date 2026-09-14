@@ -261,8 +261,8 @@ Result<LineSegmentSet> SegmentGrowingLineDetector::detect(const ImageView& gray,
                         }
                         // |sin(angle between gradients)| <= sin(tolerance):
                         // cross^2 <= |a|^2 |b|^2 sin^2(tolerance).
-                        const int64_t cross =
-                            static_cast<int64_t>(seed_gradient.gx) * g.gy - static_cast<int64_t>(seed_gradient.gy) * g.gx;
+                        const int64_t cross = static_cast<int64_t>(seed_gradient.gx) * g.gy -
+                                              static_cast<int64_t>(seed_gradient.gy) * g.gx;
                         if (static_cast<double>(cross * cross) >
                             static_cast<double>(seed_gradient.square) * static_cast<double>(g.square) * sin_sq) {
                             continue;
@@ -307,9 +307,8 @@ Result<LineSegmentSet> SegmentGrowingLineDetector::detect(const ImageView& gray,
                     for (const Projected& p : run_projected) {
                         residual_sum += p.residual;
                     }
-                    const double confidence =
-                        std::max(0.0, std::min(1.0, 1.0 - residual_sum / run_projected.size() /
-                                                          params_.deviation_tolerance));
+                    const double confidence = std::max(
+                        0.0, std::min(1.0, 1.0 - residual_sum / run_projected.size() / params_.deviation_tolerance));
                     if (length >= params_.min_length && confidence >= static_cast<double>(request.min_confidence)) {
                         if (result.segments.size() >= static_cast<size_t>(params_.max_segments)) {
                             return Status(ErrorCode::kBudgetExceeded, "segment cap exceeded");

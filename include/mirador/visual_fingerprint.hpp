@@ -24,9 +24,8 @@ struct VisualPatchFingerprint {
     /// Component equality (test convenience; exact byte comparison).
     [[nodiscard]] friend bool operator==(const VisualPatchFingerprint& lhs,
                                          const VisualPatchFingerprint& rhs) noexcept {
-        return lhs.content_hash == rhs.content_hash && lhs.dhash == rhs.dhash &&
-               lhs.thumb_width == rhs.thumb_width && lhs.thumb_height == rhs.thumb_height &&
-               lhs.thumbnail_gray == rhs.thumbnail_gray;
+        return lhs.content_hash == rhs.content_hash && lhs.dhash == rhs.dhash && lhs.thumb_width == rhs.thumb_width &&
+               lhs.thumb_height == rhs.thumb_height && lhs.thumbnail_gray == rhs.thumbnail_gray;
     }
 };
 

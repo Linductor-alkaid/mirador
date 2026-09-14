@@ -8,9 +8,8 @@ namespace mirador {
 namespace {
 
 bool is_finite(const DetectionRegion& region) noexcept {
-    return std::isfinite(region.bounds.x) && std::isfinite(region.bounds.y) &&
-           std::isfinite(region.bounds.width) && std::isfinite(region.bounds.height) &&
-           std::isfinite(region.confidence);
+    return std::isfinite(region.bounds.x) && std::isfinite(region.bounds.y) && std::isfinite(region.bounds.width) &&
+           std::isfinite(region.bounds.height) && std::isfinite(region.confidence);
 }
 
 }  // namespace

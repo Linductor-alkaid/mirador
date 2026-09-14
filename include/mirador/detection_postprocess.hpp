@@ -35,8 +35,8 @@ struct NmsParams {
     int32_t max_output = 0;  ///< 0 = keep everything that survives suppression
 };
 
-[[nodiscard]] Result<std::vector<DetectionRegion>>
-nms(std::span<const DetectionRegion> regions, const NmsParams& params);
+[[nodiscard]] Result<std::vector<DetectionRegion>> nms(std::span<const DetectionRegion> regions,
+                                                       const NmsParams& params);
 
 /// Inclusive confidence/category filter for detection proposals (design
 /// section 14). A proposal is kept when
@@ -51,8 +51,8 @@ struct DetectionFilterParams {
     std::vector<std::string> labels;
 };
 
-[[nodiscard]] Result<std::vector<DetectionRegion>>
-filter_detections(std::span<const DetectionRegion> regions, const DetectionFilterParams& params);
+[[nodiscard]] Result<std::vector<DetectionRegion>> filter_detections(std::span<const DetectionRegion> regions,
+                                                                     const DetectionFilterParams& params);
 
 }  // namespace mirador
 

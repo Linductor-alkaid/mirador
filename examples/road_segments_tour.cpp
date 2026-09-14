@@ -13,10 +13,10 @@
 #include <mirador/result.hpp>
 #include <mirador/segment_growing_line_detector.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <cmath>
 #include <vector>
 
 namespace {
@@ -68,8 +68,8 @@ ImageView gray_view(const std::vector<std::byte>& bytes) {
 void print_segments(const char* title, const std::vector<LineSegment>& segments) {
     std::printf("%s: %zu segment(s)\n", title, segments.size());
     for (const LineSegment& segment : segments) {
-        std::printf("  (%.1f, %.1f) -> (%.1f, %.1f)  angle %.1f deg  length %.1f  confidence %.2f\n",
-                    segment.begin.x, segment.begin.y, segment.end.x, segment.end.y, mirador::segment_angle_deg(segment),
+        std::printf("  (%.1f, %.1f) -> (%.1f, %.1f)  angle %.1f deg  length %.1f  confidence %.2f\n", segment.begin.x,
+                    segment.begin.y, segment.end.x, segment.end.y, mirador::segment_angle_deg(segment),
                     mirador::segment_length(segment), segment.confidence);
     }
 }

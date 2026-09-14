@@ -20,13 +20,13 @@ using mirador::CoordinateSpaceId;
 using mirador::ErrorCode;
 using mirador::ExecutionContext;
 using mirador::ImageView;
+using mirador::LineDetectRequest;
+using mirador::LineSegment;
+using mirador::LineSegmentSet;
 using mirador::PixelFormat;
 using mirador::RectI;
 using mirador::SegmentGrowingLineDetector;
 using mirador::SegmentGrowingParams;
-using mirador::LineDetectRequest;
-using mirador::LineSegment;
-using mirador::LineSegmentSet;
 
 /// Paints a filled axis-aligned band, then wraps it in a valid gray view.
 struct GrayImage {

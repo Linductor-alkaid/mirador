@@ -50,30 +50,30 @@ letterbox、NMS/类别过滤、DB 后处理/轮廓框恢复、行合并/文本�
 
 ## 工作项
 
-- [ ] `M3-01` 立项：里程碑文档、`DEC-009`/`DEC-014` 冻结、总计划状态更新。
-- [ ] `M3-02` geometry SPI：`LineSegmentSet`、`LineDetectRequest`（ROI、阈值参数、
+- [x] `M3-01` 立项：里程碑文档、`DEC-009`/`DEC-014` 冻结、总计划状态更新。
+- [x] `M3-02` geometry SPI：`LineSegmentSet`、`LineDetectRequest`（ROI、阈值参数、
   取消通道）、`LineDetector` 抽象接口（`info()` + `detect()`）、线段过滤（角度/长度/
   共线合并）；geometry 转编译目标（链接接口恰为 core）并新增链接闭包探针。
-- [ ] `M3-03` geometry 一方线段检测器：梯度幅值播种 → 方向对齐区域生长（8 连通）→
+- [x] `M3-03` geometry 一方线段检测器：梯度幅值播种 → 方向对齐区域生长（8 连通）→
   逐区域最小二乘拟合与离群拆分 → 端点投影输出；全整数/双精度确定性算术，无 libm
   热路径；预算保护。
-- [ ] `M3-04` image `letterbox`：面积重采样 + 居中填充到目标尺寸，返回缓冲与由实际
+- [x] `M3-04` image `letterbox`：面积重采样 + 居中填充到目标尺寸，返回缓冲与由实际
   像素操作推导的精确 `Transform2D`；单平面格式。
-- [ ] `M3-05` image `nms_indices`（按分数贪心、可选类别感知、确定性次序）与
+- [x] `M3-05` image `nms_indices`（按分数贪心、可选类别感知、确定性次序）与
   `filter_detections`（置信度/类别过滤）。
-- [ ] `M3-06` image 共享 8 连通域标记 + `db_postprocess_aabb`（概率图 → 文本框，
+- [x] `M3-06` image 共享 8 连通域标记 + `db_postprocess_aabb`（概率图 → 文本框，
   DB unclip 公式的 AABB 参考适配）与 `recover_contour_boxes`（二值图 → 外接框）；
   盒数上限显式 `kBudgetExceeded`。
-- [ ] `M3-07` image `merge_text_lines`（同行竖直容差 + 水平间隙合并）与
+- [x] `M3-07` image `merge_text_lines`（同行竖直容差 + 水平间隙合并）与
   `normalize_text`（UTF-8 安全的空白折叠/控制字符清理/全角 ASCII 折叠）。
-- [ ] `M3-08` image `refine_small_detections`：候选选择（置信度/面积阈值、数量上限）→
+- [x] `M3-08` image `refine_small_detections`：候选选择（置信度/面积阈值、数量上限）→
   外扩 ROI 裁剪 → 目标边长重采样 → Backend 格式门控与执行 → 坐标逆变换恢复 →
   确定性合并；候选间轮询 `ExecutionContext`。
-- [ ] `M3-09` core `VisualPatchFingerprint` POD 与 image `make_visual_patch_fingerprint`
+- [x] `M3-09` core `VisualPatchFingerprint` POD 与 image `make_visual_patch_fingerprint`
   （转灰 + 面积归一化 + FNV-1a 内容哈希 + dHash 9x8 + 缩略图字节）。
-- [ ] `M3-10` cache `VisualIndex`：字节预算与逐出（LRU）、插入/删除/替换、三层证据
+- [x] `M3-10` cache `VisualIndex`：字节预算与逐出（LRU）、插入/删除/替换、三层证据
   查询（精确内容哈希 → 感知哈希相似度 → 缩略图 NCC），候选输出有序确定、数量上限。
-- [ ] `M3-11` 示例：`road_segments_tour`（合成道路灰度图上线段检测与过滤）与
+- [x] `M3-11` 示例：`road_segments_tour`（合成道路灰度图上线段检测与过滤）与
   `icon_state_index_tour`（合成图标补丁入库与扰动查询复用）；纳入默认构建与编译验证。
 - [ ] `M3-12` 收尾：全 Linux 预设矩阵与 lint 通过、跨平台 CI 证据回填、验证记录与
   计划状态更新、CHANGELOG/README 同步。
@@ -116,3 +116,42 @@ letterbox、NMS/类别过滤、DB 后处理/轮廓框恢复、行合并/文本�
 `SCOPE-03`/`SCOPE-04`/`SCOPE-11` 拆分工作项 `M3-01`~`M3-12`；`DEC-009` 完成 ELSED
 许可证审查（上游 iago-suarez/ELSED 为 Apache-2.0，依赖 OpenCV 4.x）并冻结集成方式；
 `DEC-014` 冻结 `SCOPE-11` 归属与视觉索引契约。Embedder 层按 `POST-04` 维持延后。
+
+2026-09-14：`M3-02`~`M3-11` 实施完成（分支 `feat/m3-traditional-vision-and-index`，
+commit 7d7148e..4aebeac，每工作项一个 commit）。
+
+- 环境：Ubuntu 24.04 x64（GCC 13.3.0、CMake 3.28.3 + Ninja、clang-format/clang-tidy
+  18.1.3）。
+- 落地内容：
+  - `M3-02`/`M3-03`：`include/mirador/line_detector.hpp`（SPI + 过滤）、
+    `segment_growing_line_detector.hpp`（一方检测器）、geometry 转编译目标并新增
+    `link_closure_geometry` 探针；测试 `tests/geometry/`（SPI 注入、角度/长度/共线
+    边界、合成线段检出、ROI 绝对坐标、stride 无关、位稳定、取消/超时/上限显式错误）。
+  - `M3-04`：`letterbox.hpp/cpp`（含 core `make_translation`）；变换与像素操作一致、
+    与连续 `make_letterbox` 1px 容差一致、填充与预算负向用例。
+  - `M3-05`：`detection_postprocess.hpp/cpp`（IoU、NMS、类别过滤）；抑制/平局/
+    类别隔离/上限/非法输入用例。
+  - `M3-06`：`text_postprocess.hpp/cpp` + 私有 `connected_components`；DB AABB unclip
+    公式断言、扫描序、小/暗分量过滤、盒数与位图预算显式错误、stride 无关、轮廓精确
+    AABB 与 8 连通对角合并。
+  - `M3-07`：`text_normalize.hpp/cpp`；行合并（同行判定、传递合并、排序、输入不变）、
+    文本规范化（trim/折叠/控制字符/全角折叠、非法 UTF-8 字节透传、非 ASCII 保持）。
+  - `M3-08`：`crop_refine.hpp/cpp`；坐标往返精确断言（扩边 → 裁剪 → 重采样 → 逆变换）、
+    候选选择与上限、格式门控转换、取消零调用、预算超限、NV12 拒绝。
+  - `M3-09`/`M3-10`：`visual_fingerprint.hpp`（core POD）、`patch_fingerprint.hpp/cpp`
+    （image 提取）、`visual_index.hpp/cpp`（cache 三层证据索引）；指纹跨 stride 一致、
+    RGB/NV12 输入、三层命中与阈值边界、证据排序、上限、LRU 逐出与提升、几何失配与
+    预算负向用例。
+  - `M3-11`：示例 `road_segments_tour`（4 条原始脊线 → 2 地平线 + 2 车道线段）与
+    `icon_state_index_tour`（2 状态入库 → 扰动查询 → 0.95 复用策略），纳入默认构建。
+- 本地命令与结果：
+  - 全部 6 个 Linux 预设（debug/release/warnings/asan/ubsan/tsan）configure + build +
+    ctest 通过（tsan 经 `setarch "$(uname -m)" -R`）；debug 预设含 OpenCV 适配器
+    （32/32），其余预设 31/31。
+  - 模块开关：`MIRADOR_BUILD_GEOMETRY=OFF` 28/28 通过；最小核心（image/cache/geometry/
+    fusion 全 OFF）构建绿；`MIRADOR_BUILD_RENDER=OFF` 构建绿。
+  - `git ls-files '*.cpp' '*.h' '*.hpp' | xargs clang-format --dry-run --Werror` 无告警
+    （格式化后已回归构建与测试）。
+  - `clang-tidy --warnings-as-errors='*' -p build/debug` 全量 tracked `.cpp` 无告警。
+- 限制：跨平台编译证据待 CI 运行回填（`M3-12`）；本里程碑未新增性能声明，线段检测器
+  的检出质量与性能按 `RISK-2026-09` 在 M5 基准收口。

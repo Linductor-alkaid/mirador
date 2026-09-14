@@ -19,8 +19,8 @@ namespace mirador {
 /// coordinate recovery through `inverse` matches the produced pixels
 /// (RULE-05, DEC-014).
 struct LetterboxResult {
-    ImageBuffer buffer;      ///< dst-sized packed buffer in the source format
-    Transform2D transform;   ///< `request.from_space` -> `request.to_space`, forward mapping
+    ImageBuffer buffer;          ///< dst-sized packed buffer in the source format
+    Transform2D transform;       ///< `request.from_space` -> `request.to_space`, forward mapping
     int32_t resized_width = 0;   ///< the source content width inside the buffer
     int32_t resized_height = 0;  ///< the source content height inside the buffer
 };
