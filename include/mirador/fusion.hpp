@@ -6,6 +6,7 @@
 #include <mirador/frame.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
+#include <mirador/stable_id_tracker.hpp>
 
 #include <cstdint>
 #include <vector>
@@ -82,6 +83,9 @@ struct FusionOptions {
     float template_weight = 0.7F;
     /// Output budget (RULE-06): more clusters fail with kBudgetExceeded.
     int32_t max_regions = 1024;
+    /// Stable-id tracking options applied when a session fuses (DEC-010);
+    /// stateless `fuse_evidence` ignores this field.
+    StableIdOptions stable_id;
 };
 
 /// Deterministically fuses evidence in `target_space` (design section 16).

@@ -8,9 +8,11 @@
 #include <mirador/crop.hpp>
 #include <mirador/detector_backend.hpp>
 #include <mirador/execution_context.hpp>
+#include <mirador/evidence.hpp>
 #include <mirador/fingerprint.hpp>
 #include <mirador/frame.hpp>
 #include <mirador/frame_cache.hpp>
+#include <mirador/fusion.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
@@ -18,12 +20,15 @@
 #include <mirador/pixel_format.hpp>
 #include <mirador/resize.hpp>
 #include <mirador/result.hpp>
+#include <mirador/semantic_snapshot.hpp>
+#include <mirador/stable_id_tracker.hpp>
 #include <mirador/status.hpp>
 #include <mirador/transform.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -459,12 +464,14 @@ Result<ChangeReport> PerceptionSession::analyze_change(const Frame& frame, const
             report.current_fingerprint = first_fingerprint;
             report.thresholds = ChangeThresholds{params.fingerprint_similarity_threshold, params.block_diff_threshold,
                                                  params.global_area_ratio};
+            last_change_ = report;
             return report;
         }
 
         const Result<ChangeReport> report = detect_change(*previous_signature_, signature.value(), params);
         if (report.ok()) {
             previous_signature_ = signature.take_value();
+            last_change_ = report.value();
         }
         return report;
     } catch (...) {  // NOLINT(bugprone-catching-exceptions): allocation failure is a budget error
@@ -489,6 +496,50 @@ Result<std::vector<DetectionRegion>> PerceptionSession::run_detector(const Frame
         return run_capability<DetectionTraits>(*this, frame, backend, request, context);
     } catch (...) {  // NOLINT(bugprone-catching-exceptions): allocation failure is a budget error
         return Status(ErrorCode::kBudgetExceeded, "run_detector: internal allocation failed");
+    }
+}
+
+Result<SemanticSnapshot> PerceptionSession::fuse(const Frame& frame, const EvidenceSet& evidence,
+                                                 const FusionOptions& options,
+                                                 const ExecutionContext& context) noexcept {
+    try {
+        if (const Status stage = context_status(context); !stage.ok()) {
+            return stage;
+        }
+        if (const Status frame_status = check_frame(options_.source_id, frame); !frame_status.ok()) {
+            return frame_status;
+        }
+        const Result<FusionOutput> fused = fuse_evidence(evidence, frame, options, context);
+        if (!fused.ok()) {
+            return fused.status();
+        }
+        const Result<StableIdReport> ids = tracker_.advance(fused.value().regions, options.stable_id, context);
+        if (!ids.ok()) {
+            return ids.status();
+        }
+
+        SemanticSnapshot snapshot;
+        snapshot.frame_sequence = frame.sequence;
+        snapshot.coordinate_space = options.target_space;
+        snapshot.regions = std::move(fused.value().regions);
+        for (size_t index = 0; index < snapshot.regions.size(); ++index) {
+            snapshot.regions[index].stable_id = ids.value().assignments[index].stable_id;
+        }
+        snapshot.change = last_change_;
+
+        // Generation policy (DEC-010): first publication is generation 1; a
+        // later fuse keeps the generation unless the tracker bumped.
+        if (generation_ == 0) {
+            generation_ = 1;
+        } else if (ids.value().generation_bump) {
+            ++generation_;
+        }
+        snapshot.generation = generation_;
+
+        latest_snapshot_ = std::make_shared<const SemanticSnapshot>(snapshot);
+        return snapshot;
+    } catch (...) {  // NOLINT(bugprone-catching-exceptions): allocation failure is a budget error
+        return Status(ErrorCode::kBudgetExceeded, "fuse: internal allocation failed");
     }
 }
 
