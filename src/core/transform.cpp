@@ -94,6 +94,14 @@ Transform2D make_scale(double scale_x, double scale_y, CoordinateSpaceId from, C
     return transform;
 }
 
+Transform2D make_translation(double dx, double dy, CoordinateSpaceId from, CoordinateSpaceId to) noexcept {
+    Transform2D transform;
+    transform.from = from;
+    transform.to = to;
+    transform.matrix = {1.0, 0.0, dx, 0.0, 1.0, dy, 0.0, 0.0, 1.0};
+    return transform;
+}
+
 Transform2D make_crop(const RectF& crop, CoordinateSpaceId from, CoordinateSpaceId to) noexcept {
     Transform2D transform;
     transform.from = from;

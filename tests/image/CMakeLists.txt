@@ -36,3 +36,9 @@ mirador_add_test(
     SOURCES change_detection_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.letterbox
+    SOURCES letterbox_test.cpp
+    LIBS mirador::image
+    LABELS unit)

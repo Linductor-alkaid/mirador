@@ -267,4 +267,21 @@ TEST(Transform, PreprocessingChainRecoversFrameCoordinates) {
     expect_point_near(frame_again, frame_point, kFloatEps);
 }
 
+TEST(MakeTranslation, ShiftsPointsAndComposesWithScale) {
+    const auto shift = make_translation(3.0, -2.0, CoordinateSpaceId::kOriented, CoordinateSpaceId::kModelInput);
+    EXPECT_EQ(shift.from, CoordinateSpaceId::kOriented);
+    EXPECT_EQ(shift.to, CoordinateSpaceId::kModelInput);
+    expect_point_near(transform_point(shift, PointF{1.0F, 1.0F}), {4.0F, -1.0F});
+
+    const auto chained = compose(make_scale(2.0, 2.0, CoordinateSpaceId::kOriented, CoordinateSpaceId::kModelInput),
+                                 make_translation(3.0, -2.0, CoordinateSpaceId::kModelInput,
+                                                  CoordinateSpaceId::kModelInput));
+    ASSERT_TRUE(chained.ok());
+    expect_point_near(transform_point(chained.value(), PointF{1.0F, 1.0F}), {5.0F, 0.0F});
+
+    const auto inverted = inverse(chained.value());
+    ASSERT_TRUE(inverted.ok());
+    expect_point_near(transform_point(inverted.value(), {5.0F, 0.0F}), {1.0F, 1.0F});
+}
+
 }  // namespace
