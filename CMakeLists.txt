@@ -86,6 +86,16 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
+        elseif(mirador_module STREQUAL "geometry")
+            # M3-02: the line detection SPI and its first-party filters give
+            # geometry compiled content (design sections 15, 24 M3); the link
+            # interface stays exactly mirador::core (DEC-009: no third-party
+            # detector dependency in the default build).
+            add_library(mirador_${mirador_module}
+                src/geometry/line_filter.cpp
+            )
+            mirador_apply_warnings(mirador_${mirador_module})
+            target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)
         elseif(mirador_module STREQUAL "fusion")
             # The perception session composes image pipelines with the caches
             # (design section 5 DAG: image -> fusion <- cache, DEC-013); the

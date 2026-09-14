@@ -47,6 +47,11 @@ if(TARGET mirador::fusion)
     target_link_libraries(mirador_architecture_fusion_link_probe PRIVATE mirador::fusion)
 endif()
 
+if(TARGET mirador::geometry)
+    add_executable(mirador_architecture_geometry_link_probe geometry_link_closure_probe.cpp)
+    target_link_libraries(mirador_architecture_geometry_link_probe PRIVATE mirador::geometry)
+endif()
+
 add_test(
     NAME mirador.architecture.source_scan
     COMMAND ${CMAKE_COMMAND} -DMIRADOR_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../..
@@ -91,6 +96,16 @@ if(MIRADOR_READELF_EXECUTABLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
                     -DMIRADOR_READELF=${MIRADOR_READELF_EXECUTABLE}
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/link_closure_test.cmake)
         set_tests_properties(mirador.architecture.link_closure_fusion PROPERTIES LABELS architecture)
+    endif()
+
+    if(TARGET mirador_architecture_geometry_link_probe)
+        add_test(
+            NAME mirador.architecture.link_closure_geometry
+            COMMAND ${CMAKE_COMMAND}
+                    -DMIRADOR_PROBE=$<TARGET_FILE:mirador_architecture_geometry_link_probe>
+                    -DMIRADOR_READELF=${MIRADOR_READELF_EXECUTABLE}
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/link_closure_test.cmake)
+        set_tests_properties(mirador.architecture.link_closure_geometry PROPERTIES LABELS architecture)
     endif()
 else()
     message(STATUS "readelf unavailable or not Linux: NEEDED closure check skipped here")
