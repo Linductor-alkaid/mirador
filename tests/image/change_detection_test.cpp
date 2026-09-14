@@ -296,7 +296,7 @@ TEST(DetectChange, IgnoredRegionsUseFrameCoordinatesOnScaledFrames) {
     // Regression: the ignore check must compare frame-space block rects against
     // frame-space regions even when the frame is larger than the thumbnail
     // (320x240 frame, 64x64 thumbnail, 40x30-frame-pixel blocks).
-    RgbaImage previous = make_rgba(320, 240, int64_t{320} * 4, 30);
+    const RgbaImage previous = make_rgba(320, 240, int64_t{320} * 4, 30);
     RgbaImage current = make_rgba(320, 240, int64_t{320} * 4, 30);
     fill_rgba_rect(current, RectI{120, 90, 80, 60}, 230);
 
