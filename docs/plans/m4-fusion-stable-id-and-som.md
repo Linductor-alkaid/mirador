@@ -50,26 +50,26 @@ M4 完成后总计划 `SCOPE-05`/`SCOPE-06` 勾选，设计 §26「首个可用�
 
 ## 工作项
 
-- [ ] `M4-01` 立项：里程碑文档、`DEC-010` 冻结、总计划状态更新。
-- [ ] `M4-02` 统一输出模型契约：`RegionSource` 位掩码、`VisualRegion`（stable_id/
+- [x] `M4-01` 立项：里程碑文档、`DEC-010` 冻结、总计划状态更新。
+- [x] `M4-02` 统一输出模型契约：`RegionSource` 位掩码、`VisualRegion`（stable_id/
   anchor/source_mask/evidence_ids）、`SemanticSnapshot`（generation/coordinate_space/
   change）、`ExternalRegion` 属性袋（interactive/role/enabled，`RULE-11`）、快照查询
   与 generation 校验辅助函数。
-- [ ] `M4-03` 证据与融合引擎：`EvidenceSet`（外部/文本/检测/模板四类证据、确定性
+- [x] `M4-03` 证据与融合引擎：`EvidenceSet`（外部/文本/检测/模板四类证据、确定性
   证据 ID、数量上限）、`FusionOptions`（关联阈值、来源权重、区域数预算）、确定性
   关联（IoU/包含 + 类别/文本兼容门控，同坐标空间转换）、聚类输出 `VisualRegion`、
   `FusionTrace`（哪些证据合并、使用哪条规则、置信度如何产生，设计 §16 可解释性）。
-- [ ] `M4-04` 稳定 ID 跟踪：`StableIdTracker`——门控（IoU/中心位移）后贪心一对一
+- [x] `M4-04` 稳定 ID 跟踪：`StableIdTracker`——门控（IoU/中心位移）后贪心一对一
   匹配（成本 = IoU/中心位移/文本相似度加权，确定性平局），保留/新 ID/分裂/合并事件
   与 generation 递增规则（`DEC-010`、`RULE-09`）。
-- [ ] `M4-05` 会话集成：`PerceptionSession::fuse()`（证据坐标转换 → 融合 → 稳定 ID
+- [x] `M4-05` 会话集成：`PerceptionSession::fuse()`（证据坐标转换 → 融合 → 稳定 ID
   → generation → 发布快照）、`latest_snapshot()`（不可变 `shared_ptr` 并发读），
   快照携带最近一次 `ChangeReport`；取消/超时与预算错误显式传播。
-- [ ] `M4-06` `mirador::render` 转编译目标（链接恰为 fusion）：`render_set_of_mark`
+- [x] `M4-06` `mirador::render` 转编译目标（链接恰为 fusion）：`render_set_of_mark`
   （确定性数字标记、标签放置与遮挡规避、固定配色、`mark_id -> stable_id` 映射、
   预算上限）、网格划分与坐标回映工具；架构测试允许集合表演进 + render 链接闭包
   探针（`DEC-013` 影响条款落地）。
-- [ ] `M4-07` 示例：`hybrid_localization_tour`（合成屏幕 + Accessibility 外部区域 +
+- [x] `M4-07` 示例：`hybrid_localization_tour`（合成屏幕 + Accessibility 外部区域 +
   伪 OCR/Detector Backend → 融合 → SoM → 界面变化后 generation 拒绝陈旧区域），
   纳入默认构建与编译验证。
 - [ ] `M4-08` 收尾：全 Linux 预设矩阵与 lint 通过、跨平台 CI 证据回填、验证记录与
@@ -110,3 +110,44 @@ M4 完成后总计划 `SCOPE-05`/`SCOPE-06` 勾选，设计 §26「首个可用�
 2026-09-15：里程碑创建。依据设计文档 §7/§8/§16/§17/§18/§24 M4/§26 与总计划
 `SCOPE-05`/`SCOPE-06` 拆分工作项 `M4-01`~`M4-08`；`DEC-010` 冻结稳定 ID 起步算法
 与关联门控范围。发布点 `v0.1.0` 暂定，待 M4-08 后经用户授权打 tag/发布。
+
+2026-09-15：`M4-02`~`M4-07` 实施完成（分支 `feat/m4-fusion-stable-id-som`，commit
+c255f1c..15217d8 及后续 lint/修复提交，每工作项一组 commit）。
+
+- 环境：Ubuntu 24.04 x64（GCC 13.3.0、CMake 3.28.3 + Ninja、clang-format/
+  clang-tidy 18.1.3）。
+- 落地内容：
+  - `M4-02`：`semantic_snapshot.hpp/cpp`（`RegionSource` 位掩码运算、
+    `VisualRegion`/`SemanticSnapshot`、`find_region`/`is_generation_current`）、
+    `evidence.hpp/cpp`（`ExternalRegion` 属性袋、`EvidenceSet` 确定性证据 ID 与
+    kMaxItems 预算）。
+  - `M4-03`：`fusion.hpp/cpp` + 私有 `rect_math.h`（`fuse_evidence`：空间转换、
+    IoU/包含门控 + 类别兼容、union-find 聚类、来源权重置信度、`FusionTrace`
+    association 观测；O(n²) 扫描每 64 行轮询取消）。
+  - `M4-04`：`stable_id_tracker.hpp/cpp`（门控贪心一对一、文本相似度
+    Levenshtein 信号、split/merge 事件、保留比例 generation 规则、失败不改状态）。
+  - `M4-05`：`PerceptionSession::fuse`/`latest_snapshot`/`last_stable_id`，快照
+    携带最近 `ChangeReport`，generation 首发为 1、仅 bump 递增。
+  - `M4-06`：`set_of_mark.hpp/cpp`（RGB8 `MarkedImage`、调色板描框、点阵数字标签
+    芯片与遮挡规避）、`grid_partition.hpp/cpp`；render 转编译目标（链接恰为
+    fusion）+ 架构断言与 `link_closure_render` 探针。
+  - `M4-07`：示例 `hybrid_localization_tour`（四幕：融合+SoM → 未变化复用 →
+    全局像素变化保留 ID → 整屏切换换新 ID + generation 拒绝陈旧引用）。
+- 测试（委派 Independent-Verification-Agent 编写并执行）：新增 7 个测试目标共
+  82 个用例——`mirador.fusion.evidence_set`(8)/`fusion_engine`(21，含 property)/
+  `stable_id_tracker`(19)/`snapshot`(4)/`session_fuse`(8)/
+  `mirador.render.set_of_mark`(16)/`grid_partition`(9)。覆盖门控上下边界（含
+  nextafter）、类别兼容、输出与 trace 确定性、置信度公式、kFrame↔kOriented 经
+  0/90/180/270 与 5x3 奇数尺寸手算矩阵、稳定 ID 保留/新建/门控边界/文本信号/
+  split/merge/保留比例 bump/平局/失败原子性、会话端到端与不可变快照、SoM 像素/
+  调色板/标签避让/NV12 与 rotated 拒绝/预算、网格 ceil 与往返容差。
+- 验证代理首轮发现 1 个实现缺陷（`assemble_region` 未填充
+  `VisualRegion::evidence_ids`，违反 `semantic_snapshot.hpp` 字段契约），主循环
+  修复（commit 6675d6a）后复验。
+- 本地最终口径：debug 40/40、asan 39/39、ubsan 39/39、warnings（-Werror）39/39、
+  tsan 39/39（经 `setarch "$(uname -m)" -R` 禁用高熵 ASLR，连续 3 轮稳定；首轮
+  失败系旧二进制未重建）全部通过，无 sanitizer 报告；触及文件 clang-format 无
+  告警；M4 改动的 `.cpp` 经 CI 同命令 `clang-tidy --warnings-as-errors='*'` 无
+  告警。
+- 限制：跨平台编译证据（MSVC/NDK）待 CI 运行回填（`M4-08`）；融合关联与稳定 ID
+  在真实场景的质量按 `RISK-2026-10`/`RISK-2026-11` 在 M5 评测收口。

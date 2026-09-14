@@ -21,16 +21,19 @@ VLM 调用与动作执行由调用方或独立适配层提供。详见
 | `mirador::render` | SoM 渲染与调试叠加、网格细化工具 | M4 |
 
 当前状态（2026-09，随[实施总计划](docs/plans/mirador-implementation-plan.md)更新）：
-`mirador::core`、`mirador::image`、`mirador::cache`、`mirador::geometry` 与
-`mirador::fusion` 为编译目标。M1 落地颜色转换、裁剪、面积缩放、dHash 指纹、分层变化
-检测（`detect_change`，含忽略区域与 none/partial/global 分类）和有界 LRU `FrameCache`；
-M2 落地 Backend SPI（`DEC-012`：`OcrBackend`/`DetectorBackend`、`BackendInfo` 能力与
-线程安全声明、`ExecutionContext` 取消通道）、能力结果缓存 `CapabilityResultCache`
-（`RULE-07` 键与字节预算）和 `PerceptionSession`（`DEC-013`：变化分析 → 按需 Backend
-执行 → 坐标恢复 → 结果复用）；M3 落地 `geometry` 线段检测 SPI 与一方检测器、线段过滤
-（`DEC-009`）、检测/OCR 通用组件（`DEC-014`：letterbox、NMS、类别过滤、DB 后处理、
-轮廓框恢复、行合并、文本规范化、crop-refine）、有界三层视觉索引 `VisualIndex` 与
-`render` 之外的全部模块目标（`render` 随 M4 落地）。可选适配器
+`mirador::core`、`mirador::image`、`mirador::cache`、`mirador::geometry`、
+`mirador::fusion` 与 `mirador::render` 均为编译目标。M1 落地颜色转换、裁剪、面积缩放、
+dHash 指纹、分层变化检测（`detect_change`，含忽略区域与 none/partial/global 分类）
+和有界 LRU `FrameCache`；M2 落地 Backend SPI（`DEC-012`：`OcrBackend`/
+`DetectorBackend`、`BackendInfo` 能力与线程安全声明、`ExecutionContext` 取消通道）、
+能力结果缓存 `CapabilityResultCache`（`RULE-07` 键与字节预算）和 `PerceptionSession`
+（`DEC-013`：变化分析 → 按需 Backend 执行 → 坐标恢复 → 结果复用）；M3 落地
+`geometry` 线段检测 SPI 与一方检测器、线段过滤（`DEC-009`）、检测/OCR 通用组件
+（`DEC-014`：letterbox、NMS、类别过滤、DB 后处理、轮廓框恢复、行合并、文本规范化、
+crop-refine）与有界三层视觉索引 `VisualIndex`；M4 落地确定性证据融合
+（`fuse_evidence` + `FusionTrace`）、`SemanticSnapshot`/`VisualRegion` 输出模型、
+跨快照稳定 ID 与 generation（`DEC-010`）、会话 `fuse()` 发布不可变快照，以及
+`render` 的 Set-of-Mark 渲染与网格回映工具。可选适配器
 `mirador::adapters::opencv`（`cv::Mat` ↔ `ImageView` 包装与有界导出）默认关闭，通过
 `-DMIRADOR_BUILD_ADAPTERS_OPENCV=ON` 开启，要求构建环境已安装 OpenCV（不随本项目分发；
 已测试 4.6.0，详见 THIRD_PARTY_NOTICES）。
@@ -74,6 +77,8 @@ cmake --build build/release --target mirador_example_road_segments
 ./build/release/examples/mirador_example_road_segments        # 线段检测 -> 过滤 -> 共线合并（道路边界语义）
 cmake --build build/release --target mirador_example_icon_state_index
 ./build/release/examples/mirador_example_icon_state_index     # 图标状态入库 -> 扰动查询 -> 复用策略
+cmake --build build/release --target mirador_example_hybrid_localization
+./build/release/examples/mirador_example_hybrid_localization  # 混合定位：融合 -> 稳定 ID -> SoM -> generation 校验
 cmake --build build/release --target mirador_bench_change_detection
 ./build/release/benchmarks/mirador_bench_change_detection     # 四场景 p50/p95（仅本机有效）
 ```
