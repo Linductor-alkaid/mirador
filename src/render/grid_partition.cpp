@@ -49,8 +49,7 @@ Result<GridLocation> grid_locate(const GridPartition& grid, PointF image_point) 
         return Status(ErrorCode::kInvalidArgument, "image point lies outside the grid");
     }
     GridLocation location;
-    location.column =
-        std::min(static_cast<int32_t>(image_point.x) / grid.cell_width, grid.columns - 1);
+    location.column = std::min(static_cast<int32_t>(image_point.x) / grid.cell_width, grid.columns - 1);
     location.row = std::min(static_cast<int32_t>(image_point.y) / grid.cell_height, grid.rows - 1);
     location.local = PointF{image_point.x - static_cast<float>(location.column * grid.cell_width),
                             image_point.y - static_cast<float>(location.row * grid.cell_height)};

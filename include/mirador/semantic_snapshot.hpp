@@ -17,11 +17,11 @@ namespace mirador {
 /// capability cache additionally reports kCache.
 enum class RegionSource : uint32_t {
     kNone = 0,
-    kExternal = 1u << 0,   ///< caller-provided structured region (e.g. Accessibility)
-    kOcr = 1u << 1,        ///< OCR text evidence
-    kDetector = 1u << 2,   ///< detector/UI-proposer evidence
-    kCache = 1u << 3,      ///< evidence replayed from the capability cache
-    kTemplate = 1u << 4,   ///< visual-index template-match evidence
+    kExternal = 1u << 0,  ///< caller-provided structured region (e.g. Accessibility)
+    kOcr = 1u << 1,       ///< OCR text evidence
+    kDetector = 1u << 2,  ///< detector/UI-proposer evidence
+    kCache = 1u << 3,     ///< evidence replayed from the capability cache
+    kTemplate = 1u << 4,  ///< visual-index template-match evidence
 };
 
 [[nodiscard]] constexpr uint32_t operator|(RegionSource lhs, RegionSource rhs) noexcept {
@@ -52,9 +52,9 @@ struct VisualRegion {
     uint64_t stable_id = 0;
     RectF bounds;
     PointF anchor;
-    std::string text;        ///< concatenated text evidence, "\n"-joined in evidence order
-    std::string label;       ///< detector label or external role when available
-    std::string description; ///< caller/backends may attach prose; fusion leaves it empty
+    std::string text;         ///< concatenated text evidence, "\n"-joined in evidence order
+    std::string label;        ///< detector label or external role when available
+    std::string description;  ///< caller/backends may attach prose; fusion leaves it empty
     uint32_t source_mask = 0;
     float confidence = 0.0F;
     std::vector<uint64_t> evidence_ids;

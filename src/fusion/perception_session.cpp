@@ -7,8 +7,8 @@
 #include <mirador/color_convert.hpp>
 #include <mirador/crop.hpp>
 #include <mirador/detector_backend.hpp>
-#include <mirador/execution_context.hpp>
 #include <mirador/evidence.hpp>
+#include <mirador/execution_context.hpp>
 #include <mirador/fingerprint.hpp>
 #include <mirador/frame.hpp>
 #include <mirador/frame_cache.hpp>

@@ -150,9 +150,8 @@ Result<StableIdReport> StableIdTracker::advance(std::span<const VisualRegion> cu
                 }
             }
             const TrackedRegion& prev = previous_[prev_index];
-            const double radius = options.center_gate_ratio *
-                                  std::hypot(static_cast<double>(prev.bounds.width),
-                                             static_cast<double>(prev.bounds.height));
+            const double radius = options.center_gate_ratio * std::hypot(static_cast<double>(prev.bounds.width),
+                                                                         static_cast<double>(prev.bounds.height));
             for (size_t cur_index = 0; cur_index < cur_count; ++cur_index) {
                 const RectF& cur_bounds = tracked_now[cur_index].bounds;
                 const double iou = rect_iou(prev.bounds, cur_bounds);
@@ -193,8 +192,8 @@ Result<StableIdReport> StableIdTracker::advance(std::span<const VisualRegion> cu
         report.assignments.resize(cur_count);
         for (size_t cur_index = 0; cur_index < cur_count; ++cur_index) {
             if (match_of_cur[cur_index] != prev_count) {
-                report.assignments[cur_index] = IdAssignment{previous_[match_of_cur[cur_index]].stable_id,
-                                                             IdEvent::kRetained};
+                report.assignments[cur_index] =
+                    IdAssignment{previous_[match_of_cur[cur_index]].stable_id, IdEvent::kRetained};
                 ++report.retained_count;
             } else {
                 report.assignments[cur_index] = IdAssignment{next_id_, IdEvent::kNew};
@@ -250,9 +249,8 @@ Result<StableIdReport> StableIdTracker::advance(std::span<const VisualRegion> cu
         // the retained fraction fell below the configured ratio.
         report.generation_bump =
             report.split_count > 0 || report.merge_count > 0 ||
-            (prev_count > 0 &&
-             static_cast<double>(report.retained_count) <
-                 options.generation_retention_ratio * static_cast<double>(prev_count));
+            (prev_count > 0 && static_cast<double>(report.retained_count) <
+                                   options.generation_retention_ratio * static_cast<double>(prev_count));
 
         // Commit: the tracked state becomes the assigned current snapshot.
         for (size_t cur_index = 0; cur_index < cur_count; ++cur_index) {

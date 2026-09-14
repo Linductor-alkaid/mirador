@@ -18,14 +18,14 @@ constexpr int32_t kMaxOutputDimension = 32767;
 // Fixed high-visibility palette (design section 17: renderer-owned colors);
 // a region's color index is stable_id % 8 so identities keep their color.
 constexpr uint8_t kPalette[][3] = {
-    {230, 57, 70},   // red
-    {42, 157, 143},  // teal
-    {69, 123, 157},  // blue
-    {233, 196, 106}, // yellow
-    {231, 111, 81},  // orange
-    {156, 76, 159},  // purple
-    {42, 109, 62},   // green
-    {188, 108, 37},  // brown
+    {230, 57, 70},    // red
+    {42, 157, 143},   // teal
+    {69, 123, 157},   // blue
+    {233, 196, 106},  // yellow
+    {231, 111, 81},   // orange
+    {156, 76, 159},   // purple
+    {42, 109, 62},    // green
+    {188, 108, 37},   // brown
 };
 constexpr int kPaletteSize = 8;
 
@@ -238,8 +238,7 @@ ImageView MarkedImage::view() const noexcept {
 }
 
 Result<SetOfMarkResult> render_set_of_mark(const ImageView& background, const SemanticSnapshot& snapshot,
-                                           const SoMRenderOptions& options,
-                                           const ExecutionContext& context) noexcept {
+                                           const SoMRenderOptions& options, const ExecutionContext& context) noexcept {
     try {
         if (const Status stage = context_status(context); !stage.ok()) {
             return stage;
@@ -290,12 +289,11 @@ Result<SetOfMarkResult> render_set_of_mark(const ImageView& background, const Se
             mark.stable_id = region.stable_id;
             mark.anchor = region.anchor;
 
-            const RectI clipped = intersect_rects(
-                RectI{to_int32_clamped(static_cast<double>(region.bounds.x)),
-                      to_int32_clamped(static_cast<double>(region.bounds.y)),
-                      to_int32_clamped(static_cast<double>(region.bounds.width)),
-                      to_int32_clamped(static_cast<double>(region.bounds.height))},
-                image_rect);
+            const RectI clipped = intersect_rects(RectI{to_int32_clamped(static_cast<double>(region.bounds.x)),
+                                                        to_int32_clamped(static_cast<double>(region.bounds.y)),
+                                                        to_int32_clamped(static_cast<double>(region.bounds.width)),
+                                                        to_int32_clamped(static_cast<double>(region.bounds.height))},
+                                                  image_rect);
             if (clipped.width > 0 && clipped.height > 0) {
                 const Rgb color = palette_color(region.stable_id);
                 draw_outline(output, clipped, std::min(options.box_thickness, std::min(clipped.width, clipped.height)),
@@ -310,9 +308,9 @@ Result<SetOfMarkResult> render_set_of_mark(const ImageView& background, const Se
                         if (!inside_image(candidate, output.width, output.height)) {
                             continue;
                         }
-                        const bool occluded = std::any_of(
-                            placed_labels.begin(), placed_labels.end(),
-                            [candidate](const RectI& placed) { return rects_overlap(candidate, placed); });
+                        const bool occluded =
+                            std::any_of(placed_labels.begin(), placed_labels.end(),
+                                        [candidate](const RectI& placed) { return rects_overlap(candidate, placed); });
                         if (occluded) {
                             continue;
                         }

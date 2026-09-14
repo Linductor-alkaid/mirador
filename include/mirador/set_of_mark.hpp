@@ -76,8 +76,7 @@ struct SoMRenderOptions {
 /// invalid options), kUnsupportedFormat (NV12 background), kCancelled/
 /// kTimeout from `context`, kBudgetExceeded (output over `max_bytes`, more
 /// regions than `max_marks`, allocation failure). Never throws.
-[[nodiscard]] Result<SetOfMarkResult> render_set_of_mark(const ImageView& background,
-                                                         const SemanticSnapshot& snapshot,
+[[nodiscard]] Result<SetOfMarkResult> render_set_of_mark(const ImageView& background, const SemanticSnapshot& snapshot,
                                                          const SoMRenderOptions& options = {},
                                                          const ExecutionContext& context = {}) noexcept;
 

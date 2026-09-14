@@ -28,8 +28,7 @@ Status validate_space(CoordinateSpaceId space) noexcept {
 }
 
 uint32_t source_mask(RegionSource origin, bool cached) noexcept {
-    const uint32_t mask =
-        static_cast<uint32_t>(origin) | (cached ? static_cast<uint32_t>(RegionSource::kCache) : 0U);
+    const uint32_t mask = static_cast<uint32_t>(origin) | (cached ? static_cast<uint32_t>(RegionSource::kCache) : 0U);
     return mask;
 }
 

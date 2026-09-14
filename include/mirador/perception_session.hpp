@@ -4,8 +4,8 @@
 #include <mirador/capability_cache.hpp>
 #include <mirador/change_detection.hpp>
 #include <mirador/detector_backend.hpp>
-#include <mirador/execution_context.hpp>
 #include <mirador/evidence.hpp>
+#include <mirador/execution_context.hpp>
 #include <mirador/frame.hpp>
 #include <mirador/frame_cache.hpp>
 #include <mirador/fusion.hpp>

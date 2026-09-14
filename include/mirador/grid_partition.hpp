@@ -17,8 +17,8 @@ namespace mirador {
 struct GridPartition {
     int32_t image_width = 0;
     int32_t image_height = 0;
-    int32_t columns = 0;    ///< in [1, image_width]
-    int32_t rows = 0;       ///< in [1, image_height]
+    int32_t columns = 0;      ///< in [1, image_width]
+    int32_t rows = 0;         ///< in [1, image_height]
     int32_t cell_width = 0;   ///< nominal cell width; edge cells may be narrower
     int32_t cell_height = 0;  ///< nominal cell height; edge cells may be shorter
 };

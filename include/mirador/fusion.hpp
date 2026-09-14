@@ -29,7 +29,7 @@ struct AssociationObservation {
     uint64_t second_evidence_id = 0;
     AssociationRule rule = AssociationRule::kIou;
     double iou = 0.0;
-    double containment = 0.0;   ///< intersection / min(area_a, area_b)
+    double containment = 0.0;      ///< intersection / min(area_a, area_b)
     double center_distance = 0.0;  ///< pixels in the fusion target space
 };
 

@@ -216,8 +216,7 @@ std::string source_names(uint32_t mask) {
 }
 
 void print_snapshot(const SemanticSnapshot& snapshot) {
-    std::printf("  generation=%llu frame=%llu regions=%zu\n",
-                static_cast<unsigned long long>(snapshot.generation),
+    std::printf("  generation=%llu frame=%llu regions=%zu\n", static_cast<unsigned long long>(snapshot.generation),
                 static_cast<unsigned long long>(snapshot.frame_sequence), snapshot.regions.size());
     for (const VisualRegion& region : snapshot.regions) {
         std::printf("    id=%llu [%s] conf=%.2f bounds=(%.0f,%.0f %.0fx%.0f) anchor=(%.0f,%.0f)\n",
@@ -283,8 +282,8 @@ int main() {
     const SemanticSnapshot snapshot1 = session.fuse(first, evidence1.value(), fusion_options).value();
     print_snapshot(snapshot1);
     const mirador::SetOfMarkResult marks1 = mirador::render_set_of_mark(first.image, snapshot1).value();
-    std::printf("  som: %zu mark(s), marked image %dx%d\n", marks1.marks.size(),
-                marks1.image.view().width, marks1.image.view().height);
+    std::printf("  som: %zu mark(s), marked image %dx%d\n", marks1.marks.size(), marks1.image.view().width,
+                marks1.image.view().height);
     resolve_mark(snapshot1, marks1, 1, snapshot1.generation);
 
     // -- Frame 2: identical pixels. The change gate short-circuits: no
@@ -294,8 +293,8 @@ int main() {
     std::printf("frame 2: classification=%d -> reuse snapshot (0 backend calls)\n",
                 static_cast<int>(change2.classification));
     const SemanticSnapshot reused = *session.latest_snapshot();
-    std::printf("  reused generation=%llu regions=%zu\n",
-                static_cast<unsigned long long>(reused.generation), reused.regions.size());
+    std::printf("  reused generation=%llu regions=%zu\n", static_cast<unsigned long long>(reused.generation),
+                reused.regions.size());
 
     // -- Frame 3: the pixels change visibly (a global tint plus the button
     //    moving a little). Fusion re-runs on fresh evidence; the tracker
