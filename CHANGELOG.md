@@ -6,8 +6,26 @@
 ## [Unreleased]
 
 M1「基础图像与变化检测」（发布点 `v0.1.0-beta.1`）全部工作项已落地。
+M2「Backend SPI 与能力结果缓存」（发布点 `v0.1.0-beta.2`）进行中。
 
 ### 新增
+
+- M2：Backend SPI 公共契约（`DEC-012`）：`OcrBackend`/`DetectorBackend` 抽象接口、
+  `BackendInfo` 能力与实现身份（含 `thread_safe` 显式声明与 `validate` 门控）、
+  `TextRegion`/`DetectionRegion` 原始结果、`OcrRequest`/`DetectionRequest`（ROI 与
+  空间、`min_confidence`、`max_side`、`backend_params`、`output_space`、`CachePolicy`）
+  与 `ExecutionContext` 取消/deadline 通道及其判定辅助。
+- M2：`mirador::cache` 能力结果缓存 `CapabilityResultCache`：`RULE-07` 全字段缓存键与
+  平台稳定 128 位摘要、字节预算 LRU（淘汰顺序、替换失效、单条目超预算显式
+  `kBudgetExceeded`）、请求参数摘要函数；缓存默认预算冻结于 `DEC-008`（帧 4 MiB、
+  能力结果 16 MiB）。
+- M2：`mirador::image` 有界 `ChangeSignature`（帧尺寸 + 指纹 + 灰度缩略图）与签名版
+  `detect_change` 重载：有状态消费者只保留上一帧紧凑签名；与视图版输出位一致。
+- M2：`mirador::fusion` 转编译目标（`DEC-013`，链接接口恰为 core+image+cache）与
+  `PerceptionSession`：`analyze_change`（首帧 `kFirstFrame` 语义）、`run_ocr`/
+  `run_detector`（确定预处理链、Backend 格式门控、按 `output_space` 坐标恢复、
+  读/写/强制刷新缓存策略、取消与 deadline 显式报错）；无 runtime 示例
+  `perception_session_tour` 纳入默认构建。
 
 - 可选 OpenCV 适配器 `mirador::adapters::opencv`（M1-09，`MIRADOR_BUILD_ADAPTERS_OPENCV`
   默认关闭）：`cv::Mat` → 非拥有 `ImageView` 包装（CV_8UC1/3/4 按 OpenCV 通道语义映射，

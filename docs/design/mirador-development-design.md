@@ -198,6 +198,7 @@ struct BackendInfo {
     std::string model_id;
     std::string model_revision;
     std::vector<PixelFormat> accepted_formats;
+    bool thread_safe;  // M2 冻结:并发能力必须显式声明（同步 API 边界第 3 条）
 };
 
 class OcrBackend {
@@ -206,7 +207,8 @@ public:
     virtual BackendInfo info() const = 0;
     virtual Result<std::vector<TextRegion>> recognize(
         const ImageView& prepared_image,
-        const OcrRequest& request) = 0;
+        const OcrRequest& request,
+        const ExecutionContext& context) = 0;
 };
 
 class DetectorBackend {
@@ -215,11 +217,14 @@ public:
     virtual BackendInfo info() const = 0;
     virtual Result<std::vector<DetectionRegion>> detect(
         const ImageView& prepared_image,
-        const DetectionRequest& request) = 0;
+        const DetectionRequest& request,
+        const ExecutionContext& context) = 0;
 };
 ```
 
 核心接口优先保持同步，因为同步接口最容易嵌入任意调度环境，也不会把某个 future、协程 ABI 或线程池实现传播给使用者。需要异步的应用可以把调用提交给 executor、`std::jthread`、Kotlin coroutine 或自己的任务系统。Backend 内部也可以使用 runtime 自带异步能力，但必须在同步边界前完成，或者在未来通过单独且不破坏核心 ABI 的异步扩展接口提供。
+
+M2 冻结的契约要点（详见 `DEC-012`）：请求类型同时服务会话层与 SPI 层，字段消费方固定——管线消费 ROI/`max_side`/`output_space`/缓存策略，Backend 消费 `min_confidence`、语言提示与不透明 `backend_params`；Backend 输出一律落在 `prepared_image` 像素空间，坐标恢复由 Mirador 依据预处理链逆变换完成；执行方法以 `const ExecutionContext&` 接收取消与 deadline，实现必须显式报 `kCancelled`/`kTimeout`；相同输入必须产出相同结果，以支撑能力结果缓存语义。Embedder SPI 按 `POST-04` 触发条件延后，复用同一模板。
 
 Mirador 不提供一个看似通用但实际泄漏 runtime 概念的 `Tensor` 公共 API。各模型输入输出差异大，强制统一张量反而会把预处理、量化和设备内存细节推给 Mirador。稳定边界应当是图像和领域结果；具体 Backend 可以在自身实现中自由使用张量。
 
@@ -274,7 +279,7 @@ flowchart LR
 
 OCR 在 Mirador 中被拆为文本检测、方向分类和文本识别三个可组合阶段，但第一版可允许单一 `OcrBackend` 一次性返回最终结果。这样 PP-OCR mobile、系统 OCR、云 OCR 或自定义模型都能适配，同时不会强迫所有实现采用 DB 检测加 CTC 识别。Mirador 可提供常用的 resize/normalize、DB 后处理、轮廓框恢复、行合并和文本规范化参考组件，这些组件不负责执行模型。
 
-输入包含图像、ROI、语言提示、最小置信度、最长边、是否需要逐字符信息和输出坐标空间。输出包含 UTF-8 文本、多边形或矩形、置信度以及可选字符级结果。上层若只需要查找某个文字，可以在结果层做匹配，不应要求 OCR Backend 理解 Agent 意图。
+输入包含图像、ROI、语言提示、最小置信度、最长边、是否需要逐字符信息和输出坐标空间。输出包含 UTF-8 文本、多边形或矩形、置信度以及可选字符级结果。上层若只需要查找某个文字，可以在结果层做匹配，不应要求 OCR Backend 理解 Agent 意图。M2 冻结的 `OcrRequest`（`DEC-012`）不含逐字符开关与字符级结果字段；它们随首个真实需要的 Backend 引入，避免为不存在的消费者固化 schema。
 
 ## 14. 目标检测与 UI 区域提议
 
@@ -306,7 +311,7 @@ Mirador Render 根据 `SemanticSnapshot` 生成 Set-of-Mark 图像和 `mark_id -
 
 基础算法对象应尽量无状态或具有明确的实例状态。`PerceptionSession` 用于保存某个图像源的上一帧指纹、快照、稳定 ID 跟踪器和缓存命名空间；不同窗口、摄像头或设备使用不同 session。调用方可以创建多个 session 并自行调度，它们之间不共享可变状态，除非显式传入共享缓存。
 
-Mirador 不创建常驻工作线程，不隐藏后台轮询，也不要求全局单例。纯算法函数可并发调用；Backend 是否线程安全由 `BackendInfo` 或能力标记明确声明；同一 session 默认不允许并发修改，但可同时读取已发布的不可变快照。取消和 deadline 可以通过轻量 `ExecutionContext` 传递，其接口仅依赖回调或原子状态，不依赖 executor。
+Mirador 不创建常驻工作线程，不隐藏后台轮询，也不要求全局单例。纯算法函数可并发调用；Backend 是否线程安全由 `BackendInfo` 或能力标记明确声明；同一 session 默认不允许并发修改，但可同时读取已发布的不可变快照。取消和 deadline 可以通过轻量 `ExecutionContext` 传递，其接口仅依赖回调或原子状态，不依赖 executor；M2 起的 SPI 执行方法（`DEC-012`）以 `const ExecutionContext&` 参数接收它，长任务必须周期检查并把取消/超时显式转化为 `kCancelled`/`kTimeout`。`PerceptionSession` 落在 `mirador::fusion` 模块（`DEC-013`），跨帧只保留紧凑变化签名，不保留完整帧。
 
 ```cpp
 struct ExecutionContext {
