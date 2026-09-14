@@ -1,6 +1,6 @@
 # M1：基础图像与变化检测
 
-> 状态：In Progress
+> 状态：Complete
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M0
@@ -250,3 +250,11 @@ GCC/Clang/MSVC/NDK 下编译通过；四个架构测试在全部 job 通过。
   编译证据待后续具备环境时补跑（适配器仅用 cv::Mat 稳定表面，风险低）。
 - 里程碑收尾：M1-01~M1-10 全部完成，测试与退出条件全部满足；状态待 CI 结果
   回填后置为 Complete。
+
+2026-09-14：M1 收尾跨平台证据回填。GitHub Actions run `34800966538`
+（[PR #5](https://github.com/Linductor-alkaid/mirador/pull/5)）10/10 job success：
+linux gcc/clang debug、gcc warnings/asan/ubsan/tsan、windows msvc/ninja、android
+ndk arm64-v8a、**gcc opencv-adapter**（新增：apt OpenCV 4.x 上适配器构建 + 全量
+ctest）、lint（开启适配器后 compile db 覆盖 adapters/）。适配器随 PR 在 GCC/Clang/
+MSVC/NDK 下编译验证（默认 OFF 的核心构建不受影响）。M1 里程碑状态置为 Complete；
+发布点 `v0.1.0-beta.1` 待发布流程启动。
