@@ -54,3 +54,9 @@ mirador_add_test(
     SOURCES text_postprocess_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.text_normalize
+    SOURCES text_normalize_test.cpp
+    LIBS mirador::image
+    LABELS unit)

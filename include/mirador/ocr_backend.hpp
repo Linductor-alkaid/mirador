@@ -25,6 +25,12 @@ struct TextRegion {
     std::string utf8_text;
     float confidence = 0.0F;
     std::vector<PointF> polygon;  ///< optional tight quad/coutline; empty when not produced
+
+    /// Component equality (M3-07, test convenience).
+    [[nodiscard]] friend bool operator==(const TextRegion& lhs, const TextRegion& rhs) noexcept {
+        return lhs.bounds == rhs.bounds && lhs.utf8_text == rhs.utf8_text && lhs.confidence == rhs.confidence &&
+               lhs.polygon == rhs.polygon;
+    }
 };
 
 /// OCR execution request (design section 13, DEC-012 field contract). One type
