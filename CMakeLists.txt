@@ -6,6 +6,7 @@ project(mirador
     LANGUAGES CXX)
 
 option(MIRADOR_BUILD_TESTS "Build mirador tests" ON)
+option(MIRADOR_BUILD_BENCHMARKS "Build mirador benchmarks" ON)
 option(MIRADOR_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -82,6 +83,10 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
         add_library(mirador::${mirador_module} ALIAS mirador_${mirador_module})
     endif()
 endforeach()
+
+if(MIRADOR_BUILD_BENCHMARKS AND TARGET mirador::image)
+    add_subdirectory(benchmarks)
+endif()
 
 if(MIRADOR_BUILD_TESTS)
     enable_testing()
