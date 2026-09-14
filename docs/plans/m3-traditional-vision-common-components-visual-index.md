@@ -75,7 +75,7 @@ letterbox、NMS/类别过滤、DB 后处理/轮廓框恢复、行合并/文本�
   查询（精确内容哈希 → 感知哈希相似度 → 缩略图 NCC），候选输出有序确定、数量上限。
 - [x] `M3-11` 示例：`road_segments_tour`（合成道路灰度图上线段检测与过滤）与
   `icon_state_index_tour`（合成图标补丁入库与扰动查询复用）；纳入默认构建与编译验证。
-- [ ] `M3-12` 收尾：全 Linux 预设矩阵与 lint 通过、跨平台 CI 证据回填、验证记录与
+- [x] `M3-12` 收尾：全 Linux 预设矩阵与 lint 通过、跨平台 CI 证据回填、验证记录与
   计划状态更新、CHANGELOG/README 同步。
 
 ## 风险与阻塞
@@ -155,3 +155,22 @@ commit 7d7148e..4aebeac，每工作项一个 commit）。
   - `clang-tidy --warnings-as-errors='*' -p build/debug` 全量 tracked `.cpp` 无告警。
 - 限制：跨平台编译证据待 CI 运行回填（`M3-12`）；本里程碑未新增性能声明，线段检测器
   的检出质量与性能按 `RISK-2026-09` 在 M5 基准收口。
+
+2026-09-14：`M3-01`~`M3-12` 完成，跨平台 CI 证据回填。
+
+- 第一轮 CI（[PR #8](https://github.com/Linductor-alkaid/mirador/pull/8) run
+  `34853451438`）lint job 失败：CI 的 misc-include-cleaner（IWYU 直接包含）、
+  readability-function-cognitive-complexity 等检查发现 283 处问题，暴露本地验证缺陷
+  （clang-tidy 退出码被管道掩盖）。逐项修复：IWYU 直接包含、复杂度重构（检测器扫描/
+  拟合、NMS 抑制、行合并、文本规范化、视觉索引匹配、crop-refine 候选管线拆分为
+  阈值内的小函数）、测试辅助结构改为纯聚合 + 自由函数、显式宽度转换、
+  `TextNormalizeFlags` 基类型收窄为 `uint8_t`。
+- 第二轮 CI run `34865799913`（commit 65e9572）**10/10 job 全绿**：linux gcc/clang
+  debug、gcc warnings/asan/ubsan/tsan、gcc opencv-adapter、windows msvc/ninja、
+  android ndk arm64-v8a、clang-format/clang-tidy lint。
+- 本地最终口径：6 个 Linux 预设 ctest 全过（debug 含 OpenCV 适配器 32/32，其余 31/31）；
+  全仓 `clang-format --dry-run --Werror` 与 `clang-tidy --warnings-as-errors='*'`
+  （与 CI 同命令）退出码 0；模块开关（geometry OFF 28/28、最小核心、render OFF）通过。
+- 限制与后续：NDK 侧仍仅 configure/build 验证，设备侧测试按计划 M5 补跑；线段检测器
+  检出质量与性能按 `RISK-2026-09` 在 M5 基准收口；`v0.1.0-beta.3` 发布点待合并
+  （需用户授权）后与 tag 对应。里程碑状态保持 In Progress 直至合并发布。
