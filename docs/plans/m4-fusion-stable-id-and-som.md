@@ -72,7 +72,7 @@ M4 完成后总计划 `SCOPE-05`/`SCOPE-06` 勾选，设计 §26「首个可用�
 - [x] `M4-07` 示例：`hybrid_localization_tour`（合成屏幕 + Accessibility 外部区域 +
   伪 OCR/Detector Backend → 融合 → SoM → 界面变化后 generation 拒绝陈旧区域），
   纳入默认构建与编译验证。
-- [ ] `M4-08` 收尾：全 Linux 预设矩阵与 lint 通过、跨平台 CI 证据回填、验证记录与
+- [x] `M4-08` 收尾：全 Linux 预设矩阵与 lint 通过、跨平台 CI 证据回填、验证记录与
   计划状态更新、CHANGELOG/README 同步。
 
 ## 风险与阻塞
@@ -147,7 +147,28 @@ c255f1c..15217d8 及后续 lint/修复提交，每工作项一组 commit）。
 - 本地最终口径：debug 40/40、asan 39/39、ubsan 39/39、warnings（-Werror）39/39、
   tsan 39/39（经 `setarch "$(uname -m)" -R` 禁用高熵 ASLR，连续 3 轮稳定；首轮
   失败系旧二进制未重建）全部通过，无 sanitizer 报告；触及文件 clang-format 无
-  告警；M4 改动的 `.cpp` 经 CI 同命令 `clang-tidy --warnings-as-errors='*'` 无
   告警。
+- lint 往返（如实记录）：首轮 CI 的 clang-tidy job 失败（IWYU 直接包含、
+  认知复杂度、聚合体成员函数、C 数组等，波及实现与测试两侧）。根因之一是本地
+  验证缺陷：`--warnings-as-errors` 下诊断行是 `error:` 而本地检查 grep 了
+  `warning:` 且退出码被管道掩盖，误判通过（M3 同类教训重演）。处置：实现侧
+  （IWYU 直接包含、`EvidenceItem`/`MarkedImage` 改纯聚合 + 自由函数、
+  `advance`/`render_set_of_mark` 拆分至复杂度阈值下、大写字面量后缀、
+  `std::array` 表、`take_value` 移动）由主循环逐文件按退出码 + `error:` 行数
+  双口径复验归零；测试侧错误清单交独立验证代理修复并按同一正确口径复验
+  （7 文件 exit=0、error 行 0）。
 - 限制：跨平台编译证据（MSVC/NDK）待 CI 运行回填（`M4-08`）；融合关联与稳定 ID
   在真实场景的质量按 `RISK-2026-10`/`RISK-2026-11` 在 M5 评测收口。
+
+2026-09-15：`M4-08` 完成，跨平台 CI 证据回填。
+
+- CI 往返共三轮（[PR #9](https://github.com/Linductor-alkaid/mirador/pull/9)）：
+  run `34882271535` lint 失败（IWYU/复杂度/聚合体成员函数/C 数组等 38 处，暴露本地
+  tidy 验证缺陷）；run `34889563564` 修复后仅剩探针文件 2 处包含错误；run
+  `34892045507`（commit 984131c）**10/10 job 全绿**：linux gcc/clang debug、
+  gcc warnings/asan/ubsan/tsan、gcc opencv-adapter、windows msvc/ninja、
+  android ndk arm64-v8a、clang-format/clang-tidy lint。
+- 本轮全口径：6 个 Linux 预设 + OpenCV 适配 18/18 通过；全部触及文件
+  clang-format 与 clang-tidy（退出码 + error 行双口径）归零。
+- 待用户授权事项：合并 PR #9、打 `v0.1.0` tag 与 GitHub Release（设计 §26 首个
+  可用版本发布点）；完成后本里程碑转 Complete 并更新 CHANGELOG 版本段。

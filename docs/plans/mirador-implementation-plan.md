@@ -23,10 +23,11 @@ PR #5 合并提交）。M2「Backend SPI 与能力结果缓存」已完成并发
 PR #6 合并提交）。M3「传统视觉、检测/OCR 通用组件与视觉索引」已完成并发布
 `v0.1.0-beta.3`（2026-09-15，PR #8 经用户授权合入，CI 10/10 全绿；里程碑文档见
 [m3-traditional-vision-common-components-visual-index.md](m3-traditional-vision-common-components-visual-index.md)，
-tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已立项并实施中（2026-09-15，
-分支 `feat/m4-fusion-stable-id-som`，里程碑文档见
-[m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md)，`DEC-010` 已冻结）。
-整体路线沿用设计文档第 24 节的 M0-M5。
+tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」实施完成（2026-09-15，分支
+`feat/m4-fusion-stable-id-som`，里程碑文档见
+[m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md)，`DEC-010` 已冻结；
+[PR #9](https://github.com/Linductor-alkaid/mirador/pull/9) CI 10/10 全绿，待用户授权
+合并与发布 `v0.1.0`）。整体路线沿用设计文档第 24 节的 M0-M5。
 
 ## 交付边界
 
