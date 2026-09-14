@@ -99,8 +99,8 @@ Result<std::vector<WorkingItem>> working_items(const EvidenceSet& evidence, cons
         }
         WorkingItem moved;
         moved.item = &item;
-        moved.bounds = conversion.value().has_value() ? transform_rect(conversion.value().value(), item.bounds())
-                                                      : item.bounds();
+        moved.bounds =
+            conversion.value().has_value() ? transform_rect(conversion.value().value(), item.bounds()) : item.bounds();
         moved.center = fusion_internal::rect_center(moved.bounds);
         working.push_back(std::move(moved));
     }
@@ -290,8 +290,7 @@ VisualRegion assemble_region(const std::vector<size_t>& members, const std::vect
     bool bounds_initialized = false;
     for (const size_t index : members) {
         const EvidenceItem& item = *working[index].item;
-        region.bounds =
-            bounds_initialized ? union_bounds(region.bounds, working[index].bounds) : working[index].bounds;
+        region.bounds = bounds_initialized ? union_bounds(region.bounds, working[index].bounds) : working[index].bounds;
         bounds_initialized = true;
         region.source_mask |= item.source;
         append_text(region, item);
@@ -300,6 +299,7 @@ VisualRegion assemble_region(const std::vector<size_t>& members, const std::vect
         const float confidence = item.confidence();
         weighted_sum += weight * confidence;
         weight_sum += weight;
+        region.evidence_ids.push_back(item.evidence_id);
         trace.evidence_ids.push_back(item.evidence_id);
         trace.confidence_contributions.push_back(ConfidenceContribution{item.evidence_id, weight, confidence});
     }
