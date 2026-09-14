@@ -48,3 +48,9 @@ mirador_add_test(
     SOURCES detection_postprocess_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.text_postprocess
+    SOURCES text_postprocess_test.cpp
+    LIBS mirador::image
+    LABELS unit)
