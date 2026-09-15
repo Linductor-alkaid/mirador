@@ -65,9 +65,25 @@ endif()
 if(TARGET mirador::fusion)
     add_subdirectory(fusion)
 endif()
+# M5-07 privacy negative tests (DOD-06): exercise the full fusion pipeline.
+if(TARGET mirador::fusion)
+    add_subdirectory(privacy)
+endif()
 if(TARGET mirador::geometry)
     add_subdirectory(geometry)
 endif()
 if(TARGET mirador::render)
     add_subdirectory(render)
+endif()
+
+# M5-07: libFuzzer entry points (optional, clang-only; AGENTS.md discipline:
+# the fuzzer runtime never enters mirador-core or any shipped target). The
+# harnesses are executables, not ctest entries — the CI fuzz job runs them
+# for bounded time; everything they link is first-party code plus gtest-free.
+option(MIRADOR_BUILD_FUZZ "Build libFuzzer harnesses (requires clang with -fsanitize=fuzzer)" OFF)
+if(MIRADOR_BUILD_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "MIRADOR_BUILD_FUZZ requires clang (libFuzzer runtime)")
+    endif()
+    add_subdirectory(fuzz)
 endif()

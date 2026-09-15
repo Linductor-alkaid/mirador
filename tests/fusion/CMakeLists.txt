@@ -43,3 +43,14 @@ mirador_add_test(
     SOURCES session_fuse_test.cpp
     LIBS mirador::fusion
     LABELS unit)
+
+# M5-07 concurrency matrix (TSAN preset): published-snapshot readers and
+# parallel sessions. Threads need the system threads library on platforms
+# where std::thread does not link transitively.
+find_package(Threads REQUIRED)
+mirador_add_test(
+    NAME mirador.fusion.concurrency
+    SOURCES concurrency_test.cpp
+    LIBS mirador::fusion
+    LABELS "unit;concurrency")
+target_link_libraries(mirador.fusion.concurrency PRIVATE Threads::Threads)
