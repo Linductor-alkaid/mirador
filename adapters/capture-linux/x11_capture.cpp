@@ -138,6 +138,21 @@ Result<std::pair<int32_t, int32_t>> X11Capture::window_geometry(X11WindowId wind
     return std::make_pair(static_cast<int32_t>(attributes.width), static_cast<int32_t>(attributes.height));
 }
 
+Result<Transform2D> X11Capture::window_display_transform(X11WindowId window) const {
+    if (impl_ == nullptr || impl_->display == nullptr) {
+        return Status{ErrorCode::kBackendUnavailable, "capture moved-from"};
+    }
+    int root_x = 0;
+    int root_y = 0;
+    Window child = 0;
+    if (XTranslateCoordinates(impl_->display, static_cast<Window>(window), impl_->root, 0, 0, &root_x, &root_y,
+                              &child) == 0) {
+        return Status{ErrorCode::kBackendFailure, "XTranslateCoordinates failed (window gone?)"};
+    }
+    return make_translation(static_cast<double>(root_x), static_cast<double>(root_y), CoordinateSpaceId::kOriented,
+                            CoordinateSpaceId::kDisplay);
+}
+
 Result<Frame> X11Capture::capture_window(X11WindowId window, const ExecutionContext& context) {
     if (impl_ == nullptr || impl_->display == nullptr) {
         return Status{ErrorCode::kBackendUnavailable, "capture moved-from"};

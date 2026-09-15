@@ -1,10 +1,11 @@
 // M5-05 (design sections 21, 24): live-X smoke test for the X11 capture
 // adapter. Creates its OWN 64x48 input-only window over the display given by
 // the environment, fills it with a deterministic pattern (red field, blue
-// bottom rows), then verifies the adapter's frame contract, geometry,
-// root capture, cancellation and the documented failure paths. Only the
-// window created here is ever read; no pixels are printed or persisted
-// (privacy RULE-10). A missing X server fails loudly (CI runs under xvfb).
+// bottom rows), then verifies the adapter's frame contract, geometry, the
+// DEC-016 display-space transform, root capture, cancellation and the
+// documented failure paths. Only the window created here is ever read; no
+// pixels are printed or persisted (privacy RULE-10). A missing X server
+// fails loudly (CI runs under xvfb).
 //
 // Xlib.h pollutes the preprocessor ('#define Status int', Bool); its headers
 // come first and the macros are scrubbed before any Mirador header. The test
@@ -21,8 +22,10 @@
 
 #include <mirador/execution_context.hpp>
 #include <mirador/frame.hpp>
+#include <mirador/geometry.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/status.hpp>
+#include <mirador/transform.hpp>
 
 #include <unistd.h>
 #include <chrono>
@@ -183,6 +186,39 @@ bool run_all_checks() {
     expect_true(geometry.ok() && geometry.value().first == k_window_width && geometry.value().second == k_window_height,
                 "window_geometry reports 64x48 for the own window");
 
+    // Check 4b: display-space placement of the own window (DEC-016). The
+    // adapter reports a pure kOriented -> kDisplay translation by the window's
+    // current root-relative origin; XTranslateCoordinates is the geometric
+    // ground truth for the same instant (a reparenting window manager is
+    // transparent to both queries).
+    int root_x = 0;
+    int root_y = 0;
+    Window child_return = 0;
+    const bool translated =
+        XTranslateCoordinates(display, window, XDefaultRootWindow(display), 0, 0, &root_x, &root_y, &child_return) != 0;
+    expect_true(translated, "XTranslateCoordinates reports the own window's root-relative origin");
+    const auto own_transform = capture.window_display_transform(static_cast<mirador::adapters::X11WindowId>(window));
+    expect_true(own_transform.ok(), "window_display_transform succeeds for the own window");
+    if (translated && own_transform.ok()) {
+        const mirador::Transform2D& transform = own_transform.value();
+        expect_true(transform.from == mirador::CoordinateSpaceId::kOriented &&
+                        transform.to == mirador::CoordinateSpaceId::kDisplay,
+                    "own-window transform maps kOriented to kDisplay");
+        const mirador::PointF origin = mirador::transform_point(transform, mirador::PointF{0.0F, 0.0F});
+        expect_true(std::fabs(static_cast<double>(origin.x) - static_cast<double>(root_x)) <= 1e-6 &&
+                        std::fabs(static_cast<double>(origin.y) - static_cast<double>(root_y)) <= 1e-6,
+                    "transform_point(transform, {0,0}) equals the root-relative window origin");
+        // A translation leaves the basis vectors unit length: no scale, no
+        // shear (X11 capture is 1:1 pixels and never rotated).
+        const mirador::PointF unit_x = mirador::transform_point(transform, mirador::PointF{1.0F, 0.0F});
+        const mirador::PointF unit_y = mirador::transform_point(transform, mirador::PointF{0.0F, 1.0F});
+        expect_true(std::fabs(static_cast<double>(unit_x.x - origin.x) - 1.0) <= 1e-6 &&
+                        std::fabs(static_cast<double>(unit_x.y - origin.y)) <= 1e-6 &&
+                        std::fabs(static_cast<double>(unit_y.x - origin.x)) <= 1e-6 &&
+                        std::fabs(static_cast<double>(unit_y.y - origin.y) - 1.0) <= 1e-6,
+                    "own-window transform is a pure translation (no scale or shear)");
+    }
+
     // Check 5: root capture. A real Xorg/Xvfb server backs the root window
     // with pixels, so the frame invariants hold. Under XWayland (a Wayland
     // session exports WAYLAND_DISPLAY next to :0) the root has no server-side
@@ -209,6 +245,21 @@ bool run_all_checks() {
         }
     }
 
+    // Check 5b: the root window's display transform is the identity
+    // (DEC-016): the display space IS the root coordinate system. This needs
+    // no pixel backing, so it holds under XWayland as well.
+    const auto root_transform = capture.window_display_transform(capture.root_window());
+    expect_true(root_transform.ok(), "window_display_transform succeeds for the root window");
+    if (root_transform.ok()) {
+        const mirador::Transform2D& transform = root_transform.value();
+        const auto& matrix = transform.matrix;
+        const bool identity = transform.from == mirador::CoordinateSpaceId::kOriented &&
+                              transform.to == mirador::CoordinateSpaceId::kDisplay && matrix[0] == 1.0 &&
+                              matrix[1] == 0.0 && matrix[2] == 0.0 && matrix[3] == 0.0 && matrix[4] == 1.0 &&
+                              matrix[5] == 0.0 && matrix[6] == 0.0 && matrix[7] == 0.0 && matrix[8] == 1.0;
+        expect_true(identity, "root window transform is the kOriented->kDisplay identity");
+    }
+
     // Check 6: cancellation before the X roundtrip.
     mirador::ExecutionContext cancelled;
     cancelled.is_cancelled = [] { return true; };
@@ -228,6 +279,22 @@ bool run_all_checks() {
     expect_code(unknown_window.status(), mirador::ErrorCode::kBackendFailure,
                 "capture_window on a non-existent window id -> kBackendFailure");
 
+    const auto unknown_transform =
+        capture.window_display_transform(static_cast<mirador::adapters::X11WindowId>(0xDEADBEEFU));
+    expect_code(unknown_transform.status(), mirador::ErrorCode::kBackendFailure,
+                "window_display_transform on a non-existent window id -> kBackendFailure");
+
+    // Check 7b: moved-from captures report kBackendUnavailable (documented
+    // contract in x11_capture.hpp). After the move, `capture` is the
+    // moved-from object; the moved-to instance stays fully functional and
+    // owns the connection. Calling into the moved-from state is deliberate.
+    const mirador::adapters::X11Capture moved_to = std::move(capture);
+    expect_true(moved_to.root_window() != 0, "the moved-to capture keeps working after the move");
+    const auto moved_transform =
+        capture.window_display_transform(0U);  // NOLINT(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    expect_code(moved_transform.status(), mirador::ErrorCode::kBackendUnavailable,
+                "window_display_transform on a moved-from capture -> kBackendUnavailable");
+
     // Check 8: own-resource cleanup (the adapter cleans its display in its
     // destructor at scope exit).
     XDestroyWindow(display, window);
@@ -244,6 +311,8 @@ int main() {
         std::printf("x11 capture smoke: FAIL (%d failed check(s))\n", g_failed_checks);
         return 1;
     }
-    std::printf("x11 capture smoke: PASS (own-window capture, geometry, root, cancellation, failure paths)\n");
+    std::printf(
+        "x11 capture smoke: PASS (own-window capture, geometry, display transform, root, cancellation, "
+        "failure paths)\n");
     return 0;
 }
