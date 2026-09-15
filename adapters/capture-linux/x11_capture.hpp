@@ -54,7 +54,14 @@ public:
     Result<std::pair<int32_t, int32_t>> window_geometry(X11WindowId window) const;
 
     /// Captures `window`'s current pixels into an owned RGB8 frame. Polls
-    /// `context` before and after the (atomic) X roundtrip.
+    /// `context` before and after the (atomic) X roundtrip. Callers that
+    /// pass arbitrary window ids must install a non-default X error handler
+    /// in their process: Xlib's default handler exits on protocol errors
+    /// (e.g. BadWindow for a destroyed window), which would make this
+    /// method's kBackendFailure path unreachable. Capturing the root window
+    /// fails on XWayland hosts (kBackendFailure): the XWayland server keeps
+    /// no pixel backing for the root window — use a Wayland screen portal
+    /// adapter there.
     Result<Frame> capture_window(X11WindowId window, const ExecutionContext& context);
 
     /// Captures the root window (whole screen).
