@@ -1,10 +1,10 @@
 # M4：融合、稳定 ID 与 SoM
 
-> 状态：In Progress
+> 状态：Complete
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M3
-> 发布点：`v0.1.0`（暂定，对应设计 §26「首个可用版本」验收；tag 与发布须经用户授权）
+> 发布点：`v0.1.0`（tag 打在 PR #9 合并提交）
 > 更新日期：2026-09-15
 
 ## 目标
@@ -172,3 +172,12 @@ c255f1c..15217d8 及后续 lint/修复提交，每工作项一组 commit）。
   clang-format 与 clang-tidy（退出码 + error 行双口径）归零。
 - 待用户授权事项：合并 PR #9、打 `v0.1.0` tag 与 GitHub Release（设计 §26 首个
   可用版本发布点）；完成后本里程碑转 Complete 并更新 CHANGELOG 版本段。
+
+2026-09-15：用户授权合并与发布，M4 闭合。
+
+- 用户明确授权（「授权」）后执行：分支补发布收尾 commit（CHANGELOG `v0.1.0`
+  版本段、本里程碑转 Complete、总计划勾选 `SCOPE-05`/`SCOPE-06`）→ 等 CI 绿 →
+  合并 [PR #9](https://github.com/Linductor-alkaid/mirador/pull/9) → 基于合并
+  提交打 `v0.1.0` tag → GitHub Release（发布说明取自 CHANGELOG 版本段）。
+- 全部工作项 `M4-01`~`M4-08` 与退出条件闭合，里程碑转 **Complete**；发布点
+  `v0.1.0` 与总计划里程碑索引一一对应。

@@ -7,6 +7,48 @@
 
 无。
 
+## [0.1.0] - 2026-09-15
+
+M4「融合、稳定 ID 与 SoM」全部工作项落地：`mirador::fusion` 多源证据融合与稳定
+ID/generation、`mirador::render` Set-of-Mark 渲染，匹配算法与关联门控冻结于
+`DEC-010`（[PR #9](https://github.com/Linductor-alkaid/mirador/pull/9)，CI 10/10
+全绿）。本版本完成设计 §26「首个可用版本」验收。
+
+### 新增
+
+- M4：统一输出模型（设计 §8）：`RegionSource` 来源位掩码、`VisualRegion`
+  （stable_id/anchor/source_mask/evidence_ids）、`SemanticSnapshot`
+  （generation/coordinate_space/change）与 `find_region`/`is_generation_current`
+  校验辅助；`ExternalRegion` 属性袋保留 `interactive`/`role`/`enabled` 平台语义
+  （`RULE-11`，视觉不内生推断）。
+- M4：证据与融合（`mirador::fusion`，设计 §16）：有界 `EvidenceSet`（外部/文本/
+  检测/模板四类证据、确定性证据 ID、kFrame/kOriented 输入空间）；确定性融合引擎
+  `fuse_evidence`——IoU/包含门控 + 类别兼容关联（中心距离仅作 trace 观测量，
+  `DEC-010`）、来源权重显式置信度、可解释 `FusionTrace`（合并观测、置信度构成）。
+- M4：稳定 ID（`DEC-010`）：`StableIdTracker` 门控后贪心一对一匹配（IoU/中心位移
+  门控，IoU/位移/文本相似度加权成本），保留/新建/分裂/合并事件与 generation 递增
+  规则（`RULE-09`：ID 仅会话内稳定）。
+- M4：会话集成：`PerceptionSession::fuse()` 发布不可变 `SemanticSnapshot`
+  （首次 generation 为 1，仅 tracker 报告 bump 时递增）、`latest_snapshot()` 并发
+  只读；快照携带最近一次 `ChangeReport`。
+- M4：`mirador::render` 转编译目标（链接恰为 `mirador::fusion`，`DEC-013` 允许
+  集合表演进）：`render_set_of_mark`（RGB8 标记图、stable_id 索引固定调色板、
+  点阵数字标签与确定性遮挡规避、`mark_id -> stable_id` 映射、预算上限）、
+  `grid_partition` 网格划分与坐标回映纯几何工具（设计 §17；不调用 VLM、不执行
+  动作）。架构测试新增 render 断言与 `link_closure_render` 探针。
+- M4：示例 `hybrid_localization_tour`（设计 §24 M4 退出场景：Accessibility 区域 +
+  伪 OCR/Detector 融合 → SoM → 未变化零 Backend 复用 → 变化后 generation 拒绝
+  陈旧引用）。
+
+### 兼容性影响
+
+- 全部为增量公共 API；M0-M3 既有 API 不变。
+- `mirador::render` 由 INTERFACE 转为编译目标，链接接口恰为 `mirador::fusion`
+  （`DEC-013`）；`MIRADOR_BUILD_RENDER=ON` 现要求 fusion 模块开启。
+- 融合证据输入空间暂限 kFrame/kOriented（kDisplay 随 M5 平台适配定义）；SoM 背景
+  暂限 rotation k0 的单平面 8 位格式（NV12/旋转背景返回显式错误）。
+- 融合关联与稳定 ID 的检出质量按 `RISK-2026-10`/`RISK-2026-11` 在 M5 评测收口。
+
 ## [0.1.0-beta.3] - 2026-09-15
 
 M3「传统视觉、检测/OCR 通用组件与视觉索引」全部工作项落地：`mirador::geometry`
