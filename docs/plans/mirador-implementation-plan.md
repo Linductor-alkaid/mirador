@@ -1,11 +1,14 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.2
+> 版本：1.2.1
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-15
+> 更新日期：2026-09-16
+>
+> 1.2.1 修订（2026-09-16）：簿记补勾 `SCOPE-01`/`SCOPE-02`/`SCOPE-03`（M0/M1/M2
+> 均已 Completed 并发布，仅复选框未随证据同步）；无范围变化。
 >
 > 1.2 修订（2026-09-15）：M5 立项（里程碑文档、`DEC-011`/`DEC-015` 冻结）；
 > `POST-05` 立项闭环转交付中；`SCOPE-07` 补勾（M1-09 已交付）。
@@ -32,20 +35,22 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 合并提交）。M5「平台适配与产品化基准」已启动（2026-09-15，立项完成：里程碑文档
 见 [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md)，
 `DEC-011`/`DEC-015` 冻结，`POST-05` 立项闭环、转交付中）。M5 工作项
-`M5-01`~`M5-09` 已全部收口（2026-09-15，PR #12，CI 13/13 绿；`DEC-016` 冻结，
-基准/评测集/文档收口完成），`v0.2.0` tag 与合并待负责人授权。整体路线沿用设计
-文档第 24 节的 M0-M5。
+`M5-01`~`M5-09` 已全部收口并经 PR #12 合入 master（CI 13/13 绿；`DEC-016` 冻结，
+基准/评测集/文档收口完成），`v0.2.0` CHANGELOG 就绪，tag 与 GitHub Release 待
+负责人授权。整体路线沿用设计文档第 24 节的 M0-M5。
 
 ## 交付边界
 
 ### 包含
 
-- [ ] `SCOPE-01` `mirador-core`：基础类型、`Status`/`Result`、`ImageView`/`Frame`、坐标空间与
-  `Transform2D`、Backend SPI 接口与能力查询（设计 §5-§9、§18-§19）。
-- [ ] `SCOPE-02` `mirador-image`：颜色转换、缩放、裁剪、指纹、分块差分、变化 ROI、帧级有界
-  缓存（设计 §11、§24 M1）。
-- [ ] `SCOPE-03` `mirador-cache`：有界缓存与字节预算、能力结果缓存键、语义快照缓存、有界
-  视觉索引（精确哈希/感知哈希/模板匹配）（设计 §12、§24 M2-M3）。
+- [x] `SCOPE-01` `mirador-core`：基础类型、`Status`/`Result`、`ImageView`/`Frame`、坐标空间与
+  `Transform2D`、Backend SPI 接口与能力查询（设计 §5-§9、§18-§19；M0-01~M0-08 交付，
+  里程碑 Completed，发布点 `v0.1.0-alpha`）。
+- [x] `SCOPE-02` `mirador-image`：颜色转换、缩放、裁剪、指纹、分块差分、变化 ROI、帧级有界
+  缓存（设计 §11、§24 M1；M1 工作项全收口，里程碑 Completed，发布点 `v0.1.0-beta.1`）。
+- [x] `SCOPE-03` `mirador-cache`：有界缓存与字节预算、能力结果缓存键、语义快照缓存、有界
+  视觉索引（精确哈希/感知哈希/模板匹配）（设计 §12、§24 M2-M3；M2 交付缓存键与字节
+  预算、M3 交付视觉索引，里程碑均 Completed，发布点 `v0.1.0-beta.2`/`v0.1.0-beta.3`）。
 - [x] `SCOPE-04` `mirador-geometry`：`LineDetector` SPI、几何过滤、ELSED 或等价线段实现
   （可选依赖）（设计 §15、§24 M3；一方等价实现交付，ELSED 本体为可选适配延后，
   见 [DEC-009](../decisions/DEC-009-elsed-integration.md)）。
