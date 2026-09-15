@@ -192,3 +192,19 @@ lint 双口径归零。合成窗口冒烟测试与 CI `capture-adapter` job（xv
 - 限制：真实 PP-OCR 权重的评测按 `DEC-015` 分层由负责人提供权重后运行
   （`RISK-2026-13`）；asan 预设与 integrations 组合未入预设文件，如需 CI 覆盖
   再立预设。
+
+2026-09-15：`M5-05` Linux X11 采集适配器冒烟验证通过（commit d4ac878，验证由
+Independent-Verification-Agent 执行）。
+
+- 冒烟测试（16 项断言全过）：测试仅创建并捕获自有的 64x48 X 窗口（不读屏幕
+  其他内容、不落盘、不打印像素，`RULE-10`）；覆盖 create/root 查询/窗口捕获
+  像素与尺寸不变量（±8 容差）/几何查询/取消路径/坏 display/未知窗口
+  （kBackendFailure）/资源清理；安装非致命 X 错误处理器防止 Xlib 默认 handler
+  的 exit 掩盖负路径（该语义已写入 `x11_capture.hpp` 契约注释）。
+- **环境发现**：本机 `:0` 为 XWayland（`XDG_SESSION_TYPE=wayland`）——自有
+  窗口捕获正常，root 整屏捕获因 XWayland 无 root 像素后备而 `kBackendFailure`
+  （属文档化行为，非适配器缺陷）。测试对 root 场景按环境分支断言（XWayland →
+  失败语义；Xorg/Xvfb → 完整不变量），真实 X 分支由 CI `capture-adapter` job
+  （xvfb）覆盖；真实 Xorg 桌面下的整屏采集适用性待物理环境补验。
+- 验证：capture 构建 + smoke ctest 1/1、debug 预设回归 40/40、tidy/format 双
+  口径归零、asan 等价构建下 smoke 无报告。
