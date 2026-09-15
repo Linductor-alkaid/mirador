@@ -63,10 +63,11 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
   权重由使用者显式路径提供；冒烟层无权重可运行。
 - [x] `M5-04` Detector 参考后端（YOLO 系，`integrations/detector_yolo`）：
   letterbox/NMS/类别过滤复用 M3 组件；候选数量与缓冲预算显式。
-- [ ] `M5-05` 平台采集适配示例：`adapters/capture-linux`（X11 窗口采集，可选目标
+- [x] `M5-05` 平台采集适配示例：`adapters/capture-linux`（X11 窗口采集，可选目标
   默认关闭，Xvfb 下冒烟）；Windows GDI 捕获与 Android MediaProjection +
   Accessibility 适配示例（CI msvc/ndk job 编译验证 + README 边界说明）；`kDisplay`
-  变换来源契约落地（外部区域与采集帧的坐标转换由适配层提供 `Transform2D`）。
+  变换来源契约落地（外部区域与采集帧的坐标转换由适配层提供 `Transform2D`，
+  [DEC-016](../decisions/DEC-016-display-space-transform-contract.md)）。
 - [ ] `M5-06` 基准扩展与评测集组织（`SCOPE-08`）：缓存命中路径、Backend 外层
   耗时、RSS/体积测量入口；评测集场景清单与离线数据接入约定（静态页、局部动画、
   滚动、弹窗、主题切换、旋转、相似图标，设计 §23）；按 `DEC-011` 发布 Linux x64
@@ -227,3 +228,30 @@ Independent-Verification-Agent 执行）。
 - 限制：真实 YOLO 权重的评测按 `DEC-015` 分层由负责人提供权重后运行
   （`RISK-2026-13`）；v8 分头模型的 param 归一层未在真实模型上验证（冒烟覆盖
   契约本身）。
+
+2026-09-15：`M5-05` kDisplay 契约与 Windows/Android 采集适配实施完成
+（分支 `feat/m5-display-contract-and-capture-adapters`；全部测试由
+Independent-Verification-Agent 编写并执行）：
+
+- `DEC-016` 冻结（Accepted）：kDisplay 变换来源为适配层/调用方提供的
+  `Transform2D`（kOriented→kDisplay）；`FusionOptions::display_transform` 必备
+  语义（kDisplay 参与即必须存在）、`EvidenceSet` 三空间接受、转换链与
+  `run_*` 输出空间保持帧族的边界收窄。
+- 核心落地：`src/fusion/fusion.cpp` 转换链（kDisplay↔kOriented↔kFrame 四条
+  新路径）与选项校验、`src/fusion/evidence.cpp` 空间白名单、设计 §16 M5 冻结
+  补充同步。
+- 独立验证（两轮）：首轮报告 2 类实现缺陷（`display_transform` optional 的
+  无条件解引用、空证据集绕过 transform 必备检查），主循环修复后复验通过；
+  debug 套件 **41/41**（新增 `display_space_test`：9 组合方向矩阵、k0/90/180/
+  270 往返容差 1e-6、session kDisplay 快照端到端、7 类负路径）、capture 套件
+  **42/42**（X11 冒烟新增 display_transform 平移/恒等/未知窗口断言 10 项）、
+  asan/ubsan 无报告、lint 双口径归零。
+- Windows 适配示例：`adapters/capture-windows`（GDI BitBlt + DIB section，
+  `MIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS` 默认 OFF，仅 WIN32）；CI windows
+  job 编译验证（本机无 Windows 运行环境，运行冒烟按 `DEC-011` 记录补跑条件）。
+- Android 适配示例：`adapters/capture-android`（纯 C++ Accessibility 转换 +
+  投影 display transform 有宿主测试 15 项断言全过；AImageReader 投影采集与
+  JNI 桥仅 NDK 构建）；CI android job 编译验证（真机运行按 `DEC-011` 补跑）。
+- CI：`capture-adapter` job 扩展为 `capture-adapters`（+Android 宿主测试 +
+  host 可编译适配源 tidy）；lint 排除表同步。跨平台编译证据随本分支 PR CI
+  回填。

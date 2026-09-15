@@ -129,7 +129,8 @@ Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`D
 （`PerceptionSession` 归属 fusion 与模块依赖演进）。M3 新增：`DEC-009`（ELSED 集成
 方式）、`DEC-014`（检测/OCR 通用组件归属与视觉索引契约）。M5 立项新增：`DEC-011`
 （基准环境与方法）、`DEC-015`（POST-05 runtime 选型：ncnn 主选、`integrations/`
-存放、评测接入分层）。
+存放、评测接入分层）。M5-05 新增：`DEC-016`（kDisplay 变换来源与融合开放契约：
+适配层提供 kOriented→kDisplay `Transform2D`，`run_*` 输出空间保持帧族）。
 
 ## 通用完成定义
 
@@ -224,3 +225,13 @@ PR #10，commit 742a73c..d4ac878；全部测试由 Independent-Verification-Agen
   integrations 套件 42/42、debug 回归 40/40、asan 无报告；真实权重评测待
   用户提供（`RISK-2026-13`）。
 - CI：12 job 全绿（含新增 `integrations-ncnn` 与 `capture-adapter`）。
+
+2026-09-15：M5-05 kDisplay 契约与平台采集适配实施（分支
+`feat/m5-display-contract-and-capture-adapters`，全部测试由
+Independent-Verification-Agent 编写并执行）：冻结 `DEC-016`；fusion 开放
+kDisplay（`FusionOptions::display_transform`，`RULE-05` 坐标恢复链扩展）；新增
+`adapters/capture-windows`（GDI，Windows-only）与 `adapters/capture-android`
+（MediaProjection AImageReader + Accessibility 转换，NDK 部分仅 Android 构建）。
+独立验证两轮（首轮报告 optional 解引用与空集绕过两处实现缺陷，修复后复验）：
+debug 41/41、capture 42/42、asan/ubsan 干净、lint 归零；Windows/Android 编译
+验证随分支 PR CI 回填。详见 [M5 里程碑验证记录](m5-platform-adapters-and-production-benchmarks.md)。
