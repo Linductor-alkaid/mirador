@@ -65,7 +65,7 @@ jobs:
       # version, which breaks when runner images ship a different VS release.
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Configure
-        run: cmake -S . -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIRADOR_BUILD_TESTS=ON
+        run: cmake -S . -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIRADOR_BUILD_TESTS=ON -DMIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS=ON
       - name: Build
         run: cmake --build build/windows
       - name: Test
@@ -92,6 +92,7 @@ jobs:
           -DANDROID_PLATFORM=android-24
           -DCMAKE_BUILD_TYPE=Debug
           -DMIRADOR_BUILD_TESTS=ON
+          -DMIRADOR_BUILD_ADAPTERS_CAPTURE_ANDROID=ON
       - name: Build
         run: cmake --build build/android
 
@@ -138,23 +139,62 @@ jobs:
           clang-tidy --version
           git ls-files 'integrations/*.cpp' | xargs clang-tidy --warnings-as-errors='*' -p build/integrations
 
-  # M5-05: the optional Linux X11 capture adapter builds and runs its
-  # synthetic-window smoke test against a virtual display (no real screen).
-  capture-linux:
-    name: gcc / capture-adapter
+  # M5-05: the optional capture adapters. The Linux X11 adapter builds and
+  # runs its synthetic-window smoke test against a virtual display (no real
+  # screen); the Android adapter's pure conversion parts build and run their
+  # host test here (the NDK-only sources compile in the android job).
+  capture-adapters:
+    name: gcc / capture-adapters
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libx11-dev xvfb
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libx11-dev xvfb clang-tidy
       - name: Configure
-        run: cmake -S . -B build/capture -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX=ON
+        run: >
+          cmake -S . -B build/capture -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          -DMIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX=ON -DMIRADOR_BUILD_ADAPTERS_CAPTURE_ANDROID=ON
       - name: Build
         run: cmake --build build/capture
       - name: Test
         run: xvfb-run -a ctest --test-dir build/capture --output-on-failure
+      - name: Run clang-tidy over host-compilable adapter sources
+        run: |
+          clang-tidy --version
+          # NDK-only Android sources (projection_capture, accessibility_jni)
+          # are compiled by the android job against the NDK toolchain; they
+          # have no host compile database to lint against.
+          git ls-files 'adapters/capture-linux/*.cpp' 'adapters/capture-android/*.cpp' \
+            ':!adapters/capture-android/projection_capture.cpp' \
+            ':!adapters/capture-android/accessibility_jni.cpp' \
+            | xargs clang-tidy --warnings-as-errors='*' -p build/capture
+
+  # M5-07: bounded libFuzzer runs over the three pure high-risk surfaces.
+  # The harnesses carry their own address+undefined sanitizer flags; findings
+  # fail the job. Optional (default-off) and clang-only by construction.
+  fuzz:
+    name: clang / fuzz
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIRADOR_BUILD_FUZZ=ON
+      - name: Build
+        run: cmake --build build/fuzz
+      - name: Run harnesses (bounded)
+        run: |
+          ./build/fuzz/tests/fuzz/mirador_fuzz_db_postprocess -max_total_time=30 -rss_limit_mb=2048
+          ./build/fuzz/tests/fuzz/mirador_fuzz_cache_key -max_total_time=30 -rss_limit_mb=2048
+          ./build/fuzz/tests/fuzz/mirador_fuzz_transform -max_total_time=30 -rss_limit_mb=2048
 
   lint:
     name: clang-format / clang-tidy
@@ -177,6 +217,6 @@ jobs:
       - name: Run clang-tidy
         run: |
           clang-tidy --version
-          # integrations/ and the optional capture adapter are linted in their
-          # own jobs against their own compile databases.
-          git ls-files '*.cpp' '*.cc' ':!integrations/**' ':!adapters/capture-linux/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug
+          # integrations/ and the platform capture adapters are linted in
+          # their own jobs against their own compile databases.
+          git ls-files '*.cpp' '*.cc' ':!integrations/**' ':!adapters/capture-linux/**' ':!adapters/capture-windows/**' ':!adapters/capture-android/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug

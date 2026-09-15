@@ -83,7 +83,11 @@ struct EvidenceItem {
 
 /// Ordered collection of region evidence feeding one fusion (design sections
 /// 16 and 25). Evidence ids are assigned sequentially from 1 in add order, so
-/// output ordering and traces are fully deterministic. Bounded (RULE-06): at
+/// output ordering and traces are fully deterministic. Items may live in
+/// kFrame, kOriented or kDisplay space; kDisplay items require the fusion
+/// call to carry `FusionOptions::display_transform` (DEC-016) — the set
+/// itself is a pure container and does not check that pairing. Bounded
+/// (RULE-06): at
 /// most `kMaxItems` items; further adds fail with kBudgetExceeded. Never
 /// throws.
 class EvidenceSet {

@@ -156,7 +156,11 @@ Result<Transform2D> compose(const Transform2D& first, const Transform2D& second)
 Result<Transform2D> inverse(const Transform2D& transform) {
     const std::array<double, 9>& m = transform.matrix;
     const double det = m[0] * m[4] - m[1] * m[3];
-    if (std::fabs(det) < kSingularEpsilon) {
+    // Overflowing to +-inf is as unrecoverable as collapsing to 0: the
+    // inverse entries would silently degenerate (e.g. an all-zero matrix),
+    // so a non-finite determinant is rejected as singular too (M5-07 fuzz
+    // finding; the roundtrip contract in transform_test depends on it).
+    if (!std::isfinite(det) || std::fabs(det) < kSingularEpsilon) {
         return transform_error("transform is singular and cannot be inverted");
     }
     const double inv_det = 1.0 / det;
@@ -174,6 +178,13 @@ Result<Transform2D> inverse(const Transform2D& transform) {
         0.0,
         1.0,
     };
+    // A finite determinant can still overflow individual entries (huge
+    // matrix, tiny det); such an inverse is as unusable as a singular one.
+    for (const double entry : inverted.matrix) {
+        if (!std::isfinite(entry)) {
+            return transform_error("transform is singular and cannot be inverted");
+        }
+    }
     return inverted;
 }
 

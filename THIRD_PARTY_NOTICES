@@ -53,3 +53,16 @@ full boundary description.
    takes on its obligations: License: BSD-3-Clause, Copyright (c) 2017
    Tencent. Full text: upstream LICENSE file of the pinned commit. Audit
    record: docs/supply-chain/ncnn.md.
+
+4. Platform capture libraries - integrator-provided, never distributed
+
+   The optional capture adapters (M5-05) link platform libraries that are
+   provided by the build/runtime environment and are never vendored or
+   redistributed by Mirador: libX11 (adapters/capture-linux; X11/MIT-style
+   license, see the system package's copyright file), Win32 GDI/user32
+   (adapters/capture-windows; part of the Windows SDK/OS, no redistribution),
+   and the Android NDK media/JNI runtime (adapters/capture-android;
+   libmediandk and libandroid ship with the Android OS on the device). None
+   of them enters the default build; distribution obligations for the adapters
+   fall on whoever compiles and ships them, exactly as for the OpenCV adapter
+   above. Tested version ranges: docs/compatibility/compatibility.md.

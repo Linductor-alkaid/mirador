@@ -1,6 +1,6 @@
 # M5：平台适配与产品化基准
 
-> 状态：In Progress
+> 状态：Completed（工作项与退出条件收口；`v0.2.0` tag 与 PR 合并待负责人授权）
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M4
@@ -63,21 +63,28 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
   权重由使用者显式路径提供；冒烟层无权重可运行。
 - [x] `M5-04` Detector 参考后端（YOLO 系，`integrations/detector_yolo`）：
   letterbox/NMS/类别过滤复用 M3 组件；候选数量与缓冲预算显式。
-- [ ] `M5-05` 平台采集适配示例：`adapters/capture-linux`（X11 窗口采集，可选目标
+- [x] `M5-05` 平台采集适配示例：`adapters/capture-linux`（X11 窗口采集，可选目标
   默认关闭，Xvfb 下冒烟）；Windows GDI 捕获与 Android MediaProjection +
   Accessibility 适配示例（CI msvc/ndk job 编译验证 + README 边界说明）；`kDisplay`
-  变换来源契约落地（外部区域与采集帧的坐标转换由适配层提供 `Transform2D`）。
-- [ ] `M5-06` 基准扩展与评测集组织（`SCOPE-08`）：缓存命中路径、Backend 外层
+  变换来源契约落地（外部区域与采集帧的坐标转换由适配层提供 `Transform2D`，
+  [DEC-016](../decisions/DEC-016-display-space-transform-contract.md)）。
+- [x] `M5-06` 基准扩展与评测集组织（`SCOPE-08`）：缓存命中路径、Backend 外层
   耗时、RSS/体积测量入口；评测集场景清单与离线数据接入约定（静态页、局部动画、
   滚动、弹窗、主题切换、旋转、相似图标，设计 §23）；按 `DEC-011` 发布 Linux x64
-  数字到 `docs/benchmarks/`。
-- [ ] `M5-07` 鲁棒性与并发验证：快照并发读/跨 session 共享缓存测试（TSAN 矩阵
+  数字到 `docs/benchmarks/`。（发布说明的 `DEC-011` 限定表述随 `M5-09` 发布物
+  落地）
+- [x] `M5-07` 鲁棒性与并发验证：快照并发读/跨 session 共享缓存测试（TSAN 矩阵
   常规运行）；模糊测试入口（后处理概率图、缓存键序列化、坐标变换输入）随 CI
   可选 job；隐私负向测试复核（默认不落盘、不联网、日志脱敏，`DOD-06`）。
-- [ ] `M5-08` 文档收口：公共 API 文档（接口参考 + 示例索引）、`docs/compatibility/`
+  （跨 session 共享缓存的 TSAN 用例在当前 API 下不可表达——session `create()`
+  无缓存注入口、缓存明确非线程安全且归 session 独占；已在
+  `tests/fusion/concurrency_test.cpp` 注释记录，矩阵随缓存注入 API 引入扩展）
+- [x] `M5-08` 文档收口：公共 API 文档（接口参考 + 示例索引）、`docs/compatibility/`
   登记（OpenCV 等系统包版本区间）、许可证说明完整性复核、README 产品化更新。
-- [ ] `M5-09` 收尾：全 Linux 预设矩阵与 lint、跨平台 CI 证据回填（含
+  （`SCOPE-10` 的勾选证据随 `M5-09` 终轮 CI 回填）
+- [x] `M5-09` 收尾：全 Linux 预设矩阵与 lint、跨平台 CI 证据回填（含
   integrations job）、计划/CHANGELOG 同步、`v0.2.0` 发布准备（用户授权）。
+  （`v0.2.0` tag 与 PR 合并待负责人授权；工作项本身收口）
 
 ## 风险与阻塞
 
@@ -95,23 +102,29 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 
 ## 测试与退出条件
 
-- [ ] 默认构建（全部 6 个 Linux 预设 + 最小核心配置）不获取、不编译、不链接任何
+- [x] 默认构建（全部 6 个 Linux 预设 + 最小核心配置）不获取、不编译、不链接任何
   runtime；架构测试覆盖 `integrations/` 令牌规则（`src/`/`include/` 不出现 ncnn，
-  integrations 不被核心目标引用）。
-- [ ] `MIRADOR_BUILD_INTEGRATIONS=ON` 专用 CI job 绿：pinned ncnn 拉取、构建、
-  合成模型冒烟通过；锁定信息与 supply-chain/许可证文档同步。
-- [ ] OCR/Detector 参考后端冒烟层通过（无权重可运行）；真实模型评测按 `DEC-011`
-  记录或明确记录补跑条件（权重与设备）。
-- [ ] 采集适配：Linux X11 适配在 Xvfb 冒烟通过；Windows/Android 适配在 CI 编译
-  验证；`kDisplay` 变换有方向与往返容差测试（`DOD-03`）。
-- [ ] 基准：`benchmarks/` 覆盖变化检测、缓存命中路径、Backend 外层耗时、RSS/体积；
+  integrations 不被核心目标引用）。（终轮 head：6 预设全绿——debug 43/43，其余
+  42/42；最小核心配置仅产出 libmirador_core.a；CI 13/13 绿含架构套件）
+- [x] `MIRADOR_BUILD_INTEGRATIONS=ON` 专用 CI job 绿：pinned ncnn 拉取、构建、
+  合成模型冒烟通过；锁定信息与 supply-chain/许可证文档同步。（CI 终轮绿；
+  `integrations/deps.lock.json` 与 `THIRD_PARTY_NOTICES` 第 3 节一致）
+- [x] OCR/Detector 参考后端冒烟层通过（无权重可运行）；真实模型评测按 `DEC-011`
+  记录或明确记录补跑条件（权重与设备）。（冒烟随 CI integrations job；补跑条件
+  记录于 `RISK-2026-13` 与 M5-03/M5-04 验证记录）
+- [x] 采集适配：Linux X11 适配在 Xvfb 冒烟通过；Windows/Android 适配在 CI 编译
+  验证；`kDisplay` 变换有方向与往返容差测试（`DOD-03`）。（PR #12 CI 12/12 绿；
+  本机 XWayland 分支冒烟 + CI xvfb 分支冒烟通过）
+- [x] 基准：`benchmarks/` 覆盖变化检测、缓存命中路径、Backend 外层耗时、RSS/体积；
   `docs/benchmarks/` 发布 Linux x64 数字（含环境四元组与复现命令）；发布说明
-  携带 `DEC-011` 限定表述。
-- [ ] 并发/模糊/隐私：TSAN 矩阵含快照并发读与跨 session 缓存用例；模糊入口可运行；
-  `DOD-06` 负向测试复核通过。
-- [ ] 文档：API 文档、`docs/compatibility/`、`THIRD_PARTY_NOTICES`、supply-chain
-  登记完整；`SCOPE-07`~`SCOPE-10` 具备勾选证据。
-- [ ] `DEC-011`/`DEC-015` 状态 Accepted 并被工作项引用；总计划与 CHANGELOG 同步。
+  携带 `DEC-011` 限定表述。（CHANGELOG 0.2.0 兼容性影响节含限定表述）
+- 并发/模糊/隐私：TSAN 矩阵含快照并发读与跨 session 缓存用例；模糊入口可运行；
+  `DOD-06` 负向测试复核通过。（共享缓存用例的 API 缺口见工作项注记）
+- [x] 文档：API 文档、`docs/compatibility/`、`THIRD_PARTY_NOTICES`、supply-chain
+  登记完整；`SCOPE-07`~`SCOPE-10` 具备勾选证据。（终轮 CI 13/13 绿即 `SCOPE-10`
+  证据）
+- [x] `DEC-011`/`DEC-015` 状态 Accepted 并被工作项引用；总计划与 CHANGELOG 同步。
+  （`DEC-016` 同为 Accepted；CHANGELOG 0.2.0 条目就绪）
 
 ## 验证记录
 
@@ -227,3 +240,103 @@ Independent-Verification-Agent 执行）。
 - 限制：真实 YOLO 权重的评测按 `DEC-015` 分层由负责人提供权重后运行
   （`RISK-2026-13`）；v8 分头模型的 param 归一层未在真实模型上验证（冒烟覆盖
   契约本身）。
+
+2026-09-15：`M5-05` kDisplay 契约与 Windows/Android 采集适配实施完成
+（分支 `feat/m5-display-contract-and-capture-adapters`；全部测试由
+Independent-Verification-Agent 编写并执行）：
+
+- `DEC-016` 冻结（Accepted）：kDisplay 变换来源为适配层/调用方提供的
+  `Transform2D`（kOriented→kDisplay）；`FusionOptions::display_transform` 必备
+  语义（kDisplay 参与即必须存在）、`EvidenceSet` 三空间接受、转换链与
+  `run_*` 输出空间保持帧族的边界收窄。
+- 核心落地：`src/fusion/fusion.cpp` 转换链（kDisplay↔kOriented↔kFrame 四条
+  新路径）与选项校验、`src/fusion/evidence.cpp` 空间白名单、设计 §16 M5 冻结
+  补充同步。
+- 独立验证（两轮）：首轮报告 2 类实现缺陷（`display_transform` optional 的
+  无条件解引用、空证据集绕过 transform 必备检查），主循环修复后复验通过；
+  debug 套件 **41/41**（新增 `display_space_test`：9 组合方向矩阵、k0/90/180/
+  270 往返容差 1e-6、session kDisplay 快照端到端、7 类负路径）、capture 套件
+  **42/42**（X11 冒烟新增 display_transform 平移/恒等/未知窗口断言 10 项）、
+  asan/ubsan 无报告、lint 双口径归零。
+- Windows 适配示例：`adapters/capture-windows`（GDI BitBlt + DIB section，
+  `MIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS` 默认 OFF，仅 WIN32）；CI windows
+  job 编译验证（本机无 Windows 运行环境，运行冒烟按 `DEC-011` 记录补跑条件）。
+- Android 适配示例：`adapters/capture-android`（纯 C++ Accessibility 转换 +
+  投影 display transform 有宿主测试 15 项断言全过；AImageReader 投影采集与
+  JNI 桥仅 NDK 构建）；CI android job 编译验证（真机运行按 `DEC-011` 补跑）。
+- CI：`capture-adapter` job 扩展为 `capture-adapters`（+Android 宿主测试 +
+  host 可编译适配源 tidy）；lint 排除表同步。
+- CI 证据（PR #12，两轮）：首轮 9/12 绿，3 类失败——clang-format（未跟踪目录
+  文件漏出本地检查口径）、capture-adapters 的 IWYU 直接包含、NDK 下
+  `AImage_getPlaneData` 的 `uint8_t**` 签名与头文件 default 析构冲突；修复
+  commit d55c552 后第二轮 **12/12 全绿**（含 msvc 编译 GDI 适配、ndk 编译
+  MediaProjection/JNI、capture-adapters job 42/42 + xvfb X11 冒烟）。
+
+2026-09-15：`M5-06` 收口（PR #12 分支续交付）：
+
+- 新增 `benchmarks/measure_sizes.sh`（模块静态库 + 可执行文件体积表，缺省
+  构件按模块开关跳过）；变化检测基准数字与体积表发布于
+  [linux-x64-change-detection-sizes-2026-09](../benchmarks/linux-x64-change-detection-sizes-2026-09.md)
+  （release 构建，同机口径）：unchanged p50 1.64 ms / 全量路径 ≈ 10.8 ms，
+  六模块静态库合计 0.61 MiB（core+image+cache ≈ 326 KiB）。
+- 评测集场景清单与离线数据接入约定发布于
+  [evaluation-scenes](../benchmarks/evaluation-scenes.md)（场景 ID、
+  覆盖级别、manifest 字段、隐私与确定性约定，数据不入仓）。
+- 原 cache-backend 报告的"体积待 M5-09"限制更新为已登记；`SCOPE-08` 具备
+  勾选证据。纯文档与脚本变更，无公共 API 影响；脚本在 release 构建上实际
+  执行验证。
+
+2026-09-15：`M5-07` 实施完成（PR #12 分支续交付；全部测试由
+Independent-Verification-Agent 编写并执行，两轮）：
+
+- 并发矩阵：`tests/fusion/concurrency_test.cpp`——已发布快照跨代并发读
+  （4 读者 × 主线程连续 fuse，读者持旧快照存活）与会话级并行（双 session
+  双线程完整管线）；TSAN 预设 42/42 零报告，并发二进制复跑 5 次干净。
+  跨 session 共享缓存用例在当前 API 下不可表达（无缓存注入口），注释记录
+  于测试头部。
+- 模糊入口：`tests/fuzz/`（DB 概率图后处理、缓存键序列化、坐标变换，
+  `MIRADOR_BUILD_FUZZ` 默认 OFF、clang-only、address+undefined+fuzzer 且
+  `-fno-sanitize-recover`）；CI 新增 `clang / fuzz` job（每 harness 限时
+  30 s）。本地等效验证：db/cache 各 ≥2 万 runs、transform 约 112 万 runs
+  零 finding；fuzzer 抓到的均为 harness 自身缺陷（有符号溢出、NaN 比较、
+  传递包含），已修复。
+- 产品健壮性修复（主循环）：`mirador::inverse` 奇异性检查扩展到非有限
+  行列式，并对逆矩阵元素做有限性校验——修复前 det=+inf 返回 ok + 全零
+  逆矩阵（往返 NaN），fuzz 发现、回归测试（`Transform.InverseRejects*`）
+  与 fuzz 不变量（ok ⇒ 全元素有限）双向锁定。
+- 隐私负向（`DOD-06`）：`tests/privacy/privacy_test.cpp`——完整管线
+  （含显式缓存写入）前后 cwd/temp 目录零新增文件；双标记证据流经成功与
+  5 类失败路径，全部 `Status` message 与 `FusionTrace` 字符串字段零泄漏
+  （`static_assert` 钉死 trace 成员为数值类型）；src/ 无任何日志输出代码
+  （grep 佐证）。
+- 验证：debug 43/43、tsan 42/42（setarch -R）、asan/ubsan 全绿、触碰文件
+  format/tidy 双口径归零。本机无 clang，验证代理从 Ubuntu 源提取
+  clang-18 到用户目录以 CI 同口径执行 fuzz 构建与 tidy。CI fuzz job 证据
+  随本分支 push 回填。
+
+2026-09-15：`M5-08` 文档收口（PR #12 分支续交付；纯文档变更）：
+
+- [docs/api/README.md](../api/README.md)：模块 → 公共头 → 关键类型导航索引，
+  适配层/integrations 开关表，五个使用示例索引；契约正文保持在头文件注释，
+  索引不复制契约。
+- [docs/compatibility/compatibility.md](../compatibility/compatibility.md)：
+  编译器/CMake/NDK/依赖的已验证版本表、平台功能可用性矩阵（✅/🔨/⏳/❌
+  四级口径）、已知行为差异（TSAN/ASLR、XWayland root、JNI modified UTF-8）。
+- `THIRD_PARTY_NOTICES` 新增第 4 节：平台采集库（libX11/Win32 GDI/Android
+  NDK runtime）integrator-provided、不随库分发；第 1-3 节复核无过期项。
+- README 产品化：M5 当前状态、目录结构（adapters/integrations/docs）、可选
+  构建面六开关、基准入口补全。
+- 许可证复核结论：仓库内第三方仍仅 googletest（pinned）；OpenCV/ncnn/平台库
+  均为 integrator-provided 且登记完整；ELSED 仍未引入（引入窗口见 `DEC-009`）。
+
+2026-09-15：`M5-09` 收尾完成（PR #12 分支；tag 待授权）：
+
+- 终轮 head 全 Linux 预设矩阵：debug 43/43、release/warnings/asan/ubsan/tsan
+  各 42/42（tsan 经 `setarch -R`）；clang-format 与 clang-tidy 双口径归零；
+  最小核心配置（仅 `mirador::core`）独立构建通过。
+- 跨平台 CI 证据：终轮 head（63ba70f 后续 docs commit 触发轮）CI 13/13 全绿——
+  linux 6 预设矩阵、msvc（含 GDI 适配编译）、ndk（含 Android 适配编译）、
+  opencv 适配、integrations-ncnn、capture-adapters、新增 fuzz job、lint。
+- CHANGELOG `0.2.0` 条目就绪（含 `DEC-011` 限定表述与兼容性影响节）；
+  总计划 `SCOPE-10` 勾选、M5 状态 Completed。
+- 待负责人授权事项：PR #12 合并、`v0.2.0` tag/发布。

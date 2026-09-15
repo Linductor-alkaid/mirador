@@ -182,18 +182,35 @@ TEST(EvidenceSetTest, RejectsNonFiniteOrNegativeSizeBounds) {
     EXPECT_TRUE(evidence.empty());
 }
 
-TEST(EvidenceSetTest, RejectsSpacesOutsideFrameAndOriented) {
+// DEC-016 opened kDisplay as a legal evidence space (kFrame/kOriented/kDisplay);
+// the display_transform pairing is validated by the consumer (fuse_evidence),
+// not by this pure container. Backend-internal spaces (kCropped, kModelInput)
+// and caller-private spaces (kUserBase and beyond) stay rejected.
+TEST(EvidenceSetTest, AcceptsDisplaySpaceAndRejectsBackendPrivateSpaces) {
     EvidenceSet evidence;
     TextRegion text;
     text.bounds = RectF{0.0F, 0.0F, 4.0F, 4.0F};
 
     EXPECT_EQ(evidence.add_text(text, CoordinateSpaceId::kModelInput).status().code(), ErrorCode::kInvalidArgument);
     EXPECT_EQ(evidence.add_text(text, CoordinateSpaceId::kCropped).status().code(), ErrorCode::kInvalidArgument);
-    EXPECT_EQ(evidence.add_text(text, CoordinateSpaceId::kDisplay).status().code(), ErrorCode::kInvalidArgument);
     EXPECT_EQ(evidence.add_text(text, mirador::CoordinateSpaceId::kUserBase).status().code(),
               ErrorCode::kInvalidArgument);
+    // kUserBase + 1 is a legal caller-private space by design (design section
+    // 7 defines the private range as starting at kUserBase), hence the cast.
+    EXPECT_EQ(
+        evidence
+            .add_text(text, static_cast<CoordinateSpaceId>(  // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+                                static_cast<uint32_t>(mirador::CoordinateSpaceId::kUserBase) + 1U))
+            .status()
+            .code(),
+        ErrorCode::kInvalidArgument);
     EXPECT_TRUE(evidence.empty());
-    ASSERT_TRUE(evidence.add_text(text, CoordinateSpaceId::kFrame).ok());
+
+    // kDisplay items are accepted and their space is recorded verbatim.
+    ASSERT_TRUE(evidence.add_text(text, CoordinateSpaceId::kDisplay).ok());
+    ASSERT_TRUE(evidence.add_external(make_external(0.0F, 0.0F, 4.0F, 4.0F), CoordinateSpaceId::kDisplay).ok());
+    EXPECT_EQ(evidence.items()[0].space, CoordinateSpaceId::kDisplay);
+    EXPECT_EQ(evidence.items()[1].space, CoordinateSpaceId::kDisplay);
 }
 
 // --- Budget -----------------------------------------------------------------------

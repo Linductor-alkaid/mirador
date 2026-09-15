@@ -1,0 +1,55 @@
+# 兼容性登记
+
+> 状态：Active（`M5-08` 立档）
+> 更新日期：2026-09-15
+> 负责人：linductor
+
+本文登记 Mirador 实际验证过的构建与运行组合，以及各可选依赖的已知可用版本
+区间。未列出的组合不构成兼容性承诺；性能与跨平台声明一律遵循
+[DEC-011](../decisions/DEC-011-benchmark-environments.md) 的限定口径。
+
+## 语言与构建工具
+
+| 项 | 已验证 | 说明 |
+| --- | --- | --- |
+| C++ 标准 | C++20 | 公共头要求 c++20；无 C++23 依赖 |
+| GCC | 13.3.0（Ubuntu 24.04） | 主开发编译器 |
+| Clang | 18.1.3 | CI `clang / debug` job + fuzz/harness lint |
+| MSVC | VS 2022（`windows-latest` runner 自带） | CI `msvc / ninja` job 编译 + 测试；公共头编译验证 |
+| Android NDK | 26.3.11579264（arm64-v8a，android-24） | CI `ndk / arm64-v8a` job 编译 + 测试 |
+| CMake | ≥ 3.16（预设需 ≥ 3.21） | `DEC-005`；本机 3.28.3 + Ninja |
+| GoogleTest | v1.18.0（pinned submodule） | 仅测试目标链接（`DEC-006`） |
+
+## 可选依赖（integrator-provided，不随库分发）
+
+| 依赖 | 已测试版本 | 适用区间与注意事项 |
+| --- | --- | --- |
+| OpenCV（仅 `adapters/opencv`） | 4.6.0（Ubuntu 24.04 apt） | 4.x 应可用：只消费 `cv::Mat` 的 data/step/type 面与 `cv::imread` 等基础面；公共 API 不出现 OpenCV 类型（`DEC-003`）。CI 用 runner 自带版本，区间以 CI 实际通过为准 |
+| X11（`adapters/capture-linux`） | libx11（Ubuntu 24.04），Xorg（Xvfb）与 XWayland | 24-bit ZPixmap 视觉；XWayland root 整屏无像素后备（文档化失败语义），整屏采集需 Xorg/Wayland portal |
+| Win32 GDI（`adapters/capture-windows`） | Windows Server 2022 runner（CI msvc job 编译验证） | 运行时冒烟按 `DEC-011` 待物理机补跑；分层/DRM 窗口内容不保证 |
+| Android NDK media/JNI（`adapters/capture-android`） | NDK 26.3 编译验证 | AImageReader 需 API ≥ 24；真机 MediaProjection 授权流与运行冒烟待补跑 |
+
+## Integrations（`MIRADOR_BUILD_INTEGRATIONS=ON`，默认零获取）
+
+| 依赖 | pinned 版本 | 说明 |
+| --- | --- | --- |
+| ncnn | 20260526（commit e54f7b1f，`integrations/deps.lock.json`） | 参考后端专用；`DEC-015` 备选 ONNX Runtime 未启用。合成模型冒烟经 CI 验证；真实权重评测按 `RISK-2026-13` 待用户提供 |
+
+## 平台功能可用性
+
+| 能力 | Linux x64 | Windows x64 | Android arm64 |
+| --- | --- | --- | --- |
+| core/image/cache/geometry/fusion/render 全套 | ✅ 测试通过 | ✅ 编译 + 测试（CI） | ✅ 编译 + 测试（CI） |
+| 采集适配 | ✅ X11 冒烟（Xvfb + XWayland 分支） | 🔨 编译验证（运行待补跑） | 🔨 编译验证（运行待补跑） |
+| 参考后端（integrations） | ✅ 合成模型冒烟（CI） | ❌ 未验证 | ❌ 未验证 |
+| 基准数字 | ✅ 已发布（`DEC-011` 主环境） | ⏳ 补跑条件 | ⏳ 补跑条件（功耗/温升挂起） |
+
+✅ = 有执行证据；🔨 = 编译级验证；⏳ = 记录了补跑条件；❌ = 未验证。
+
+## 已知行为差异与限制
+
+- TSAN 在高熵 ASLR 内核上需 `setarch -R` 运行测试进程（CI 已内置）。
+- XWayland 主机下 root 窗口捕获失败是文档化行为（`x11_capture.hpp` 契约注释），
+  非缺陷；该分支由 CI xvfb job 的 Xorg 路径对偶覆盖。
+- JNI `GetStringUTFChars` 为 modified UTF-8，增补字符以代理对出现（
+  `adapters/capture-android/README.md` 的编码限制节）。

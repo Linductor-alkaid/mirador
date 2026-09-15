@@ -55,6 +55,24 @@ Status validate_options(const FusionOptions& options) noexcept {
     if (options.max_regions <= 0) {
         return {ErrorCode::kInvalidArgument, "max_regions must be positive"};
     }
+    if (options.target_space != CoordinateSpaceId::kFrame && options.target_space != CoordinateSpaceId::kOriented &&
+        options.target_space != CoordinateSpaceId::kDisplay) {
+        return {ErrorCode::kInvalidArgument, "target_space must be kFrame, kOriented or kDisplay (DEC-016)"};
+    }
+    if (options.display_transform.has_value()) {
+        const Transform2D& display = *options.display_transform;
+        if (display.from != CoordinateSpaceId::kOriented || display.to != CoordinateSpaceId::kDisplay) {
+            return {ErrorCode::kInvalidArgument, "display_transform must map kOriented to kDisplay (DEC-016)"};
+        }
+        for (const double entry : display.matrix) {
+            if (!std::isfinite(entry)) {
+                return {ErrorCode::kInvalidArgument, "display_transform matrix must be finite"};
+            }
+        }
+    }
+    if (options.target_space == CoordinateSpaceId::kDisplay && !options.display_transform.has_value()) {
+        return {ErrorCode::kInvalidArgument, "kDisplay target_space requires options.display_transform (DEC-016)"};
+    }
     return {};
 }
 
@@ -75,16 +93,60 @@ std::pair<int32_t, int32_t> raw_dimensions(Rotation rotation, int32_t oriented_w
 }
 
 /// Transform from an item's space into the target space; nullopt when spaces
-/// already match. kFrame <-> kOriented goes through the view rotation.
+/// already match. kFrame <-> kOriented goes through the view rotation;
+/// kDisplay chains the adapter-provided display_transform with the view
+/// rotation (DEC-016). kDisplay involvement requires options.display_transform
+/// to be present even when no numeric conversion is needed.
 Result<std::optional<Transform2D>> space_conversion(CoordinateSpaceId item_space, const Frame& frame,
                                                     const FusionOptions& options) noexcept {
+    const bool display_involved =
+        item_space == CoordinateSpaceId::kDisplay || options.target_space == CoordinateSpaceId::kDisplay;
+    if (display_involved && !options.display_transform.has_value()) {
+        return Status(ErrorCode::kInvalidArgument,
+                      "kDisplay evidence or target requires options.display_transform (DEC-016)");
+    }
     if (item_space == options.target_space) {
         return std::optional<Transform2D>{};
     }
+    // Reachable only for item != target. kDisplay involvement guarantees the
+    // transform exists (checked above), so every use of `display` below is
+    // engaged; the kFrame <-> kOriented branches never touch it.
+    const Transform2D* display = display_involved ? &*options.display_transform : nullptr;
     const ImageView& view = frame.image;
     const auto [raw_width, raw_height] = raw_dimensions(view.rotation, view.width, view.height);
     const Transform2D frame_to_oriented =
         make_rotation(view.rotation, raw_width, raw_height, CoordinateSpaceId::kFrame, CoordinateSpaceId::kOriented);
+    if (item_space == CoordinateSpaceId::kDisplay) {
+        Result<Transform2D> display_to_oriented = inverse(*display);
+        if (!display_to_oriented.ok()) {
+            return display_to_oriented.status();
+        }
+        if (options.target_space == CoordinateSpaceId::kOriented) {
+            return std::optional<Transform2D>{display_to_oriented.take_value()};
+        }
+        // kDisplay -> kFrame: through the oriented view, then inverse rotation.
+        Result<Transform2D> oriented_to_frame = inverse(frame_to_oriented);
+        if (!oriented_to_frame.ok()) {
+            return oriented_to_frame.status();
+        }
+        Result<Transform2D> display_to_frame =
+            compose(display_to_oriented.take_value(), oriented_to_frame.take_value());
+        if (!display_to_frame.ok()) {
+            return display_to_frame.status();
+        }
+        return std::optional<Transform2D>{display_to_frame.take_value()};
+    }
+    if (options.target_space == CoordinateSpaceId::kDisplay) {
+        if (item_space == CoordinateSpaceId::kOriented) {
+            return std::optional<Transform2D>{*display};
+        }
+        // kFrame -> kDisplay: view rotation first, then the display mapping.
+        Result<Transform2D> frame_to_display = compose(frame_to_oriented, *display);
+        if (!frame_to_display.ok()) {
+            return frame_to_display.status();
+        }
+        return std::optional<Transform2D>{frame_to_display.take_value()};
+    }
     if (options.target_space == CoordinateSpaceId::kOriented && item_space == CoordinateSpaceId::kFrame) {
         return std::optional<Transform2D>{frame_to_oriented};
     }
@@ -95,7 +157,7 @@ Result<std::optional<Transform2D>> space_conversion(CoordinateSpaceId item_space
         }
         return std::optional<Transform2D>{oriented_to_frame.take_value()};
     }
-    return Status(ErrorCode::kInvalidArgument, "evidence space must be kFrame or kOriented");
+    return Status(ErrorCode::kInvalidArgument, "evidence space must be kFrame, kOriented or kDisplay");
 }
 
 Result<std::vector<WorkingItem>> working_items(const EvidenceSet& evidence, const Frame& frame,

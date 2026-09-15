@@ -7,8 +7,10 @@
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/stable_id_tracker.hpp>
+#include <mirador/transform.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace mirador {
@@ -69,7 +71,18 @@ struct FusionOutput {
 /// configurable, explainable). All thresholds are inclusive.
 struct FusionOptions {
     /// Coordinate space all evidence is converted into and outputs live in.
+    /// kFrame, kOriented and kDisplay are accepted (DEC-016).
     CoordinateSpaceId target_space = CoordinateSpaceId::kOriented;
+    /// Adapter/caller-provided mapping between the oriented view and the final
+    /// display space, frozen as kOriented -> kDisplay (DEC-016): platform
+    /// capture adapters know the window/screen placement; core never infers
+    /// it. Required whenever `target_space` is kDisplay or any evidence item
+    /// is given in kDisplay space — even when no numeric conversion is needed,
+    /// so every kDisplay-space snapshot is self-describing. kInvalidArgument
+    /// when from/to differ from kOriented/kDisplay or the matrix is
+    /// non-finite; a singular matrix surfaces as kCoordinateTransform when
+    /// inverted.
+    std::optional<Transform2D> display_transform;
     /// Gate: pairs with IoU >= this value associate (subject to compatibility).
     double iou_threshold = 0.5;
     /// Gate: pairs whose intersection covers >= this fraction of the smaller
@@ -90,15 +103,18 @@ struct FusionOptions {
 
 /// Deterministically fuses evidence in `target_space` (design section 16).
 /// Pipeline: validate -> convert every item to the target space (frame
-/// rotation when needed) -> gate and union compatible pairs (id-ordered scan,
+/// rotation when needed, `display_transform` when kDisplay is involved,
+/// DEC-016) -> gate and union compatible pairs (id-ordered scan,
 /// observations recorded on actual merges) -> emit one `VisualRegion` per
 /// cluster, ordered by smallest member evidence id, fields aggregated
 /// deterministically. `frame` provides the rotation between kFrame and
 /// kOriented; its other fields are unused.
 ///
 /// Errors: kInvalidArgument (invalid thresholds/weights, item space outside
-/// kFrame/kOriented, target space not in kFrame/kOriented), kCancelled/
-/// kTimeout from `context` (polled between pair-scan stripes),
+/// kFrame/kOriented/kDisplay, target space not in kFrame/kOriented/kDisplay,
+/// display transform missing, wrongly directed or non-finite when kDisplay is
+/// involved), kCoordinateTransform for a singular display transform,
+/// kCancelled/kTimeout from `context` (polled between pair-scan stripes),
 /// kBudgetExceeded for more clusters than `max_regions`. Never throws.
 [[nodiscard]] Result<FusionOutput> fuse_evidence(const EvidenceSet& evidence, const Frame& frame,
                                                  const FusionOptions& options = {},

@@ -160,6 +160,42 @@ TEST(Transform, InverseRejectsSingularMatrices) {
     EXPECT_EQ(result.status().code(), mirador::ErrorCode::kCoordinateTransform);
 }
 
+// M5-07 fuzz finding, closed: a determinant overflowing to +-inf used to pass
+// the singularity check and made inverse return ok with a degenerate (all-zero)
+// matrix; a finite determinant could still overflow individual inverse entries
+// (huge entry over tiny det). Both are rejected as kCoordinateTransform now.
+TEST(Transform, InverseRejectsOverflowedDeterminantAndEntries) {
+    // det = 1e300 * 1e300 = +inf: finite entries, unusable inverse.
+    Transform2D overflowed_det;
+    overflowed_det.matrix = {1e300, 0.0, 0.0, 0.0, 1e300, 0.0, 0.0, 0.0, 1.0};
+    overflowed_det.from = CoordinateSpaceId::kFrame;
+    overflowed_det.to = CoordinateSpaceId::kOriented;
+    const auto determinant = inverse(overflowed_det);
+    ASSERT_FALSE(determinant.ok());
+    EXPECT_EQ(determinant.status().code(), mirador::ErrorCode::kCoordinateTransform);
+
+    // det = 1e300 * 5e-310 - 4e-10 = 1e-10 (finite, far above the singularity
+    // epsilon), but the inverse entry m[0]/det = 1e310 overflows double.
+    Transform2D overflowed_entry;
+    overflowed_entry.matrix = {1e300, 4e-10, 0.0, 1.0, 5e-310, 0.0, 0.0, 0.0, 1.0};
+    overflowed_entry.from = CoordinateSpaceId::kFrame;
+    overflowed_entry.to = CoordinateSpaceId::kOriented;
+    const auto entry = inverse(overflowed_entry);
+    ASSERT_FALSE(entry.ok());
+    EXPECT_EQ(entry.status().code(), mirador::ErrorCode::kCoordinateTransform);
+}
+
+// A non-finite determinant (NaN entries) travels the same rejection path.
+TEST(Transform, InverseRejectsNonFiniteEntries) {
+    Transform2D nan_entry;
+    nan_entry.matrix = {0.0, std::sqrt(-1.0), 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+    nan_entry.from = CoordinateSpaceId::kFrame;
+    nan_entry.to = CoordinateSpaceId::kOriented;
+    const auto result = inverse(nan_entry);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.status().code(), mirador::ErrorCode::kCoordinateTransform);
+}
+
 TEST(Transform, RectTransformIsCornerBoundingBox) {
     // A 30x40 rect rotated 90 degrees becomes 40x30 with swapped offsets.
     const Transform2D rotation =

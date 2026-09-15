@@ -5,6 +5,7 @@
 #include <mirador/frame.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/result.hpp>
+#include <mirador/transform.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -52,6 +53,14 @@ public:
 
     /// Current geometry of `window`; kBackendFailure for unknown windows.
     Result<std::pair<int32_t, int32_t>> window_geometry(X11WindowId window) const;
+
+    /// Display-space mapping of `window`'s captured view (DEC-016): the
+    /// kOriented -> kDisplay transform placing the captured frame in the root
+    /// (display) coordinate system — a translation by the window's current
+    /// root-relative origin, because X11 capture is 1:1 pixels and never
+    /// rotated. The root window maps to the identity. kBackendFailure for
+    /// unknown windows; kBackendUnavailable when moved-from.
+    Result<Transform2D> window_display_transform(X11WindowId window) const;
 
     /// Captures `window`'s current pixels into an owned RGB8 frame. Polls
     /// `context` before and after the (atomic) X roundtrip. Callers that

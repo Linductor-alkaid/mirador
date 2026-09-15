@@ -173,6 +173,21 @@ if(MIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX)
     add_subdirectory(adapters/capture-linux)
 endif()
 
+# M5-05: optional Windows GDI capture adapter (independent adaptation layer).
+# Windows-only; compiles in the CI windows job.
+option(MIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS "Build the optional Windows GDI capture adapter (Windows hosts only)" OFF)
+if(MIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS)
+    add_subdirectory(adapters/capture-windows)
+endif()
+
+# M5-05: optional Android capture adapter example (independent adaptation
+# layer). Pure conversion parts build on any host (with a host test); NDK
+# parts only under the Android toolchain; compiles in the CI android job.
+option(MIRADOR_BUILD_ADAPTERS_CAPTURE_ANDROID "Build the optional Android capture adapter example" OFF)
+if(MIRADOR_BUILD_ADAPTERS_CAPTURE_ANDROID)
+    add_subdirectory(adapters/capture-android)
+endif()
+
 if(MIRADOR_BUILD_INTEGRATIONS)
     add_subdirectory(integrations)
 endif()
