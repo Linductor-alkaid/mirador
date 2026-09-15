@@ -126,7 +126,9 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy
       - name: Configure (fetches pinned ncnn; requires network)
-        run: cmake -S . -B build/integrations -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIRADOR_BUILD_INTEGRATIONS=ON
+        # Explicit compile database export: the integrations tidy step needs
+        # it, and not every runner CMake exports it by default for Ninja.
+        run: cmake -S . -B build/integrations -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMIRADOR_BUILD_INTEGRATIONS=ON
       - name: Build
         run: cmake --build build/integrations
       - name: Test
