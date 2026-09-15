@@ -59,7 +59,8 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 - [x] `SCOPE-08` `benchmarks`：变化检测、缓存命中路径、Backend 调用外层耗时的基准入口与
   评测集组织（设计 §20、§23、§24 M5；数字与评测集约定见
   [docs/benchmarks/](../benchmarks/)，M5-06 收口）。
-- [ ] `SCOPE-09` `examples`：无 runtime 的基础示例，使用公共 API 并纳入编译验证（设计 §21）。
+- [x] `SCOPE-09` `examples`：无 runtime 的基础示例，使用公共 API 并纳入编译验证（设计 §21；
+  五个示例随全部 CI job 编译，索引见 [docs/api/README.md](../api/README.md)）。
 - [ ] `SCOPE-10` 多平台验证：Linux、Windows、Android NDK 的构建、测试与基准证据及 CI 门禁
   （设计 §21、§24 M0/M5）。
 

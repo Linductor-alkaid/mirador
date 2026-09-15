@@ -33,7 +33,12 @@ dHash 指纹、分层变化检测（`detect_change`，含忽略区域与 none/pa
 crop-refine）与有界三层视觉索引 `VisualIndex`；M4 落地确定性证据融合
 （`fuse_evidence` + `FusionTrace`）、`SemanticSnapshot`/`VisualRegion` 输出模型、
 跨快照稳定 ID 与 generation（`DEC-010`）、会话 `fuse()` 发布不可变快照，以及
-`render` 的 Set-of-Mark 渲染与网格回映工具。可选适配器
+`render` 的 Set-of-Mark 渲染与网格回映工具。M5 产品化收口（进行中，见
+[里程碑文档](docs/plans/m5-platform-adapters-and-production-benchmarks.md)）：可选
+采集适配（Linux X11 冒烟级；Windows GDI 与 Android MediaProjection/Accessibility
+为 CI 编译验证级示例，`kDisplay` 变换契约见 `DEC-016`）、`integrations/` 参考
+能力后端（ncnn 上的 PP-OCR 与 YOLO 系冒烟层，`DEC-015`）、基准数字与评测集
+约定发布（`docs/benchmarks/`）、并发/模糊/隐私验证矩阵。可选适配器
 `mirador::adapters::opencv`（`cv::Mat` ↔ `ImageView` 包装与有界导出）默认关闭，通过
 `-DMIRADOR_BUILD_ADAPTERS_OPENCV=ON` 开启，要求构建环境已安装 OpenCV（不随本项目分发；
 已测试 4.6.0，详见 THIRD_PARTY_NOTICES）。
@@ -41,17 +46,19 @@ crop-refine）与有界三层视觉索引 `VisualIndex`；M4 落地确定性证�
 ## 目录结构
 
 ```text
-include/mirador/        公共 API
+include/mirador/        公共 API（接口参考见 docs/api/README.md）
 src/core/               基础类型与状态
 src/image/              图像转换、哈希与差分
 src/cache/              有界缓存和视觉索引
 src/geometry/           线段检测 SPI、一方检测器与几何过滤
 src/fusion/             证据融合与稳定 ID
 src/render/             SoM 与调试渲染
-adapters/opencv/        OpenCV 类型互操作
+adapters/               可选适配：opencv、capture-linux/-windows/-android
+integrations/           参考能力后端（ncnn，默认构建零获取）
 examples/               无 runtime 的基础示例
-benchmarks/             数据集与性能基准入口
-tests/                  单元、属性与集成测试
+benchmarks/             性能基准入口与体积测量
+docs/                   设计、计划、决策、基准报告、API 索引、兼容性登记
+tests/                  单元、属性、架构、并发、隐私测试与模糊入口
 ```
 
 ## 构建与测试
@@ -65,6 +72,14 @@ ctest --preset debug
 
 测试通过 ctest 标签组织（`unit`/`property`/`architecture`），例如 `ctest -L architecture`
 运行架构边界测试。不需要测试时可配置 `-DMIRADOR_BUILD_TESTS=OFF` 跳过第三方依赖。
+
+可选构建面（均默认关闭）：`MIRADOR_BUILD_ADAPTERS_OPENCV`（需系统 OpenCV）、
+`MIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX`（需 X11，Xvfb/Xorg 下有冒烟测试）、
+`MIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS`（仅 Windows 主机，CI 编译验证）、
+`MIRADOR_BUILD_ADAPTERS_CAPTURE_ANDROID`（纯 C++ 部分任意主机可测，NDK 部分
+仅 Android 工具链）、`MIRADOR_BUILD_INTEGRATIONS`（拉取 pinned ncnn，需网络，
+仅合成模型冒烟）、`MIRADOR_BUILD_FUZZ`（libFuzzer 入口，仅 clang）。适配层
+边界与版本区间见 [docs/compatibility/compatibility.md](docs/compatibility/compatibility.md)。
 
 ## 示例与基准
 
@@ -81,6 +96,9 @@ cmake --build build/release --target mirador_example_hybrid_localization
 ./build/release/examples/mirador_example_hybrid_localization  # 混合定位：融合 -> 稳定 ID -> SoM -> generation 校验
 cmake --build build/release --target mirador_bench_change_detection
 ./build/release/benchmarks/mirador_bench_change_detection     # 四场景 p50/p95（仅本机有效）
+cmake --build build/release --target mirador_bench_cache_backend
+./build/release/benchmarks/mirador_bench_cache_backend        # 缓存命中/miss 外层开销 + 峰值 RSS
+./benchmarks/measure_sizes.sh build/release                   # 模块静态库与可执行文件体积表
 ```
 
 示例与基准默认随构建编译（`MIRADOR_BUILD_EXAMPLES`/`MIRADOR_BUILD_BENCHMARKS` 可关闭）；

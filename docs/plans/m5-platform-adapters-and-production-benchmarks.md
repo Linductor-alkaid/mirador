@@ -79,8 +79,9 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
   （跨 session 共享缓存的 TSAN 用例在当前 API 下不可表达——session `create()`
   无缓存注入口、缓存明确非线程安全且归 session 独占；已在
   `tests/fusion/concurrency_test.cpp` 注释记录，矩阵随缓存注入 API 引入扩展）
-- [ ] `M5-08` 文档收口：公共 API 文档（接口参考 + 示例索引）、`docs/compatibility/`
+- [x] `M5-08` 文档收口：公共 API 文档（接口参考 + 示例索引）、`docs/compatibility/`
   登记（OpenCV 等系统包版本区间）、许可证说明完整性复核、README 产品化更新。
+  （`SCOPE-10` 的勾选证据随 `M5-09` 终轮 CI 回填）
 - [ ] `M5-09` 收尾：全 Linux 预设矩阵与 lint、跨平台 CI 证据回填（含
   integrations job）、计划/CHANGELOG 同步、`v0.2.0` 发布准备（用户授权）。
 
@@ -115,8 +116,9 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
   携带 `DEC-011` 限定表述。（报告与入口齐备；发布物表述随 `M5-09`）
 - 并发/模糊/隐私：TSAN 矩阵含快照并发读与跨 session 缓存用例；模糊入口可运行；
   `DOD-06` 负向测试复核通过。（共享缓存用例的 API 缺口见工作项注记）
-- [ ] 文档：API 文档、`docs/compatibility/`、`THIRD_PARTY_NOTICES`、supply-chain
-  登记完整；`SCOPE-07`~`SCOPE-10` 具备勾选证据。
+- [x] 文档：API 文档、`docs/compatibility/`、`THIRD_PARTY_NOTICES`、supply-chain
+  登记完整；`SCOPE-07`~`SCOPE-10` 具备勾选证据。（`SCOPE-10` 证据随 `M5-09`
+  终轮 CI 收口）
 - [ ] `DEC-011`/`DEC-015` 状态 Accepted 并被工作项引用；总计划与 CHANGELOG 同步。
 
 ## 验证记录
@@ -306,3 +308,18 @@ Independent-Verification-Agent 编写并执行，两轮）：
   format/tidy 双口径归零。本机无 clang，验证代理从 Ubuntu 源提取
   clang-18 到用户目录以 CI 同口径执行 fuzz 构建与 tidy。CI fuzz job 证据
   随本分支 push 回填。
+
+2026-09-15：`M5-08` 文档收口（PR #12 分支续交付；纯文档变更）：
+
+- [docs/api/README.md](../api/README.md)：模块 → 公共头 → 关键类型导航索引，
+  适配层/integrations 开关表，五个使用示例索引；契约正文保持在头文件注释，
+  索引不复制契约。
+- [docs/compatibility/compatibility.md](../compatibility/compatibility.md)：
+  编译器/CMake/NDK/依赖的已验证版本表、平台功能可用性矩阵（✅/🔨/⏳/❌
+  四级口径）、已知行为差异（TSAN/ASLR、XWayland root、JNI modified UTF-8）。
+- `THIRD_PARTY_NOTICES` 新增第 4 节：平台采集库（libX11/Win32 GDI/Android
+  NDK runtime）integrator-provided、不随库分发；第 1-3 节复核无过期项。
+- README 产品化：M5 当前状态、目录结构（adapters/integrations/docs）、可选
+  构建面六开关、基准入口补全。
+- 许可证复核结论：仓库内第三方仍仅 googletest（pinned）；OpenCV/ncnn/平台库
+  均为 integrator-provided 且登记完整；ELSED 仍未引入（引入窗口见 `DEC-009`）。
