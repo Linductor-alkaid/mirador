@@ -1,11 +1,14 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.1
+> 版本：1.2
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-15
+>
+> 1.2 修订（2026-09-15）：M5 立项（里程碑文档、`DEC-011`/`DEC-015` 冻结）；
+> `POST-05` 立项闭环转交付中；`SCOPE-07` 补勾（M1-09 已交付）。
 >
 > 1.1 修订（2026-09-14）：承接设计 §13/§14 的检测/OCR 通用组件（新增 `SCOPE-11`，
 > 并入 M3）；`POST-05` 参考后端由延后项升级为计划性独立交付物，立项窗口为 M4 完成后、
@@ -26,7 +29,9 @@ PR #6 合并提交）。M3「传统视觉、检测/OCR 通用组件与视觉索�
 tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成并发布 `v0.1.0`
 （2026-09-15，PR #9 经用户授权合入，CI 10/10 全绿；里程碑文档见
 [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md)，tag 打在 PR #9
-合并提交）。下一里程碑 M5「平台适配与产品化基准」待启动。整体路线沿用设计文档
+合并提交）。M5「平台适配与产品化基准」已启动（2026-09-15，立项完成：里程碑文档
+见 [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md)，
+`DEC-011`/`DEC-015` 冻结，`POST-05` 立项闭环、转交付中）。整体路线沿用设计文档
 第 24 节的 M0-M5。
 
 ## 交付边界
@@ -49,8 +54,8 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
   （设计 §16、§24 M4）。
 - [x] `SCOPE-06` `mirador-render`：SoM 渲染、调试叠加、网格划分与坐标回映工具（设计 §17、
   §24 M4）。
-- [ ] `SCOPE-07` `adapters/opencv`：`cv::Mat` ↔ `ImageView` 互操作（可选依赖，非公共 API）
-  （设计 §5、§21）。
+- [x] `SCOPE-07` `adapters/opencv`：`cv::Mat` ↔ `ImageView` 互操作（可选依赖，非公共 API）
+  （设计 §5、§21；M1-09 已交付，产品化兼容性登记随 M5 `M5-08` 收口）。
 - [ ] `SCOPE-08` `benchmarks`：变化检测、缓存命中路径、Backend 调用外层耗时的基准入口与
   评测集组织（设计 §20、§23、§24 M5）。
 - [ ] `SCOPE-09` `examples`：无 runtime 的基础示例，使用公共 API 并纳入编译验证（设计 §21）。
@@ -102,7 +107,7 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 | M2 | Backend SPI 与能力结果缓存 | M1 | `v0.1.0-beta.2` | Completed | [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md) |
 | M3 | 传统视觉、检测/OCR 通用组件与视觉索引 | M2 | `v0.1.0-beta.3` | Completed | [m3-traditional-vision-common-components-visual-index.md](m3-traditional-vision-common-components-visual-index.md) |
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Completed | [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md) |
-| M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Planned | 启动时创建 |
+| M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | In Progress | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
 并与 tag 一一对应。M4 完成设计文档第 26 节的"首个可用版本"验收。
@@ -115,14 +120,16 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 | `DEC-008` | 缓存默认字节预算 | 已冻结：帧 4 MiB、能力结果 16 MiB（见 [DEC-008](../decisions/DEC-008-cache-default-byte-budgets.md)） | linductor | M2 |
 | [DEC-009](../decisions/DEC-009-elsed-integration.md) | ELSED 集成方式 | 已冻结：一方等价实现进 M3，ELSED 本体为可选适配延后（见 [DEC-009](../decisions/DEC-009-elsed-integration.md)） | linductor | M3 |
 | [DEC-010](../decisions/DEC-010-stable-id-matching.md) | 稳定 ID 匹配算法 | 已冻结：门控后贪心一对一匹配起步，分裂/合并做事件识别与 generation 递增（见 [DEC-010](../decisions/DEC-010-stable-id-matching.md)） | linductor | M4 |
-| `DEC-011` | 基准设备清单 | 设计 §20 三平台中端代表设备 | linductor | M5 |
+| [DEC-011](../decisions/DEC-011-benchmark-environments.md) | 基准设备清单 | 已冻结：Linux x64 主基准环境 + 方法口径；物理 Android/Windows 记录补跑条件（见 [DEC-011](../decisions/DEC-011-benchmark-environments.md)） | linductor | M5 |
 
 已生效决策见 [docs/decisions/](../decisions/)：`DEC-001` 同步 API 与无 executor、`DEC-002`
 Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`DEC-004` 公共边界
 `Result<T>`/`Status`、`DEC-005` CMake 与构建基线、`DEC-006` GoogleTest 测试框架、
 `DEC-007` 多平面图像表示。M2 新增：`DEC-012`（Backend SPI 契约）、`DEC-013`
 （`PerceptionSession` 归属 fusion 与模块依赖演进）。M3 新增：`DEC-009`（ELSED 集成
-方式）、`DEC-014`（检测/OCR 通用组件归属与视觉索引契约）。
+方式）、`DEC-014`（检测/OCR 通用组件归属与视觉索引契约）。M5 立项新增：`DEC-011`
+（基准环境与方法）、`DEC-015`（POST-05 runtime 选型：ncnn 主选、`integrations/`
+存放、评测接入分层）。
 
 ## 通用完成定义
 
@@ -154,9 +161,11 @@ Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`D
 - `POST-05` 参考能力后端交付包——OCR（如 PP-OCR mobile）与检测（YOLO 系）的示例
   Backend，验证真实 runtime 可适配性并为 M5 评测提供真实能力。按 AGENTS.md 边界存放于
   默认构建不获取的 `integrations/` 或独立仓库，不进核心发布包、不随核心版本号发布。
-  立项窗口：M4 完成后、M5 评测准备启动前；立项时按工程规范 §9.3 完成 runtime 选型对比
-  （ncnn / ONNX Runtime 等）、许可证审查并形成决策记录，同时确认存放形式与评测接入方式。
-  模型权重不进仓库，示例通过用户显式提供路径运行。
+  立项窗口：M4 完成后、M5 评测准备启动前。**已立项（2026-09-15，[DEC-015](../decisions/DEC-015-reference-runtime-selection.md)）**：
+  runtime 主选 ncnn（ONNX Runtime 为文档化备选，触发条件见决策），存放形式冻结为
+  仓库内 `integrations/` + `MIRADOR_BUILD_INTEGRATIONS` 默认 OFF，评测接入分层
+  （合成模型冒烟 / 使用者显式路径提供权重的真实模型评测）。交付随 M5 `M5-02`~`M5-04`
+  实施。模型权重不进仓库，示例通过用户显式提供路径运行。
 
 ## 风险
 
@@ -183,3 +192,35 @@ b7d1aa3..d9f54c9）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`
 架构测试、GoogleTest v1.18.0 引入与全部模块目标落地。本地 6 预设 ctest 7/7 通过，
 clang-format/clang-tidy 无告警；`DEC-004`/`DEC-005`/`DEC-006` 冻结为 Accepted。跨平台
 编译证据随 PR #1 的 CI 运行回填，详见 [M0 里程碑验证记录](m0-boundary-and-skeleton.md)。
+
+2026-09-15：M5 启动（`M5-01` 立项，分支 `feat/m5-platform-adapters-and-benchmarks`）。
+新增 [M5 里程碑文档](m5-platform-adapters-and-production-benchmarks.md)（工作项
+`M5-01`~`M5-09`）；冻结 `DEC-011`（基准环境与方法：Linux x64 主基准环境、CI runner
+不作性能证据、物理 Android/Windows 补跑条件）与 `DEC-015`（`POST-05` runtime 选型
+ncnn 主选 + ONNX Runtime 备选、`integrations/` 默认零获取、评测接入分层、归因
+口径），两项均 Accepted；`POST-05` 立项闭环转交付中；`SCOPE-07` 补勾（M1-09 已
+交付，产品化登记随 `M5-08` 收口）。纯文档变更，无代码与构建影响。
+
+2026-09-15：M5 首批工作项实施完成（分支 `feat/m5-platform-adapters-and-benchmarks`，
+PR #10，commit 742a73c..d4ac878；全部测试由 Independent-Verification-Agent 编写
+并执行）：
+
+- `M5-02`（742a73c）：`integrations/` 骨架、pinned ncnn（20260526）、
+  `NcnnRuntime` 包装、合成模型冒烟；integrations 套件 40/40、debug 回归 40/40、
+  lint 双口径归零；`DEC-015` 交付路径首次落地。CI 新增 `integrations-ncnn` job
+  （runner 上拉取 ncnn 构建冒烟；首轮暴露 runner CMake 不默认导出编译数据库，
+  显式开关修复 c78b878）。
+- `M5-06` 部分（bad4822 + c9e355b）：`mirador_bench_cache_backend` 基准入口与
+  Linux x64 数字（`docs/benchmarks/linux-x64-cache-backend-2026-09.md`）；
+  debug/release/asan 三口径验证通过，hit 路径不重调 Backend 不变量成立。
+- `M5-03`（66fd74e + 7f37a16）：PP-OCR 参考后端（ctc 解码、det/ rec/组合管线，
+  复用 M3 组件）；合成模型冒烟 40 项断言、integrations 套件 41/41、debug 回归
+  40/40、asan 无报告；真实权重评测待用户提供（`RISK-2026-13`）。
+- `M5-05` 部分（7b67557 + d4ac878）：Linux X11 采集适配器 + 实窗冒烟（16 项
+  断言）；XWayland root 限制文档化，Xorg 分支由 CI xvfb job 覆盖；Windows/
+  Android 采集适配待后续。
+- `M5-04`（9d0c69c + 306dfbc）：YOLO 系参考检测后端（冻结 YOLOv5 单张量输出
+  契约，letterbox/M3 nms 复用，显式候选预算）；合成模型冒烟 28 项断言、
+  integrations 套件 42/42、debug 回归 40/40、asan 无报告；真实权重评测待
+  用户提供（`RISK-2026-13`）。
+- CI：12 job 全绿（含新增 `integrations-ncnn` 与 `capture-adapter`）。

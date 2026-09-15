@@ -102,4 +102,27 @@ if(mirador_adapter_violations)
         "adapters/):\n${mirador_adapter_violations}")
 endif()
 
+# M5-02 (DEC-015): model-runtime tokens are allowed only under integrations/
+# (the default-build opt-in reference backends). Examples, benchmarks and the
+# whole core test suite stay runtime-free; include/ and src/ are already
+# covered by the banned-token scan above.
+set(mirador_runtime_tokens "ncnn" "onnxruntime" "Ort::" "tensorrt" "NvInfer" "MNN")
+set(mirador_runtime_violations "")
+foreach(mirador_file IN LISTS mirador_adapter_files)
+    file(READ "${MIRADOR_SOURCE_DIR}/${mirador_file}" mirador_contents)
+    foreach(mirador_token IN LISTS mirador_runtime_tokens)
+        string(FIND "${mirador_contents}" "${mirador_token}" mirador_hit)
+        if(NOT mirador_hit EQUAL -1)
+            string(APPEND mirador_runtime_violations
+                "  ${mirador_file}: runtime token '${mirador_token}' outside integrations/\n")
+        endif()
+    endforeach()
+endforeach()
+
+if(mirador_runtime_violations)
+    message(FATAL_ERROR
+        "Architecture boundary violations (model runtime tokens are allowed only "
+        "under integrations/):\n${mirador_runtime_violations}")
+endif()
+
 message(STATUS "architecture scan: ${mirador_scan_files} checked, no banned tokens")

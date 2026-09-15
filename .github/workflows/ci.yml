@@ -113,6 +113,49 @@ jobs:
       - name: Test
         run: ctest --test-dir build/opencv --output-on-failure
 
+  # M5-02 (DEC-015): the opt-in reference integrations fetch the pinned ncnn
+  # at configure time, build the runtime wrapper and run the synthetic-model
+  # smoke test. The default build matrix never touches this option.
+  integrations:
+    name: gcc / integrations-ncnn
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy
+      - name: Configure (fetches pinned ncnn; requires network)
+        # Explicit compile database export: the integrations tidy step needs
+        # it, and not every runner CMake exports it by default for Ninja.
+        run: cmake -S . -B build/integrations -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMIRADOR_BUILD_INTEGRATIONS=ON
+      - name: Build
+        run: cmake --build build/integrations
+      - name: Test
+        run: ctest --test-dir build/integrations --output-on-failure
+      - name: Run clang-tidy over integrations sources
+        run: |
+          clang-tidy --version
+          git ls-files 'integrations/*.cpp' | xargs clang-tidy --warnings-as-errors='*' -p build/integrations
+
+  # M5-05: the optional Linux X11 capture adapter builds and runs its
+  # synthetic-window smoke test against a virtual display (no real screen).
+  capture-linux:
+    name: gcc / capture-adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libx11-dev xvfb
+      - name: Configure
+        run: cmake -S . -B build/capture -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX=ON
+      - name: Build
+        run: cmake --build build/capture
+      - name: Test
+        run: xvfb-run -a ctest --test-dir build/capture --output-on-failure
+
   lint:
     name: clang-format / clang-tidy
     runs-on: ubuntu-latest
@@ -124,6 +167,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy libopencv-dev
       - name: Configure (generate compile_commands.json)
         # Adapter ON so the compile database covers adapters/ for clang-tidy.
+        # integrations/ stays OFF here; its sources are linted in the
+        # integrations job against their own compile database.
         run: cmake --preset debug -DMIRADOR_BUILD_ADAPTERS_OPENCV=ON
       - name: Check formatting
         run: |
@@ -132,4 +177,6 @@ jobs:
       - name: Run clang-tidy
         run: |
           clang-tidy --version
-          git ls-files '*.cpp' '*.cc' | xargs clang-tidy --warnings-as-errors='*' -p build/debug
+          # integrations/ and the optional capture adapter are linted in their
+          # own jobs against their own compile databases.
+          git ls-files '*.cpp' '*.cc' ':!integrations/**' ':!adapters/capture-linux/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug
