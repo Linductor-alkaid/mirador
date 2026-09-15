@@ -25,8 +25,8 @@
 | `run_ocr` miss 路径外层开销（kRefresh） | 2202 µs | 2265 µs | 300 |
 | 峰值 RSS（VmHWM） | 14.46 MiB | — | — |
 
-变化检测 p50/p95 见 `mirador_bench_change_detection`（M1-08 入口，M5-09 收口时
-一并登记数字）。
+变化检测 p50/p95 与模块体积已随 `M5-06` 收口登记于
+[linux-x64-change-detection-sizes-2026-09](linux-x64-change-detection-sizes-2026-09.md)。
 
 ## 口径说明
 
@@ -46,4 +46,5 @@
 
 - 物理 Android 设备与 Windows 桌面数字缺失；补跑前性能验收限定 Linux x64。
 - CI runner 数字不采信。
-- 模块静态/动态体积测量随 `M5-09` 收口登记。
+- 模块静态体积已随 `M5-06` 收口登记（见变化检测/体积报告）；动态库体积与
+  Android/Windows 体积随 `M5-09` 收口或补跑登记。
