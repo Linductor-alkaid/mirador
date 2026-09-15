@@ -151,3 +151,9 @@ M6 是假设验证而非架构承诺：不修改 M0-M5 已冻结契约，融合�
 - API 同步：`docs/api/README.md` geometry 节登记 experimental 头（不计兼容性
   承诺）；`src/geometry/README.md`、顶层 CMake 源列表、CHANGELOG Unreleased
   同步。
+
+2026-09-16：CI 证据回填（[PR #13](https://github.com/Linductor-alkaid/mirador/pull/13)，
+run `35015056962`）：13/13 job 全绿（linux gcc/clang debug、warnings/asan/ubsan/tsan、
+opencv-adapter、capture-adapters、integrations-ncnn、fuzz、windows msvc/ninja、
+android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-02`/`M6-03` 交付完成；
+后续工作项 `M6-04`~`M6-06` 待实施。
