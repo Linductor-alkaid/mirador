@@ -50,13 +50,13 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 
 ## 工作项
 
-- [ ] `M5-01` 立项：里程碑文档；`DEC-011` 冻结（基准环境与方法口径）；POST-05
+- [x] `M5-01` 立项：里程碑文档；`DEC-011` 冻结（基准环境与方法口径）；POST-05
   立项（`DEC-015`：runtime 选型、存放形式、评测接入、归因口径）；总计划状态同步
   （M5 启动、`SCOPE-07` 补勾、POST-05 转交付中）。
-- [ ] `M5-02` `integrations/` 骨架与 ncnn 引入（独立 MR，工程规范 §9.2.5）：
-  `MIRADOR_BUILD_INTEGRATIONS`（默认 OFF）、FetchContent pinned 锁定与
-  supply-chain 审计登记、`THIRD_PARTY_NOTICES` integrations 分节、架构测试确认
-  默认构建图零 runtime 令牌、ncnn 合成 tiny 模型冒烟（forward → Mirador 原始
+- [x] `M5-02` `integrations/` 骨架与 ncnn 引入（commit 742a73c，工程规范 §9.2.5
+  单独 commit 集）：`MIRADOR_BUILD_INTEGRATIONS`（默认 OFF）、FetchContent pinned
+  锁定与 supply-chain 审计登记、`THIRD_PARTY_NOTICES` integrations 分节、架构测试
+  确认默认构建图零 runtime 令牌、ncnn 合成 tiny 模型冒烟（forward → Mirador 原始
   结果契约）、专用 CI job。
 - [ ] `M5-03` OCR 参考后端（PP-OCR mobile，`integrations/ocr_ppocr`）：det 路径
   复用 M3 DB 后处理/轮廓框恢复，rec 路径复用行合并/文本规范化 + CTC 解码；
@@ -121,3 +121,53 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 验证、物理 Android/Windows 记录补跑条件）与 `DEC-015`（ncnn 主选 + ONNX Runtime
 备选、`integrations/` 默认零获取、评测接入分层、归因口径）。发布点 `v0.2.0` 暂定，
 待 `M5-09` 后经用户授权打 tag/发布。
+
+2026-09-15：`M5-02` 实施完成并经 Independent-Verification-Agent 两轮验证通过
+（分支 `feat/m5-platform-adapters-and-benchmarks`，commit 742a73c）。
+
+- 环境：Ubuntu 24.04 x64（GCC 13.3.0、CMake 3.28.3 + Ninja、clang-format/
+  clang-tidy 18.1.3）；ncnn 20260526 经 FetchContent 拉取（校验
+  `integrations/deps.lock.json` 与 CMake pin 一致）。
+- 落地内容：`integrations/` 顶层类别与 `MIRADOR_BUILD_INTEGRATIONS`（默认 OFF）；
+  `NcnnRuntime` PIMPL 包装（公开 `blobs()` 查询、planar CHW 张量、打包前/后取消
+  轮询、`kBackendUnavailable/kBackendFailure/kInvalidArgument` 显式传播）；
+  `pack_image`（Gray8/Rgb8/Rgba8 → CHW，尊重 stride）；合成 tiny 模型冒烟（28 项
+  断言：数值对照独立朴素卷积、确定性、NV12 拒绝、缺失权重、取消、未知 blob、
+  stride 行采样）；架构扫描新增 runtime 令牌规则（仅限 `integrations/`，负向注入
+  验证生效）；CI 新增 `integrations-ncnn` job；supply-chain 登记（ncnn.md、
+  dependency-policy、`THIRD_PARTY_NOTICES` 第 3 节）。
+- 验证（独立验证代理编写并执行测试）：首轮报告 4 类实现缺陷（protected
+  `find_blob_index_by_name` 误用、`pack_image` HWC 违反 CHW 契约、
+  `enable_testing()` 时序致 `add_test` 失效、format/tidy 违规），主循环修复
+  （commit 742a73c）后复验：integrations 套件 ctest **40/40**、debug 预设回归
+  **40/40**、clang-format 与 clang-tidy 双口径（退出码 + error 行数）归零、临时
+  目录无残留。缺陷发现与修复过程完整记录，无吞掉的失败。
+- 限制：CI `integrations-ncnn` job 首轮因 runner CMake 不默认导出编译数据库而
+  tidy 失败（本地 3.28 默认导出掩盖了该差异），修复为显式
+  `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`（commit c78b878），证据随本轮 CI 回填。
+
+2026-09-15：`M5-06` 基准入口扩展实施完成并经独立验证通过（commit bad4822）。
+
+- 落地内容：`benchmarks/cache_backend_bench.cpp`（`mirador_bench_cache_backend`，
+  链接 `mirador::fusion`）——能力缓存 raw lookup hit/miss p50/p95、
+  `PerceptionSession::run_ocr` 缓存命中外层开销（不变量断言：同帧内容不重复调用
+  Backend）、`kRefresh` 完整 miss 路径外层开销、峰值 RSS（VmHWM）。
+- 口径说明：miss 场景用 `cache_policy=kRefresh` 绕过缓存读制造确定性 100% miss，
+  不依赖场景 dHash 量化特性；该场景为「无淘汰稳态下的 miss 外层开销」（同键
+  replace），不表述为冷缓存填充动态（验证代理记录性意见，写入后续
+  `docs/benchmarks/` 报告口径）。
+- 验证（独立验证代理执行）：debug/asan 运行退出码 0 且不变量成立、无 sanitizer
+  报告；release 主环境数字（Ubuntu 24.04 x64 本机，按 `DEC-011` 仅对本机构建
+  有效）：raw cache hit p50 0.215 µs / miss 0.078 µs；`run_ocr` hit p50 2196 µs /
+  miss 2202 µs（外层成本由全帧指纹计算主导，命中收益 = 免 Backend 调用）；
+  VmHWM 14.46 MiB；复跑波动 < 1%。`ctest --preset debug` 40/40 回归通过；
+  format/tidy 双口径归零。
+- 限制：`docs/benchmarks/` 正式报告与体积测量随 `M5-06` 收口（本条为入口与数字
+  初稿）；Android/Windows 数字按 `DEC-011` 待补跑。
+
+2026-09-15：`M5-05` Linux X11 采集适配器实现完成（commit 7b67557），
+`adapters/capture-linux`（`MIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX` 默认 OFF）：
+`X11Capture` RAII 连接管理、BGRX→RGB8 转换（Frame 持有缓冲）、打包循环取消轮询、
+Xlib `Status` 宏污染 `#undef` 隔离、XDestroyImage 宏经结构体函数指针等价替代。
+lint 双口径归零。合成窗口冒烟测试与 CI `capture-adapter` job（xvfb-run）验证
+随 `M5-05` 收口进行。
