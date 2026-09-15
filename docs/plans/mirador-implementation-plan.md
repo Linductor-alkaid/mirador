@@ -200,3 +200,23 @@ clang-format/clang-tidy 无告警；`DEC-004`/`DEC-005`/`DEC-006` 冻结为 Acce
 ncnn 主选 + ONNX Runtime 备选、`integrations/` 默认零获取、评测接入分层、归因
 口径），两项均 Accepted；`POST-05` 立项闭环转交付中；`SCOPE-07` 补勾（M1-09 已
 交付，产品化登记随 `M5-08` 收口）。纯文档变更，无代码与构建影响。
+
+2026-09-15：M5 首批工作项实施完成（分支 `feat/m5-platform-adapters-and-benchmarks`，
+PR #10，commit 742a73c..d4ac878；全部测试由 Independent-Verification-Agent 编写
+并执行）：
+
+- `M5-02`（742a73c）：`integrations/` 骨架、pinned ncnn（20260526）、
+  `NcnnRuntime` 包装、合成模型冒烟；integrations 套件 40/40、debug 回归 40/40、
+  lint 双口径归零；`DEC-015` 交付路径首次落地。CI 新增 `integrations-ncnn` job
+  （runner 上拉取 ncnn 构建冒烟；首轮暴露 runner CMake 不默认导出编译数据库，
+  显式开关修复 c78b878）。
+- `M5-06` 部分（bad4822 + c9e355b）：`mirador_bench_cache_backend` 基准入口与
+  Linux x64 数字（`docs/benchmarks/linux-x64-cache-backend-2026-09.md`）；
+  debug/release/asan 三口径验证通过，hit 路径不重调 Backend 不变量成立。
+- `M5-03`（66fd74e + 7f37a16）：PP-OCR 参考后端（ctc 解码、det/ rec/组合管线，
+  复用 M3 组件）；合成模型冒烟 40 项断言、integrations 套件 41/41、debug 回归
+  40/40、asan 无报告；真实权重评测待用户提供（`RISK-2026-13`）。
+- `M5-05` 部分（7b67557 + d4ac878）：Linux X11 采集适配器 + 实窗冒烟（16 项
+  断言）；XWayland root 限制文档化，Xorg 分支由 CI xvfb job 覆盖；Windows/
+  Android 采集适配待后续。
+- CI：12 job 全绿（含新增 `integrations-ncnn` 与 `capture-adapter`）。
