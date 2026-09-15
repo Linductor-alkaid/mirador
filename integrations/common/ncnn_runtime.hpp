@@ -43,6 +43,11 @@ struct NcnnTensor {
 /// failure/cancel explicitly instead of silently swallowing them (RULE-08).
 class NcnnRuntime {
 public:
+    /// Null runtime: calls on it fail with kBackendUnavailable. Lets backend
+    /// objects hold a runtime by value and populate it in their own create()
+    /// factories. Defined out of line: the PIMPL type is incomplete here.
+    NcnnRuntime() noexcept;
+
     /// Loads param+bin from `options` paths; kBackendUnavailable when the
     /// files are missing or ncnn rejects them, with the ncnn error code in
     /// the status message.

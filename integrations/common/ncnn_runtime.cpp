@@ -42,6 +42,8 @@ struct NcnnRuntime::Impl {
     int num_threads = 1;
 };
 
+NcnnRuntime::NcnnRuntime() noexcept = default;
+
 NcnnRuntime::NcnnRuntime(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
 
 NcnnRuntime::NcnnRuntime(NcnnRuntime&& other) noexcept = default;

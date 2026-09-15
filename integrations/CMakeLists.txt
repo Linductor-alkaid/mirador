@@ -45,3 +45,4 @@ FetchContent_Declare(mirador_ncnn
 FetchContent_MakeAvailable(mirador_ncnn)
 
 add_subdirectory(common)
+add_subdirectory(ocr_ppocr)
