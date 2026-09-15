@@ -21,6 +21,12 @@ mirador_add_test(
     LABELS unit)
 
 mirador_add_test(
+    NAME mirador.fusion.display_space
+    SOURCES display_space_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
+mirador_add_test(
     NAME mirador.fusion.stable_id_tracker
     SOURCES stable_id_tracker_test.cpp
     LIBS mirador::fusion

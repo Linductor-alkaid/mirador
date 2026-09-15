@@ -27,8 +27,9 @@ Status validate_bounds(const RectF& bounds) noexcept {
 }
 
 Status validate_space(CoordinateSpaceId space) noexcept {
-    if (space != CoordinateSpaceId::kFrame && space != CoordinateSpaceId::kOriented) {
-        return {ErrorCode::kInvalidArgument, "evidence space must be kFrame or kOriented (M4 contract)"};
+    if (space != CoordinateSpaceId::kFrame && space != CoordinateSpaceId::kOriented &&
+        space != CoordinateSpaceId::kDisplay) {
+        return {ErrorCode::kInvalidArgument, "evidence space must be kFrame, kOriented or kDisplay (DEC-016)"};
     }
     return {};
 }
