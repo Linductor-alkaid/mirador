@@ -171,6 +171,31 @@ jobs:
             ':!adapters/capture-android/accessibility_jni.cpp' \
             | xargs clang-tidy --warnings-as-errors='*' -p build/capture
 
+  # M5-07: bounded libFuzzer runs over the three pure high-risk surfaces.
+  # The harnesses carry their own address+undefined sanitizer flags; findings
+  # fail the job. Optional (default-off) and clang-only by construction.
+  fuzz:
+    name: clang / fuzz
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMIRADOR_BUILD_FUZZ=ON
+      - name: Build
+        run: cmake --build build/fuzz
+      - name: Run harnesses (bounded)
+        run: |
+          ./build/fuzz/tests/fuzz/mirador_fuzz_db_postprocess -max_total_time=30 -rss_limit_mb=2048
+          ./build/fuzz/tests/fuzz/mirador_fuzz_cache_key -max_total_time=30 -rss_limit_mb=2048
+          ./build/fuzz/tests/fuzz/mirador_fuzz_transform -max_total_time=30 -rss_limit_mb=2048
+
   lint:
     name: clang-format / clang-tidy
     runs-on: ubuntu-latest
