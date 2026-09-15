@@ -4,13 +4,17 @@
 #include <mirador/capability_cache.hpp>
 #include <mirador/change_detection.hpp>
 #include <mirador/detector_backend.hpp>
+#include <mirador/evidence.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/frame.hpp>
 #include <mirador/frame_cache.hpp>
+#include <mirador/fusion.hpp>
 #include <mirador/ocr_backend.hpp>
 #include <mirador/result.hpp>
+#include <mirador/stable_id_tracker.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -100,6 +104,33 @@ public:
                                                                     const DetectionRequest& request,
                                                                     const ExecutionContext& context = {}) noexcept;
 
+    /// Fuses `evidence` into a `SemanticSnapshot` and publishes it (design
+    /// sections 16 and 25, M4): converts evidence to
+    /// `FusionOptions::target_space`, deterministically associates and merges
+    /// it (FusionTrace in the returned FusionOutput is diagnostic only here),
+    /// assigns stable ids through the session's tracker (DEC-010), bumps the
+    /// snapshot generation per the tracker report and stores the immutable
+    /// snapshot for `latest_snapshot`. The snapshot carries the most recent
+    /// `ChangeReport` observed by `analyze_change` for this source.
+    ///
+    /// Errors: those of `fuse_evidence` and `StableIdTracker::advance`
+    /// (kInvalidArgument, kCancelled/kTimeout, kBudgetExceeded), plus
+    /// kInvalidArgument when the frame belongs to another source or is
+    /// invalid. On error nothing is published and the tracker state is
+    /// untouched. Never throws.
+    [[nodiscard]] Result<SemanticSnapshot> fuse(const Frame& frame, const EvidenceSet& evidence,
+                                                const FusionOptions& options = {},
+                                                const ExecutionContext& context = {}) noexcept;
+
+    /// The most recently published snapshot, or nullptr before the first
+    /// `fuse`. The pointee is immutable; concurrent readers keep the snapshot
+    /// alive across later fusions (design section 18).
+    [[nodiscard]] std::shared_ptr<const SemanticSnapshot> latest_snapshot() const noexcept { return latest_snapshot_; }
+
+    /// Largest stable id this session has assigned so far (diagnostics,
+    /// RULE-09: ids are unique within this session only).
+    [[nodiscard]] uint64_t last_stable_id() const noexcept { return tracker_.last_id(); }
+
 private:
     explicit PerceptionSession(PerceptionSessionOptions options, FrameCache frame_cache,
                                CapabilityResultCache result_cache) noexcept;
@@ -110,6 +141,12 @@ private:
     /// Previous frame signature of this source; nullopt until the first
     /// `analyze_change` (design section 18: compact state, no full frames).
     std::optional<ChangeSignature> previous_signature_;
+    /// Most recent change decision, embedded in every published snapshot.
+    ChangeReport last_change_;
+    /// Cross-snapshot stable-id tracker and generation counter (M4, DEC-010).
+    StableIdTracker tracker_;
+    uint64_t generation_ = 0;
+    std::shared_ptr<const SemanticSnapshot> latest_snapshot_;
 };
 
 }  // namespace mirador

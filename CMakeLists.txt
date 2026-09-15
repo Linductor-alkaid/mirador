@@ -112,12 +112,29 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
             if(NOT MIRADOR_BUILD_IMAGE OR NOT MIRADOR_BUILD_CACHE)
                 message(FATAL_ERROR "MIRADOR_BUILD_FUSION=ON requires MIRADOR_BUILD_IMAGE and MIRADOR_BUILD_CACHE")
             endif()
-            add_library(mirador_${mirador_module} src/fusion/perception_session.cpp)
+            add_library(mirador_${mirador_module}
+                src/fusion/semantic_snapshot.cpp
+                src/fusion/evidence.cpp
+                src/fusion/fusion.cpp
+                src/fusion/stable_id_tracker.cpp
+                src/fusion/perception_session.cpp
+            )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core mirador::image mirador::cache)
         else()
-            add_library(mirador_${mirador_module} INTERFACE)
-            target_link_libraries(mirador_${mirador_module} INTERFACE mirador::core)
+            # M4-06: render gains compiled content (SoM rendering, grid
+            # partition, design section 17). It consumes the fusion public API
+            # only (DEC-013: no direct image/cache dependency), so the link
+            # interface stays exactly mirador::fusion.
+            if(NOT MIRADOR_BUILD_FUSION)
+                message(FATAL_ERROR "MIRADOR_BUILD_RENDER=ON requires MIRADOR_BUILD_FUSION")
+            endif()
+            add_library(mirador_${mirador_module}
+                src/render/set_of_mark.cpp
+                src/render/grid_partition.cpp
+            )
+            mirador_apply_warnings(mirador_${mirador_module})
+            target_link_libraries(mirador_${mirador_module} PUBLIC mirador::fusion)
         endif()
         add_library(mirador::${mirador_module} ALIAS mirador_${mirador_module})
     endif()

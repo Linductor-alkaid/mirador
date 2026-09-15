@@ -10,13 +10,16 @@ if(mirador_core_link_interface)
 endif()
 
 # First-party module link interfaces follow the design section 5 dependency
-# DAG (RULE-01, M1-01, DEC-013): image/cache/geometry/render depend on exactly
-# core; fusion composes image and cache on top of core. Anything else in a
-# module interface is a boundary violation.
+# DAG (RULE-01, M1-01, DEC-013): image/cache/geometry depend on exactly core;
+# fusion composes image and cache on top of core; render consumes fusion
+# (M4-06, DEC-013 allowed-set evolution). Anything else in a module interface
+# is a boundary violation.
 foreach(mirador_module IN ITEMS image cache geometry fusion render)
     if(TARGET mirador::${mirador_module})
         if(mirador_module STREQUAL "fusion")
             set(mirador_expected "mirador::core;mirador::image;mirador::cache")
+        elseif(mirador_module STREQUAL "render")
+            set(mirador_expected "mirador::fusion")
         else()
             set(mirador_expected "mirador::core")
         endif()
@@ -50,6 +53,11 @@ endif()
 if(TARGET mirador::geometry)
     add_executable(mirador_architecture_geometry_link_probe geometry_link_closure_probe.cpp)
     target_link_libraries(mirador_architecture_geometry_link_probe PRIVATE mirador::geometry)
+endif()
+
+if(TARGET mirador::render)
+    add_executable(mirador_architecture_render_link_probe render_link_closure_probe.cpp)
+    target_link_libraries(mirador_architecture_render_link_probe PRIVATE mirador::render)
 endif()
 
 add_test(
@@ -106,6 +114,16 @@ if(MIRADOR_READELF_EXECUTABLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
                     -DMIRADOR_READELF=${MIRADOR_READELF_EXECUTABLE}
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/link_closure_test.cmake)
         set_tests_properties(mirador.architecture.link_closure_geometry PROPERTIES LABELS architecture)
+    endif()
+
+    if(TARGET mirador_architecture_render_link_probe)
+        add_test(
+            NAME mirador.architecture.link_closure_render
+            COMMAND ${CMAKE_COMMAND}
+                    -DMIRADOR_PROBE=$<TARGET_FILE:mirador_architecture_render_link_probe>
+                    -DMIRADOR_READELF=${MIRADOR_READELF_EXECUTABLE}
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/link_closure_test.cmake)
+        set_tests_properties(mirador.architecture.link_closure_render PROPERTIES LABELS architecture)
     endif()
 else()
     message(STATUS "readelf unavailable or not Linux: NEEDED closure check skipped here")
