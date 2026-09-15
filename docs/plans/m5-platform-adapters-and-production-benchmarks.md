@@ -61,7 +61,7 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 - [x] `M5-03` OCR 参考后端（PP-OCR mobile，`integrations/ocr_ppocr`）：det 路径
   复用 M3 DB 后处理/轮廓框恢复，rec 路径复用行合并/文本规范化 + CTC 解码；
   权重由使用者显式路径提供；冒烟层无权重可运行。
-- [ ] `M5-04` Detector 参考后端（YOLO 系，`integrations/detector_yolo`）：
+- [x] `M5-04` Detector 参考后端（YOLO 系，`integrations/detector_yolo`）：
   letterbox/NMS/类别过滤复用 M3 组件；候选数量与缓冲预算显式。
 - [ ] `M5-05` 平台采集适配示例：`adapters/capture-linux`（X11 窗口采集，可选目标
   默认关闭，Xvfb 下冒烟）；Windows GDI 捕获与 Android MediaProjection +
@@ -208,3 +208,22 @@ Independent-Verification-Agent 执行）。
   （xvfb）覆盖；真实 Xorg 桌面下的整屏采集适用性待物理环境补验。
 - 验证：capture 构建 + smoke ctest 1/1、debug 预设回归 40/40、tidy/format 双
   口径归零、asan 等价构建下 smoke 无报告。
+
+2026-09-15：`M5-04` YOLO 系参考检测后端实施完成并经 Independent-Verification-Agent
+验证通过（commit 9d0c69c）。
+
+- 落地内容：`integrations/detector_yolo/`——`YoloDetectorBackend`
+  （`mirador::DetectorBackend` SPI）：冻结 YOLOv5 单张量输出契约（CHW
+  channels=1/height=提案数/width=5+C，行 = [cx,cy,w,h,obj,class…], v8 分头等
+  异构输出在 param 内归一）；letterbox 复用 + x/255 归一化；objectness 乘法
+  可配置；逆变换恢复 prepared 空间 + 裁剪；M3 `nms` 复用（class-aware 可配）；
+  `max_candidates` 显式预算（超出即 `kBudgetExceeded`，RULE-06）；类别名表可
+  选。解码循环独立成函数（复杂度阈值内）。
+- 验证（独立验证代理编写并执行）：合成模型冒烟 28 项断言全过——双提案解码与
+  逆变换精确映射（128×128 → letterbox 0.5 → ×2）、重复框 NMS 抑制、
+  min_confidence 过滤、objectness 开/关两口径、显式预算报错、取消、工厂负
+  路径、info 往返。integrations 套件 **42/42**、debug 回归 **40/40**、lint 双
+  口径归零、asan 等价构建无报告。
+- 限制：真实 YOLO 权重的评测按 `DEC-015` 分层由负责人提供权重后运行
+  （`RISK-2026-13`）；v8 分头模型的 param 归一层未在真实模型上验证（冒烟覆盖
+  契约本身）。
