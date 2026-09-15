@@ -219,4 +219,8 @@ PR #10，commit 742a73c..d4ac878；全部测试由 Independent-Verification-Agen
 - `M5-05` 部分（7b67557 + d4ac878）：Linux X11 采集适配器 + 实窗冒烟（16 项
   断言）；XWayland root 限制文档化，Xorg 分支由 CI xvfb job 覆盖；Windows/
   Android 采集适配待后续。
+- `M5-04`（9d0c69c + 306dfbc）：YOLO 系参考检测后端（冻结 YOLOv5 单张量输出
+  契约，letterbox/M3 nms 复用，显式候选预算）；合成模型冒烟 28 项断言、
+  integrations 套件 42/42、debug 回归 40/40、asan 无报告；真实权重评测待
+  用户提供（`RISK-2026-13`）。
 - CI：12 job 全绿（含新增 `integrations-ncnn` 与 `capture-adapter`）。
