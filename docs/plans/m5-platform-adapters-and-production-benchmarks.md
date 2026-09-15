@@ -1,6 +1,6 @@
 # M5：平台适配与产品化基准
 
-> 状态：In Progress
+> 状态：Completed（工作项与退出条件收口；`v0.2.0` tag 与 PR 合并待负责人授权）
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M4
@@ -82,8 +82,9 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 - [x] `M5-08` 文档收口：公共 API 文档（接口参考 + 示例索引）、`docs/compatibility/`
   登记（OpenCV 等系统包版本区间）、许可证说明完整性复核、README 产品化更新。
   （`SCOPE-10` 的勾选证据随 `M5-09` 终轮 CI 回填）
-- [ ] `M5-09` 收尾：全 Linux 预设矩阵与 lint、跨平台 CI 证据回填（含
+- [x] `M5-09` 收尾：全 Linux 预设矩阵与 lint、跨平台 CI 证据回填（含
   integrations job）、计划/CHANGELOG 同步、`v0.2.0` 发布准备（用户授权）。
+  （`v0.2.0` tag 与 PR 合并待负责人授权；工作项本身收口）
 
 ## 风险与阻塞
 
@@ -101,25 +102,29 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 
 ## 测试与退出条件
 
-- [ ] 默认构建（全部 6 个 Linux 预设 + 最小核心配置）不获取、不编译、不链接任何
+- [x] 默认构建（全部 6 个 Linux 预设 + 最小核心配置）不获取、不编译、不链接任何
   runtime；架构测试覆盖 `integrations/` 令牌规则（`src/`/`include/` 不出现 ncnn，
-  integrations 不被核心目标引用）。
-- [ ] `MIRADOR_BUILD_INTEGRATIONS=ON` 专用 CI job 绿：pinned ncnn 拉取、构建、
-  合成模型冒烟通过；锁定信息与 supply-chain/许可证文档同步。
-- [ ] OCR/Detector 参考后端冒烟层通过（无权重可运行）；真实模型评测按 `DEC-011`
-  记录或明确记录补跑条件（权重与设备）。
+  integrations 不被核心目标引用）。（终轮 head：6 预设全绿——debug 43/43，其余
+  42/42；最小核心配置仅产出 libmirador_core.a；CI 13/13 绿含架构套件）
+- [x] `MIRADOR_BUILD_INTEGRATIONS=ON` 专用 CI job 绿：pinned ncnn 拉取、构建、
+  合成模型冒烟通过；锁定信息与 supply-chain/许可证文档同步。（CI 终轮绿；
+  `integrations/deps.lock.json` 与 `THIRD_PARTY_NOTICES` 第 3 节一致）
+- [x] OCR/Detector 参考后端冒烟层通过（无权重可运行）；真实模型评测按 `DEC-011`
+  记录或明确记录补跑条件（权重与设备）。（冒烟随 CI integrations job；补跑条件
+  记录于 `RISK-2026-13` 与 M5-03/M5-04 验证记录）
 - [x] 采集适配：Linux X11 适配在 Xvfb 冒烟通过；Windows/Android 适配在 CI 编译
   验证；`kDisplay` 变换有方向与往返容差测试（`DOD-03`）。（PR #12 CI 12/12 绿；
   本机 XWayland 分支冒烟 + CI xvfb 分支冒烟通过）
-- 基准：`benchmarks/` 覆盖变化检测、缓存命中路径、Backend 外层耗时、RSS/体积；
+- [x] 基准：`benchmarks/` 覆盖变化检测、缓存命中路径、Backend 外层耗时、RSS/体积；
   `docs/benchmarks/` 发布 Linux x64 数字（含环境四元组与复现命令）；发布说明
-  携带 `DEC-011` 限定表述。（报告与入口齐备；发布物表述随 `M5-09`）
+  携带 `DEC-011` 限定表述。（CHANGELOG 0.2.0 兼容性影响节含限定表述）
 - 并发/模糊/隐私：TSAN 矩阵含快照并发读与跨 session 缓存用例；模糊入口可运行；
   `DOD-06` 负向测试复核通过。（共享缓存用例的 API 缺口见工作项注记）
 - [x] 文档：API 文档、`docs/compatibility/`、`THIRD_PARTY_NOTICES`、supply-chain
-  登记完整；`SCOPE-07`~`SCOPE-10` 具备勾选证据。（`SCOPE-10` 证据随 `M5-09`
-  终轮 CI 收口）
-- [ ] `DEC-011`/`DEC-015` 状态 Accepted 并被工作项引用；总计划与 CHANGELOG 同步。
+  登记完整；`SCOPE-07`~`SCOPE-10` 具备勾选证据。（终轮 CI 13/13 绿即 `SCOPE-10`
+  证据）
+- [x] `DEC-011`/`DEC-015` 状态 Accepted 并被工作项引用；总计划与 CHANGELOG 同步。
+  （`DEC-016` 同为 Accepted；CHANGELOG 0.2.0 条目就绪）
 
 ## 验证记录
 
@@ -323,3 +328,15 @@ Independent-Verification-Agent 编写并执行，两轮）：
   构建面六开关、基准入口补全。
 - 许可证复核结论：仓库内第三方仍仅 googletest（pinned）；OpenCV/ncnn/平台库
   均为 integrator-provided 且登记完整；ELSED 仍未引入（引入窗口见 `DEC-009`）。
+
+2026-09-15：`M5-09` 收尾完成（PR #12 分支；tag 待授权）：
+
+- 终轮 head 全 Linux 预设矩阵：debug 43/43、release/warnings/asan/ubsan/tsan
+  各 42/42（tsan 经 `setarch -R`）；clang-format 与 clang-tidy 双口径归零；
+  最小核心配置（仅 `mirador::core`）独立构建通过。
+- 跨平台 CI 证据：终轮 head（63ba70f 后续 docs commit 触发轮）CI 13/13 全绿——
+  linux 6 预设矩阵、msvc（含 GDI 适配编译）、ndk（含 Android 适配编译）、
+  opencv 适配、integrations-ncnn、capture-adapters、新增 fuzz job、lint。
+- CHANGELOG `0.2.0` 条目就绪（含 `DEC-011` 限定表述与兼容性影响节）；
+  总计划 `SCOPE-10` 勾选、M5 状态 Completed。
+- 待负责人授权事项：PR #12 合并、`v0.2.0` tag/发布。

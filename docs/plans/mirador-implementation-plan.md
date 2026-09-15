@@ -31,8 +31,10 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md)，tag 打在 PR #9
 合并提交）。M5「平台适配与产品化基准」已启动（2026-09-15，立项完成：里程碑文档
 见 [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md)，
-`DEC-011`/`DEC-015` 冻结，`POST-05` 立项闭环、转交付中）。整体路线沿用设计文档
-第 24 节的 M0-M5。
+`DEC-011`/`DEC-015` 冻结，`POST-05` 立项闭环、转交付中）。M5 工作项
+`M5-01`~`M5-09` 已全部收口（2026-09-15，PR #12，CI 13/13 绿；`DEC-016` 冻结，
+基准/评测集/文档收口完成），`v0.2.0` tag 与合并待负责人授权。整体路线沿用设计
+文档第 24 节的 M0-M5。
 
 ## 交付边界
 
@@ -61,8 +63,10 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
   [docs/benchmarks/](../benchmarks/)，M5-06 收口）。
 - [x] `SCOPE-09` `examples`：无 runtime 的基础示例，使用公共 API 并纳入编译验证（设计 §21；
   五个示例随全部 CI job 编译，索引见 [docs/api/README.md](../api/README.md)）。
-- [ ] `SCOPE-10` 多平台验证：Linux、Windows、Android NDK 的构建、测试与基准证据及 CI 门禁
-  （设计 §21、§24 M0/M5）。
+- [x] `SCOPE-10` 多平台验证：Linux、Windows、Android NDK 的构建、测试与基准证据及 CI 门禁
+  （设计 §21、§24 M0/M5；CI 13 job 全绿含 msvc/ndk/integrations/capture/fuzz，
+  基准数字按 `DEC-011` 限定 Linux x64 主环境，补跑条件见
+  [docs/compatibility/](../compatibility/compatibility.md)）。
 
 ### 明确不包含
 
@@ -109,7 +113,7 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 | M2 | Backend SPI 与能力结果缓存 | M1 | `v0.1.0-beta.2` | Completed | [m2-backend-spi-and-result-cache.md](m2-backend-spi-and-result-cache.md) |
 | M3 | 传统视觉、检测/OCR 通用组件与视觉索引 | M2 | `v0.1.0-beta.3` | Completed | [m3-traditional-vision-common-components-visual-index.md](m3-traditional-vision-common-components-visual-index.md) |
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Completed | [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md) |
-| M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | In Progress | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
+| M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Completed（tag 待授权） | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
 并与 tag 一一对应。M4 完成设计文档第 26 节的"首个可用版本"验收。
@@ -237,3 +241,13 @@ kDisplay（`FusionOptions::display_transform`，`RULE-05` 坐标恢复链扩展�
 独立验证两轮（首轮报告 optional 解引用与空集绕过两处实现缺陷，修复后复验）：
 debug 41/41、capture 42/42、asan/ubsan 干净、lint 归零；Windows/Android 编译
 验证随分支 PR CI 回填。详见 [M5 里程碑验证记录](m5-platform-adapters-and-production-benchmarks.md)。
+
+2026-09-15：M5-06/07/08/09 续交付收口（分支 `feat/m5-display-contract-and-capture-adapters`，
+PR #12；测试由 Independent-Verification-Agent 独立编写执行）：M5-06 体积入口与
+变化检测/体积报告、评测集约定（`SCOPE-08` 勾选）；M5-07 并发矩阵 + fuzz 入口 +
+隐私负向（`DOD-06`），fuzz 发现并修复 `mirador::inverse` 非有限行列式缺陷
+（回归 + fuzz 不变量双向锁定，debug 43/43、tsan 42/42 零报告、transform fuzz
+约 112 万 runs 零 finding）；M5-08 API 索引/兼容性登记/notices/README；M5-09
+终轮证据：6 预设全绿 + 最小核心构建 + CI 13/13（终轮 head）全绿，CHANGELOG
+`0.2.0` 就绪。`SCOPE-08`/`SCOPE-09`/`SCOPE-10` 具备勾选证据。`v0.2.0` tag 与
+PR 合并待负责人授权。

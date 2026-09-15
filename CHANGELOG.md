@@ -7,6 +7,55 @@
 
 无。
 
+## [0.2.0] - 2026-09-15
+
+M5「平台适配与产品化基准」全部工作项落地：POST-05 参考能力后端（`DEC-015`）、
+平台采集适配示例与 `kDisplay` 变换契约（`DEC-016`）、产品化基准发布（`DEC-011`）、
+并发/模糊/隐私验证矩阵与文档收口
+（[PR #12](https://github.com/Linductor-alkaid/mirador/pull/12)，CI 13/13 全绿；
+tag 待负责人授权）。全部测试由 Independent-Verification-Agent 独立编写与执行。
+
+### 新增
+
+- M5-02/03/04（`integrations/`，`MIRADOR_BUILD_INTEGRATIONS` 默认 OFF，默认构建
+  零获取）：pinned ncnn（20260526）`NcnnRuntime` 包装；PP-OCR 参考后端（det 复用
+  M3 DB 后处理、rec 贪心 CTC 解码、组合管线）；YOLO 系参考检测后端（YOLOv5 单
+  张量输出契约、letterbox/NMS 复用、显式候选预算）。合成模型冒烟无权重可运行；
+  真实权重评测按 `RISK-2026-13` 记录补跑条件。
+- M5-05：可选采集适配——`adapters/capture-linux`（X11 窗口/整屏 → RGB8 `Frame`，
+  Xvfb/XWayland 冒烟；XWayland root 无像素后备为文档化失败语义）、
+  `adapters/capture-windows`（GDI BitBlt，CI 编译验证）、`adapters/capture-android`
+  （MediaProjection AImageReader + Accessibility 转换，宿主测试 + NDK 编译验证）。
+- M5-05（`DEC-016`）：`FusionOptions::display_transform`（kOriented→kDisplay，适配
+  层提供）——`EvidenceSet` 与融合目标空间开放 kDisplay，kDisplay 参与时变换必备；
+  `run_ocr`/`run_detector` 输出空间保持帧族（刻意收窄）。
+- M5-06（`SCOPE-08`）：`benchmarks/measure_sizes.sh` 体积入口；`docs/benchmarks/`
+  发布 Linux x64 数字（变化检测 unchanged p50 1.64 ms、缓存命中路径、模块静态库
+  合计 0.61 MiB）；评测集场景清单与离线数据接入约定（数据不入仓）。
+- M5-07：并发矩阵（已发布快照跨代并发读、会话级并行，TSAN 常规运行）；模糊入口
+  `tests/fuzz/`（DB 后处理、缓存键、坐标变换，`MIRADOR_BUILD_FUZZ` clang-only）
+  与 CI 限时 fuzz job；隐私负向测试（管线零落盘、Status/trace 零证据文本泄漏，
+  `DOD-06`）。
+- M5-08：`docs/api/README.md` 接口参考索引、`docs/compatibility/` 兼容性登记、
+  `THIRD_PARTY_NOTICES` 平台库分节、README 产品化更新。
+
+### 修复
+
+- `mirador::inverse` 对行列式非有限（±inf）或逆矩阵元素溢出的输入现在返回
+  `kCoordinateTransform`（此前 det=+inf 返回 ok 且逆矩阵全零）；由模糊测试
+  发现，回归测试与 fuzz 不变量双向锁定。
+
+### 兼容性影响
+
+- 全部为增量公共 API；M0-M4 既有 API 不变，kDisplay 开放为向后兼容扩展
+  （`FusionOptions` 新增字段、`EvidenceSet` 接受空间放宽）。
+- 新增可选构建面（均默认关闭）：`MIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX`/
+  `_WINDOWS`/`_ANDROID`、`MIRADOR_BUILD_INTEGRATIONS`（需网络拉取 pinned ncnn）、
+  `MIRADOR_BUILD_FUZZ`（仅 clang）；CI 扩展至 13 job。
+- 性能与跨平台结论遵循 `DEC-011` 限定：数字仅对 Linux x64 主基准环境有效；
+  物理 Android/Windows 运行证据与真实模型评测记录了补跑条件
+  （`RISK-2026-01`/`RISK-2026-13`）。
+
 ## [0.1.0] - 2026-09-15
 
 M4「融合、稳定 ID 与 SoM」全部工作项落地：`mirador::fusion` 多源证据融合与稳定
