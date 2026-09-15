@@ -46,3 +46,4 @@ FetchContent_MakeAvailable(mirador_ncnn)
 
 add_subdirectory(common)
 add_subdirectory(ocr_ppocr)
+add_subdirectory(detector_yolo)
