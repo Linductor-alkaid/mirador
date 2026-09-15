@@ -58,7 +58,7 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
   锁定与 supply-chain 审计登记、`THIRD_PARTY_NOTICES` integrations 分节、架构测试
   确认默认构建图零 runtime 令牌、ncnn 合成 tiny 模型冒烟（forward → Mirador 原始
   结果契约）、专用 CI job。
-- [ ] `M5-03` OCR 参考后端（PP-OCR mobile，`integrations/ocr_ppocr`）：det 路径
+- [x] `M5-03` OCR 参考后端（PP-OCR mobile，`integrations/ocr_ppocr`）：det 路径
   复用 M3 DB 后处理/轮廓框恢复，rec 路径复用行合并/文本规范化 + CTC 解码；
   权重由使用者显式路径提供；冒烟层无权重可运行。
 - [ ] `M5-04` Detector 参考后端（YOLO 系，`integrations/detector_yolo`）：
