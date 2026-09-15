@@ -107,6 +107,7 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
             add_library(mirador_${mirador_module}
                 src/geometry/line_filter.cpp
                 src/geometry/segment_growing_line_detector.cpp
+                src/geometry/geometric_proposal.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)

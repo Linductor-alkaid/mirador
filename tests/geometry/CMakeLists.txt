@@ -12,3 +12,9 @@ mirador_add_test(
     SOURCES segment_growing_test.cpp
     LIBS mirador::geometry
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.geometry.geometric_proposal
+    SOURCES geometric_proposal_test.cpp
+    LIBS mirador::geometry
+    LABELS unit)
