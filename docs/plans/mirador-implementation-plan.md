@@ -1,11 +1,14 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.2.1
+> 版本：1.3
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-16
+>
+> 1.3 修订（2026-09-16）：M6 立项（实验轨道，issue #11；里程碑文档、`DEC-017`
+> 冻结、设计 §24 增补 M6 节）；新增 `SCOPE-12`。
 >
 > 1.2.1 修订（2026-09-16）：簿记补勾 `SCOPE-01`/`SCOPE-02`/`SCOPE-03`（M0/M1/M2
 > 均已 Completed 并发布，仅复选框未随证据同步）；无范围变化。
@@ -37,7 +40,11 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 `DEC-011`/`DEC-015` 冻结，`POST-05` 立项闭环、转交付中）。M5 工作项
 `M5-01`~`M5-09` 已全部收口并经 PR #12 合入 master（CI 13/13 绿；`DEC-016` 冻结，
 基准/评测集/文档收口完成），`v0.2.0` CHANGELOG 就绪，tag 与 GitHub Release 待
-负责人授权。整体路线沿用设计文档第 24 节的 M0-M5。
+负责人授权。整体路线沿用设计文档第 24 节的 M0-M5。M6「几何区域 Proposal 实验
+（实验轨道）」已启动（2026-09-16，立项完成：[里程碑文档](m6-geometric-region-proposal-experiment.md)、
+`DEC-017` 冻结、`SCOPE-12` 新增；承接
+[issue #11](https://github.com/Linductor-alkaid/mirador/issues/11) 的假设验证，
+先证明相关性再决定是否转正）。
 
 ## 交付边界
 
@@ -72,6 +79,10 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
   （设计 §21、§24 M0/M5；CI 13 job 全绿含 msvc/ndk/integrations/capture/fuzz，
   基准数字按 `DEC-011` 限定 Linux x64 主环境，补跑条件见
   [docs/compatibility/](../compatibility/compatibility.md)）。
+- [ ] `SCOPE-12` 实验性几何区域 Proposal：闭合/近闭合线段结构分析、Tight/Context
+  双 ROI 与验证 harness、指标发布与 go/no-go 判定（设计 §24 M6 实验轨道、
+  [DEC-017](../decisions/DEC-017-geometric-region-proposal-experiment.md)；
+  实验轨道，API 非冻结、不计入核心架构承诺，转正另立决策）。
 
 ### 明确不包含
 
@@ -119,6 +130,7 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 | M3 | 传统视觉、检测/OCR 通用组件与视觉索引 | M2 | `v0.1.0-beta.3` | Completed | [m3-traditional-vision-common-components-visual-index.md](m3-traditional-vision-common-components-visual-index.md) |
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Completed | [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md) |
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Completed（tag 待授权） | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
+| M6 | 几何区域 Proposal 实验（实验轨道） | M5 | `v0.3.0`（暂定） | In Progress | [m6-geometric-region-proposal-experiment.md](m6-geometric-region-proposal-experiment.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
 并与 tag 一一对应。M4 完成设计文档第 26 节的"首个可用版本"验收。
@@ -141,7 +153,9 @@ Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`D
 方式）、`DEC-014`（检测/OCR 通用组件归属与视觉索引契约）。M5 立项新增：`DEC-011`
 （基准环境与方法）、`DEC-015`（POST-05 runtime 选型：ncnn 主选、`integrations/`
 存放、评测接入分层）。M5-05 新增：`DEC-016`（kDisplay 变换来源与融合开放契约：
-适配层提供 kOriented→kDisplay `Transform2D`，`run_*` 输出空间保持帧族）。
+适配层提供 kOriented→kDisplay `Transform2D`，`run_*` 输出空间保持帧族）。M6 立项
+新增：`DEC-017`（几何区域 Proposal 实验轨道与契约边界：落点 `mirador::geometry`、
+API 非冻结 Experimental 标记、确定性/预算底线不放宽、晋升门槛初值）。
 
 ## 通用完成定义
 
