@@ -138,6 +138,24 @@ jobs:
           clang-tidy --version
           git ls-files 'integrations/*.cpp' | xargs clang-tidy --warnings-as-errors='*' -p build/integrations
 
+  # M5-05: the optional Linux X11 capture adapter builds and runs its
+  # synthetic-window smoke test against a virtual display (no real screen).
+  capture-linux:
+    name: gcc / capture-adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libx11-dev xvfb
+      - name: Configure
+        run: cmake -S . -B build/capture -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX=ON
+      - name: Build
+        run: cmake --build build/capture
+      - name: Test
+        run: xvfb-run -a ctest --test-dir build/capture --output-on-failure
+
   lint:
     name: clang-format / clang-tidy
     runs-on: ubuntu-latest
@@ -159,4 +177,6 @@ jobs:
       - name: Run clang-tidy
         run: |
           clang-tidy --version
-          git ls-files '*.cpp' '*.cc' ':!integrations/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug
+          # integrations/ and the optional capture adapter are linted in their
+          # own jobs against their own compile databases.
+          git ls-files '*.cpp' '*.cc' ':!integrations/**' ':!adapters/capture-linux/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug

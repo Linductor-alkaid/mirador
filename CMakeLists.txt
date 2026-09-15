@@ -164,6 +164,15 @@ if(MIRADOR_BUILD_ADAPTERS_OPENCV)
     add_subdirectory(adapters/opencv)
 endif()
 
+# M5-05: optional Linux X11 capture adapter (independent adaptation layer;
+# design section 24 M5). Requires an X11 development installation; never part
+# of the default build.
+option(MIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX "Build the optional Linux X11 capture adapter (requires X11)" OFF)
+if(MIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX)
+    find_package(X11 REQUIRED)
+    add_subdirectory(adapters/capture-linux)
+endif()
+
 if(MIRADOR_BUILD_INTEGRATIONS)
     add_subdirectory(integrations)
 endif()
