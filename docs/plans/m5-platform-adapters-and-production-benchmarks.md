@@ -68,10 +68,11 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
   Accessibility 适配示例（CI msvc/ndk job 编译验证 + README 边界说明）；`kDisplay`
   变换来源契约落地（外部区域与采集帧的坐标转换由适配层提供 `Transform2D`，
   [DEC-016](../decisions/DEC-016-display-space-transform-contract.md)）。
-- [ ] `M5-06` 基准扩展与评测集组织（`SCOPE-08`）：缓存命中路径、Backend 外层
+- [x] `M5-06` 基准扩展与评测集组织（`SCOPE-08`）：缓存命中路径、Backend 外层
   耗时、RSS/体积测量入口；评测集场景清单与离线数据接入约定（静态页、局部动画、
   滚动、弹窗、主题切换、旋转、相似图标，设计 §23）；按 `DEC-011` 发布 Linux x64
-  数字到 `docs/benchmarks/`。
+  数字到 `docs/benchmarks/`。（发布说明的 `DEC-011` 限定表述随 `M5-09` 发布物
+  落地）
 - [ ] `M5-07` 鲁棒性与并发验证：快照并发读/跨 session 共享缓存测试（TSAN 矩阵
   常规运行）；模糊测试入口（后处理概率图、缓存键序列化、坐标变换输入）随 CI
   可选 job；隐私负向测试复核（默认不落盘、不联网、日志脱敏，`DOD-06`）。
@@ -106,9 +107,9 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 - [x] 采集适配：Linux X11 适配在 Xvfb 冒烟通过；Windows/Android 适配在 CI 编译
   验证；`kDisplay` 变换有方向与往返容差测试（`DOD-03`）。（PR #12 CI 12/12 绿；
   本机 XWayland 分支冒烟 + CI xvfb 分支冒烟通过）
-- [ ] 基准：`benchmarks/` 覆盖变化检测、缓存命中路径、Backend 外层耗时、RSS/体积；
+- 基准：`benchmarks/` 覆盖变化检测、缓存命中路径、Backend 外层耗时、RSS/体积；
   `docs/benchmarks/` 发布 Linux x64 数字（含环境四元组与复现命令）；发布说明
-  携带 `DEC-011` 限定表述。
+  携带 `DEC-011` 限定表述。（报告与入口齐备；发布物表述随 `M5-09`）
 - [ ] 并发/模糊/隐私：TSAN 矩阵含快照并发读与跨 session 缓存用例；模糊入口可运行；
   `DOD-06` 负向测试复核通过。
 - [ ] 文档：API 文档、`docs/compatibility/`、`THIRD_PARTY_NOTICES`、supply-chain
@@ -260,3 +261,17 @@ Independent-Verification-Agent 编写并执行）：
   `AImage_getPlaneData` 的 `uint8_t**` 签名与头文件 default 析构冲突；修复
   commit d55c552 后第二轮 **12/12 全绿**（含 msvc 编译 GDI 适配、ndk 编译
   MediaProjection/JNI、capture-adapters job 42/42 + xvfb X11 冒烟）。
+
+2026-09-15：`M5-06` 收口（PR #12 分支续交付）：
+
+- 新增 `benchmarks/measure_sizes.sh`（模块静态库 + 可执行文件体积表，缺省
+  构件按模块开关跳过）；变化检测基准数字与体积表发布于
+  [linux-x64-change-detection-sizes-2026-09](../benchmarks/linux-x64-change-detection-sizes-2026-09.md)
+  （release 构建，同机口径）：unchanged p50 1.64 ms / 全量路径 ≈ 10.8 ms，
+  六模块静态库合计 0.61 MiB（core+image+cache ≈ 326 KiB）。
+- 评测集场景清单与离线数据接入约定发布于
+  [evaluation-scenes](../benchmarks/evaluation-scenes.md)（场景 ID、
+  覆盖级别、manifest 字段、隐私与确定性约定，数据不入仓）。
+- 原 cache-backend 报告的"体积待 M5-09"限制更新为已登记；`SCOPE-08` 具备
+  勾选证据。纯文档与脚本变更，无公共 API 影响；脚本在 release 构建上实际
+  执行验证。
