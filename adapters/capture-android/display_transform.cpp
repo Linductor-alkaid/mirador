@@ -1,6 +1,10 @@
 #include "display_transform.hpp"
 
+#include <mirador/result.hpp>
 #include <mirador/status.hpp>
+#include <mirador/transform.hpp>
+
+#include <cstdint>
 
 namespace mirador::adapters {
 

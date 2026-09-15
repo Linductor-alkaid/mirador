@@ -1,6 +1,8 @@
 #include "accessibility_regions.hpp"
 
+#include <mirador/evidence.hpp>
 #include <mirador/geometry.hpp>
+#include <mirador/result.hpp>
 #include <mirador/status.hpp>
 
 #include <cmath>

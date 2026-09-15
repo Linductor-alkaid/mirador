@@ -43,7 +43,9 @@ public:
     ProjectionCapture() noexcept = default;
     ProjectionCapture(ProjectionCapture&& other) noexcept = default;
     ProjectionCapture& operator=(ProjectionCapture&& other) noexcept = default;
-    ~ProjectionCapture() noexcept = default;
+    /// Releases the underlying AImageReader (defined in the .cpp: the
+    /// deleter needs the complete NDK type).
+    ~ProjectionCapture();
     ProjectionCapture(const ProjectionCapture&) = delete;
     ProjectionCapture& operator=(const ProjectionCapture&) = delete;
 

@@ -49,10 +49,9 @@ void push_region(JNIEnv* env, std::vector<mirador::adapters::AndroidNodeRegion>&
 
 }  // namespace
 
-extern "C" JNIEXPORT void JNICALL
-Java_dev_mirador_adapters_AccessibilityBridge_pushRegion(JNIEnv* env, jclass /*clazz*/, jintArray bounds,
-                                                         jstring text, jstring role, jstring description,
-                                                         jboolean interactive, jboolean enabled, jlong sink_ptr) {
+extern "C" JNIEXPORT void JNICALL Java_dev_mirador_adapters_AccessibilityBridge_pushRegion(
+    JNIEnv* env, jclass /*clazz*/, jintArray bounds, jstring text, jstring role, jstring description,
+    jboolean interactive, jboolean enabled, jlong sink_ptr) {
     auto* sink = reinterpret_cast<std::vector<mirador::adapters::AndroidNodeRegion>*>(
         static_cast<uintptr_t>(sink_ptr));  // NOLINT(performance-no-int-to-ptr): JNI long-lived bridge idiom
     if (sink == nullptr || bounds == nullptr) {
@@ -74,16 +73,17 @@ Java_dev_mirador_adapters_AccessibilityBridge_pushRegion(JNIEnv* env, jclass /*c
     push_region(env, *sink, std::move(node));
 }
 
-extern "C" JNIEXPORT jlong JNICALL
-Java_dev_mirador_adapters_AccessibilityBridge_createSink(JNIEnv* /*env*/, jclass /*clazz*/) {
+extern "C" JNIEXPORT jlong JNICALL Java_dev_mirador_adapters_AccessibilityBridge_createSink(JNIEnv* /*env*/,
+                                                                                            jclass /*clazz*/) {
     // Ownership transfers to the Java side, which must eventually call
     // destroySink with the same value (documented in the README).
     const auto* sink = new std::vector<mirador::adapters::AndroidNodeRegion>();  // NOLINT
     return reinterpret_cast<jlong>(sink);
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_dev_mirador_adapters_AccessibilityBridge_destroySink(JNIEnv* /*env*/, jclass /*clazz*/, jlong sink_ptr) {
+extern "C" JNIEXPORT void JNICALL Java_dev_mirador_adapters_AccessibilityBridge_destroySink(JNIEnv* /*env*/,
+                                                                                            jclass /*clazz*/,
+                                                                                            jlong sink_ptr) {
     delete reinterpret_cast<std::vector<mirador::adapters::AndroidNodeRegion>*>(  // NOLINT
         static_cast<uintptr_t>(sink_ptr));
 }

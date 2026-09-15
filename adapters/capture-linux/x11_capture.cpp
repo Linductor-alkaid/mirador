@@ -5,6 +5,7 @@
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
 #include <mirador/status.hpp>
+#include <mirador/transform.hpp>
 
 #include <X11/X.h>
 #include <X11/Xlib.h>

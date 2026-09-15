@@ -6,7 +6,9 @@
 #include "accessibility_regions.hpp"
 #include "display_transform.hpp"
 
+#include <mirador/evidence.hpp>
 #include <mirador/geometry.hpp>
+#include <mirador/result.hpp>
 #include <mirador/status.hpp>
 #include <mirador/transform.hpp>
 
@@ -87,9 +89,9 @@ int main() {
     expect_true(transform.ok(), "valid projection transform created");
     if (transform.ok()) {
         const mirador::Transform2D& value = transform.value();
-        expect_true(value.from == mirador::CoordinateSpaceId::kOriented &&
-                        value.to == mirador::CoordinateSpaceId::kDisplay,
-                    "transform maps kOriented to kDisplay");
+        expect_true(
+            value.from == mirador::CoordinateSpaceId::kOriented && value.to == mirador::CoordinateSpaceId::kDisplay,
+            "transform maps kOriented to kDisplay");
         const mirador::PointF mapped = mirador::transform_point(value, mirador::PointF{540.0F, 1200.0F});
         expect_true(std::abs(mapped.x - 1080.0F) < 1e-6F && std::abs(mapped.y - 2400.0F) < 1e-6F,
                     "buffer center maps to display center");

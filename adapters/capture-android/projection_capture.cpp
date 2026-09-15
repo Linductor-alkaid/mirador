@@ -43,9 +43,12 @@ Result<std::vector<std::byte>> convert_yuv420_to_rgb8(const AImage* image, int32
                                                       const ExecutionContext& context) {
     // MediaErrorCode-free plane access: all four calls either report the
     // plane or the image was malformed at acquire time.
-    const uint8_t* y_data = nullptr;
-    const uint8_t* u_data = nullptr;
-    const uint8_t* v_data = nullptr;
+    // AImage_getPlaneData hands out mutable row pointers (the buffers are
+    // owned by the AImage and stay valid until AImage_delete); the adapter
+    // never writes through them.
+    uint8_t* y_data = nullptr;
+    uint8_t* u_data = nullptr;
+    uint8_t* v_data = nullptr;
     int y_length = 0;
     int u_length = 0;
     int v_length = 0;
