@@ -53,12 +53,12 @@ M6 是假设验证而非架构承诺：不修改 M0-M5 已冻结契约，融合�
 
 - [x] `M6-01` 立项：里程碑文档；`DEC-017` 冻结；设计 §24 增补 M6 实验轨道节；
   总计划 1.3 修订（`SCOPE-12`、里程碑索引、状态）；关联 issue #11。
-- [ ] `M6-02` 闭合结构分析契约与实现：`GeometricRegionProposal` 实验类型、
+- [x] `M6-02` 闭合结构分析契约与实现：`GeometricRegionProposal` 实验类型、
   `ProposalParams`（端点邻近半径、角度容差、闭合度阈值、线段/proposal 预算）、
   几何关系分析与成簇、闭合/近闭合结构提取、三项评分；确定性输出（同输入位
   稳定）、显式预算与错误语义（`kInvalidArgument`/`kBudgetExceeded`）、不修改
   输入；全部测试由 Independent-Verification-Agent 编写执行。
-- [ ] `M6-03` 双 ROI 导出：凸包与 OMBR（旋转信息保留于描述量）、轴对齐
+- [x] `M6-03` 双 ROI 导出：凸包与 OMBR（旋转信息保留于描述量）、轴对齐
   Tight ROI、Context ROI 比例扩张 + 最小/最大上限；坐标矩阵（0/90/180/270、
   奇数尺寸、往返容差，`DOD-03`）与越界防护；与 `M6-02` 组装为完整 proposal
   输出。
@@ -114,3 +114,40 @@ M6 是假设验证而非架构承诺：不修改 M0-M5 已冻结契约，融合�
 - 依据设计 §24 M6（实验轨道）与 issue #11 拆分工作项 `M6-01`~`M6-06`；冻结
   `DEC-017`（实验轨道与契约边界）。发布点 `v0.3.0` 暂定，收尾时经用户授权。
 - 纯文档变更，无代码与构建影响。
+
+2026-09-16：`M6-02`/`M6-03` 实施完成（分支 `feat/m6-geometric-region-proposal`，
+全部测试由 Independent-Verification-Agent 独立编写与执行，共三轮验证）。
+
+- 落地内容：`include/mirador/geometric_proposal.hpp`（实验契约：`OrientedRect`、
+  `GeometricRegionProposal`、`GeometricProposalParams`、`propose_regions`）与
+  `src/geometry/geometric_proposal.cpp`（端点邻近成簇 → junction 图 → 闭合度
+  （环判定 + 悬挂缺口/对角线）、主轴对齐 rectangularity、edge_support；凸包
+  monotone chain + rotating calipers OMBR；Tight `[floor,ceil)` 包围盒与
+  Context 比例 + min/max 钳制扩张；int32 越界防护；二次方循环每 64 行轮询
+  取消/deadline）。
+- 评分语义（`DEC-017` 第 5 条）：junction 图含环 → closure 1.0；恰两个悬挂
+  junction → `1 - gap/diagonal`（近闭合）；其余 0。junction < 3 的结构永不输出。
+  语义标签不进入 proposal；`temporal_stability` 按 `DEC-017` 推迟至 `M6-05`。
+- 首轮（测试编写与执行）：22 个用例（8 套件）全绿——参数校验 19 组负例、预算
+  闭区间语义、非有限输入整体失败、零长段丢弃、闭合/近闭合/开链/T 形/段身接触
+  正负边界、context padding 钳制、101x51 奇尺寸 0/90/180/270 手算矩阵、30° 旋转
+  OMBR、int32 越界（tight 与 context 双路径）、输出顺序、位稳定 + 输入不可变、
+  取消/超时、随机闭环属性测试。代理过程中的 2 个失败均为测试侧设计错误（4x4
+  矩形角距恰为 radius 触发 junction 全并、旋转用例漏加平移），修正测试后通过，
+  反证 junction 合并与半开 bounds 语义正确；实现侧零缺陷报告。
+- 第二轮（全量回归 + lint）：6 预设矩阵全绿（debug 44/44 含 OpenCV 适配器、
+  release/warnings/asan/ubsan 43/43、tsan 经 `setarch -R` 禁 ASLR 43/43，
+  常规模式失败为本机内核 7.0 高熵 ASLR 环境问题）；最小核心构建通过，
+  `nm -u` 证实 geometry 闭包仅 libm/libc/C++ 运行时/mirador::core；clang-format
+  按授权对两实现文件做纯换行修复；clang-tidy 对实现文件报 38 个 error
+  （IWYU 直接包含、braced return、use-auto、const、两函数认知复杂度超限）。
+- 主循环 lint 修复：补齐直接包含、braced return、auto/const，并将
+  `collect_clusters`/`build_junction_graph` 拆分为 8 个小函数；`Result` 返回
+  路径用显式 `Status{...}`（花括号隐式转换不成立）。
+- 第三轮（重构后复验）：6 预设矩阵再次全绿（同口径，22/22 用例在 asan/ubsan/
+  tsan 下无报告）；lint 双口径三文件归零（format 退出码 0，tidy 实现/测试
+  `error:` 行 0）；代理逐项核对拆分前后轮询点、合并顺序、排序与悬挂记录
+  语义等价，22 用例清单与首轮一致，行为零漂移。
+- API 同步：`docs/api/README.md` geometry 节登记 experimental 头（不计兼容性
+  承诺）；`src/geometry/README.md`、顶层 CMake 源列表、CHANGELOG Unreleased
+  同步。
