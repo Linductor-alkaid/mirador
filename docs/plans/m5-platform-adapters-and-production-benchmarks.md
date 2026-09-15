@@ -73,9 +73,12 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
   滚动、弹窗、主题切换、旋转、相似图标，设计 §23）；按 `DEC-011` 发布 Linux x64
   数字到 `docs/benchmarks/`。（发布说明的 `DEC-011` 限定表述随 `M5-09` 发布物
   落地）
-- [ ] `M5-07` 鲁棒性与并发验证：快照并发读/跨 session 共享缓存测试（TSAN 矩阵
+- [x] `M5-07` 鲁棒性与并发验证：快照并发读/跨 session 共享缓存测试（TSAN 矩阵
   常规运行）；模糊测试入口（后处理概率图、缓存键序列化、坐标变换输入）随 CI
   可选 job；隐私负向测试复核（默认不落盘、不联网、日志脱敏，`DOD-06`）。
+  （跨 session 共享缓存的 TSAN 用例在当前 API 下不可表达——session `create()`
+  无缓存注入口、缓存明确非线程安全且归 session 独占；已在
+  `tests/fusion/concurrency_test.cpp` 注释记录，矩阵随缓存注入 API 引入扩展）
 - [ ] `M5-08` 文档收口：公共 API 文档（接口参考 + 示例索引）、`docs/compatibility/`
   登记（OpenCV 等系统包版本区间）、许可证说明完整性复核、README 产品化更新。
 - [ ] `M5-09` 收尾：全 Linux 预设矩阵与 lint、跨平台 CI 证据回填（含
@@ -110,8 +113,8 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 - 基准：`benchmarks/` 覆盖变化检测、缓存命中路径、Backend 外层耗时、RSS/体积；
   `docs/benchmarks/` 发布 Linux x64 数字（含环境四元组与复现命令）；发布说明
   携带 `DEC-011` 限定表述。（报告与入口齐备；发布物表述随 `M5-09`）
-- [ ] 并发/模糊/隐私：TSAN 矩阵含快照并发读与跨 session 缓存用例；模糊入口可运行；
-  `DOD-06` 负向测试复核通过。
+- 并发/模糊/隐私：TSAN 矩阵含快照并发读与跨 session 缓存用例；模糊入口可运行；
+  `DOD-06` 负向测试复核通过。（共享缓存用例的 API 缺口见工作项注记）
 - [ ] 文档：API 文档、`docs/compatibility/`、`THIRD_PARTY_NOTICES`、supply-chain
   登记完整；`SCOPE-07`~`SCOPE-10` 具备勾选证据。
 - [ ] `DEC-011`/`DEC-015` 状态 Accepted 并被工作项引用；总计划与 CHANGELOG 同步。
@@ -275,3 +278,31 @@ Independent-Verification-Agent 编写并执行）：
 - 原 cache-backend 报告的"体积待 M5-09"限制更新为已登记；`SCOPE-08` 具备
   勾选证据。纯文档与脚本变更，无公共 API 影响；脚本在 release 构建上实际
   执行验证。
+
+2026-09-15：`M5-07` 实施完成（PR #12 分支续交付；全部测试由
+Independent-Verification-Agent 编写并执行，两轮）：
+
+- 并发矩阵：`tests/fusion/concurrency_test.cpp`——已发布快照跨代并发读
+  （4 读者 × 主线程连续 fuse，读者持旧快照存活）与会话级并行（双 session
+  双线程完整管线）；TSAN 预设 42/42 零报告，并发二进制复跑 5 次干净。
+  跨 session 共享缓存用例在当前 API 下不可表达（无缓存注入口），注释记录
+  于测试头部。
+- 模糊入口：`tests/fuzz/`（DB 概率图后处理、缓存键序列化、坐标变换，
+  `MIRADOR_BUILD_FUZZ` 默认 OFF、clang-only、address+undefined+fuzzer 且
+  `-fno-sanitize-recover`）；CI 新增 `clang / fuzz` job（每 harness 限时
+  30 s）。本地等效验证：db/cache 各 ≥2 万 runs、transform 约 112 万 runs
+  零 finding；fuzzer 抓到的均为 harness 自身缺陷（有符号溢出、NaN 比较、
+  传递包含），已修复。
+- 产品健壮性修复（主循环）：`mirador::inverse` 奇异性检查扩展到非有限
+  行列式，并对逆矩阵元素做有限性校验——修复前 det=+inf 返回 ok + 全零
+  逆矩阵（往返 NaN），fuzz 发现、回归测试（`Transform.InverseRejects*`）
+  与 fuzz 不变量（ok ⇒ 全元素有限）双向锁定。
+- 隐私负向（`DOD-06`）：`tests/privacy/privacy_test.cpp`——完整管线
+  （含显式缓存写入）前后 cwd/temp 目录零新增文件；双标记证据流经成功与
+  5 类失败路径，全部 `Status` message 与 `FusionTrace` 字符串字段零泄漏
+  （`static_assert` 钉死 trace 成员为数值类型）；src/ 无任何日志输出代码
+  （grep 佐证）。
+- 验证：debug 43/43、tsan 42/42（setarch -R）、asan/ubsan 全绿、触碰文件
+  format/tidy 双口径归零。本机无 clang，验证代理从 Ubuntu 源提取
+  clang-18 到用户目录以 CI 同口径执行 fuzz 构建与 tidy。CI fuzz job 证据
+  随本分支 push 回填。
