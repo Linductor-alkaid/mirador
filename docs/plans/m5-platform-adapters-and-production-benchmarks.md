@@ -171,3 +171,24 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
 Xlib `Status` 宏污染 `#undef` 隔离、XDestroyImage 宏经结构体函数指针等价替代。
 lint 双口径归零。合成窗口冒烟测试与 CI `capture-adapter` job（xvfb-run）验证
 随 `M5-05` 收口进行。
+
+2026-09-15：`M5-03` PP-OCR 参考后端实施完成并经 Independent-Verification-Agent
+验证通过（commit 66fd74e）。
+
+- 落地内容：`integrations/ocr_ppocr/`——`ctc_decode_greedy`（贪心 CTC：折叠、
+  blank 分隔、softmax 置信度、平局取首类、参数校验）；`PpOcrDetBackend`
+  （letterbox 复用 → ncnn forward → 概率图 → M3 `db_postprocess_aabb` → 逆
+  变换恢复 prepared 空间 + 裁剪）；`PpOcrRecBackend`（整图单行假设、字典文件
+  调用方提供、CHW c=T/w=C 输出契约冻结）；`PpOcrBackend` 组合管线（det → 行
+  排序 → 逐框 crop → rec → 置信度乘积）。`NcnnRuntime` 增补默认构造（moved-from
+  语义）。全部复用 M3 组件与 `mirador::core` 契约，无核心改动。
+- 验证（独立验证代理编写并执行）：合成模型冒烟 40 项断言全过（det 数值/边界/
+  置信度、rec "ABCD" 解码、组合管线、CTC 平局与非法参数、工厂负路径）；冒烟
+  模型运行时生成、权重不入库、临时目录清理。integrations 套件 **41/41**、
+  debug 预设回归 **40/40**、5 个源文件 tidy 双口径归零、format 归零、asan 下
+  两个 smoke 无报告。规格侧两处偏差按 pinned ncnn 适配并记录：Convolution 参数
+  键位（8=int8_scale_term、11/12/13/14-16=h/dilation/stride/pad，与本决策草稿
+  不同）、CTC 标准语义（[1,1,2,0,2]→[1,2,2]，blank 为分隔符）。
+- 限制：真实 PP-OCR 权重的评测按 `DEC-015` 分层由负责人提供权重后运行
+  （`RISK-2026-13`）；asan 预设与 integrations 组合未入预设文件，如需 CI 覆盖
+  再立预设。
