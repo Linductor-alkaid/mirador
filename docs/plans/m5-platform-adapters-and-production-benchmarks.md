@@ -103,8 +103,9 @@ Android 功耗结论（`DEC-011`：挂起至物理设备补跑）。
   合成模型冒烟通过；锁定信息与 supply-chain/许可证文档同步。
 - [ ] OCR/Detector 参考后端冒烟层通过（无权重可运行）；真实模型评测按 `DEC-011`
   记录或明确记录补跑条件（权重与设备）。
-- [ ] 采集适配：Linux X11 适配在 Xvfb 冒烟通过；Windows/Android 适配在 CI 编译
-  验证；`kDisplay` 变换有方向与往返容差测试（`DOD-03`）。
+- [x] 采集适配：Linux X11 适配在 Xvfb 冒烟通过；Windows/Android 适配在 CI 编译
+  验证；`kDisplay` 变换有方向与往返容差测试（`DOD-03`）。（PR #12 CI 12/12 绿；
+  本机 XWayland 分支冒烟 + CI xvfb 分支冒烟通过）
 - [ ] 基准：`benchmarks/` 覆盖变化检测、缓存命中路径、Backend 外层耗时、RSS/体积；
   `docs/benchmarks/` 发布 Linux x64 数字（含环境四元组与复现命令）；发布说明
   携带 `DEC-011` 限定表述。
@@ -253,5 +254,9 @@ Independent-Verification-Agent 编写并执行）：
   投影 display transform 有宿主测试 15 项断言全过；AImageReader 投影采集与
   JNI 桥仅 NDK 构建）；CI android job 编译验证（真机运行按 `DEC-011` 补跑）。
 - CI：`capture-adapter` job 扩展为 `capture-adapters`（+Android 宿主测试 +
-  host 可编译适配源 tidy）；lint 排除表同步。跨平台编译证据随本分支 PR CI
-  回填。
+  host 可编译适配源 tidy）；lint 排除表同步。
+- CI 证据（PR #12，两轮）：首轮 9/12 绿，3 类失败——clang-format（未跟踪目录
+  文件漏出本地检查口径）、capture-adapters 的 IWYU 直接包含、NDK 下
+  `AImage_getPlaneData` 的 `uint8_t**` 签名与头文件 default 析构冲突；修复
+  commit d55c552 后第二轮 **12/12 全绿**（含 msvc 编译 GDI 适配、ndk 编译
+  MediaProjection/JNI、capture-adapters job 42/42 + xvfb X11 冒烟）。
