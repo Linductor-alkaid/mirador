@@ -38,3 +38,18 @@ never distributed with the core library. Backend examples for specific
 runtimes live in separate repositories or in integrations/ that the default
 build must not fetch. See docs/design/mirador-development-design.md for the
 full boundary description.
+
+3. ncnn (https://github.com/Tencent/ncnn) - opt-in integrations, never
+   distributed with the core
+
+   Used exclusively by the reference capability backends under integrations/
+   (M5-02, DEC-015) behind the CMake option MIRADOR_BUILD_INTEGRATIONS
+   (default OFF). ncnn is never vendored into this repository: the default
+   build does not fetch, compile or link it, and the Mirador core release
+   never carries it. When the option is ON, the pinned release
+   20260526 (commit e54f7b1f88434e1d844ea0551b880a1cfb079ce1) is fetched from
+   the upstream repository at configure time into the build tree. Anyone who
+   compiles and distributes the integrations backends distributes ncnn and
+   takes on its obligations: License: BSD-3-Clause, Copyright (c) 2017
+   Tencent. Full text: upstream LICENSE file of the pinned commit. Audit
+   record: docs/supply-chain/ncnn.md.

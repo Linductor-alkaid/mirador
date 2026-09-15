@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "note": "Pinned dependencies of the opt-in reference integrations (DEC-015). Fetched by FetchContent at configure time only when MIRADOR_BUILD_INTEGRATIONS=ON; never part of the default build, the core build graph or shipped artifacts. Mirrors docs/project/project-standards.md section 9 pinning rules; the integrations CMake verifies this file against the compile-time pin.",
+  "dependencies": [
+    {
+      "name": "ncnn",
+      "source": "https://github.com/Tencent/ncnn.git",
+      "pinned_commit": "e54f7b1f88434e1d844ea0551b880a1cfb079ce1",
+      "version": "20260526",
+      "license": "BSD-3-Clause",
+      "license_path": "integrations/_build/ncnn/LICENSE.txt (fetched tree)",
+      "used_by": "integrations reference backends only; never linked into mirador core modules or the default build",
+      "audit_record": "docs/supply-chain/ncnn.md"
+    }
+  ]
+}

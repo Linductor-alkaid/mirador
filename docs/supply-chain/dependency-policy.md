@@ -25,9 +25,11 @@ Mirador 采用 **Git submodule + 锁文件**：
 | 依赖 | 版本 | 许可证 | 使用范围 | 审计记录 |
 | --- | --- | --- | --- | --- |
 | googletest | v1.18.0 | BSD-3-Clause | 仅测试目标 | [googletest.md](googletest.md) |
+| ncnn | 20260526（pinned commit `e54f7b1f`） | BSD-3-Clause | 仅 `integrations/` 参考后端（`MIRADOR_BUILD_INTEGRATIONS=ON` 时 FetchContent，默认构建零获取，`DEC-015`） | [ncnn.md](ncnn.md) |
 
 可选实现依赖（OpenCV、ELSED 等）按里程碑引入时在此登记，并先完成许可证审查
-（`DEC-009` 覆盖 ELSED）。模型 runtime 永不进入核心构建图。
+（`DEC-009` 覆盖 ELSED）。模型 runtime 只出现在默认构建不获取的 `integrations/`
+（`DEC-015`），永不进入核心构建图。
 
 ## 升级与审计
 

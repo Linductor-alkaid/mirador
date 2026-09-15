@@ -12,6 +12,11 @@ option(MIRADOR_BUILD_EXAMPLES "Build mirador examples" ON)
 # never vendored and never part of the default build; enabling it requires an
 # OpenCV development installation found through find_package.
 option(MIRADOR_BUILD_ADAPTERS_OPENCV "Build the optional OpenCV adapter (requires OpenCV core)" OFF)
+# M5-02 (DEC-015): reference capability backends under integrations/. Opt-in
+# only: the default build never configures, fetches, compiles or links a model
+# runtime; enabling it fetches the pinned runtime at configure time (network
+# required) and is never part of the core build graph or shipped artifacts.
+option(MIRADOR_BUILD_INTEGRATIONS "Build the reference runtime integrations (fetches pinned ncnn; requires network at configure time)" OFF)
 option(MIRADOR_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -140,6 +145,12 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
     endif()
 endforeach()
 
+# Testing must be enabled before any subdirectory registers tests (M5-02: the
+# integrations smoke test registers its own ctest entry).
+if(MIRADOR_BUILD_TESTS)
+    enable_testing()
+endif()
+
 if(MIRADOR_BUILD_BENCHMARKS AND TARGET mirador::image)
     add_subdirectory(benchmarks)
 endif()
@@ -153,7 +164,10 @@ if(MIRADOR_BUILD_ADAPTERS_OPENCV)
     add_subdirectory(adapters/opencv)
 endif()
 
+if(MIRADOR_BUILD_INTEGRATIONS)
+    add_subdirectory(integrations)
+endif()
+
 if(MIRADOR_BUILD_TESTS)
-    enable_testing()
     add_subdirectory(tests)
 endif()
