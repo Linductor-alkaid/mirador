@@ -5,7 +5,13 @@
 
 ## [Unreleased]
 
-无。
+### 新增（M6 实验轨道，`DEC-017`）
+
+- `mirador::geometry` 实验公共契约 `geometric_proposal.hpp`：`propose_regions`
+  把线段组织为闭合/近闭合结构并输出 `GeometricRegionProposal`（closure/
+  rectangularity/edge_support 评分、OMBR、Tight/Context 双 ROI）。纯 CPU、
+  确定性、显式预算（`kBudgetExceeded`）与取消/deadline 支持。**Experimental：
+  契约可能变更，不计入兼容性承诺**（issue #11、设计 §24 M6）。
 
 ## [0.2.0] - 2026-09-15
 

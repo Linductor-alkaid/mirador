@@ -400,6 +400,12 @@ Mirador 自身许可证可以维持 MIT 方向，但每个可选依赖、参考�
 
 在独立适配层接入 Android 截图/Accessibility、Linux 窗口采集和 Windows 捕获示例，形成多平台评测集，补齐内存、包体、功耗、线程安全、模糊测试、许可证说明和 API 文档。是否新增 GPU/native buffer 零拷贝路径依据测量结果决定，而不是提前扩大 Core。
 
+### M6（实验轨道）：几何区域 Proposal 验证
+
+以实验轨道验证一个独立假设（issue #11）：单条线段缺乏语义，但当多条线段经端点邻近、交点、方向连续与共线关系连接为闭合或近闭合结构时，该结构对应一个完整视觉对象或语义区域的概率显著高于任意图像区域，可作为 Cache、OCR、Detector 与 VLM 的候选区域来源。M6 在 `mirador::geometry` 内提供实验性 `GeometricRegionProposal` 契约：几何关系分析组织线段簇，从中提取闭合/近闭合结构并计算 `closure_score`、`rectangularity`、`edge_support` 等描述量，再经最小外接矩形导出 Tight ROI 与受限扩张的 Context ROI 双输出。实现保持纯 CPU、确定性、显式预算与标准库依赖闭包。
+
+该里程碑是假设验证而非架构承诺：实验 API 在验证通过前不冻结、不计入兼容性承诺，`temporal_stability` 等跨帧描述量推迟到跨帧工作项；最终语义判断仍由 OCR、Detector、Accessibility 与 Evidence Fusion 承担，几何 Proposal 不产生语义标签。验证以合成场景指标先行（语义区域召回、候选精确率、时间稳定性、重复率、ROI 缩减、缓存增益），真实截图按离线数据接入约定评估且数据不入仓；是否把该能力晋升为正式能力（进入 §8 输出模型与融合证据源）由验证结果经新的决策记录决定，验证不通过则记录结论并关闭或调整后重跑。
+
 ## 25. 首版 API 使用示例
 
 以下示例展示调用方拥有调度与 Backend，Mirador 只组织视觉处理。具体命名可在 M0 原型中调整，但依赖关系不应改变。

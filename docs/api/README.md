@@ -39,7 +39,9 @@ Mirador 的公共 API 即 [`include/mirador/`](../../include/mirador/) 下的头
 
 `segment_growing_line_detector.hpp`（一方确定性线段检测器）、`line_detector.hpp`
 SPI 的过滤/共线合并自由函数（`filter_segments`、`merge_collinear`，设计 §15，
-`DEC-009`）。
+`DEC-009`）。实验轨道：`geometric_proposal.hpp`（`propose_regions`、
+`GeometricRegionProposal`，闭合/近闭合结构 → Tight/Context ROI，设计 §24 M6、
+issue #11、`DEC-017`）——**Experimental，契约可能变更，不计入兼容性承诺**。
 
 ### mirador::fusion（融合、稳定 ID 与会话）
 
