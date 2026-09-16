@@ -223,3 +223,9 @@ Verification-Agent 独立执行）。
   默认构建不回归；lint 双口径归零；文档一致性首轮发现 1 处表格错误
   （ambiguous 门控 miss 误写为 6，实测为 wrong 6 / miss 0），主循环修正后
   复验 PASS，归因表述经代理的混淆对探针实证。
+
+2026-09-16：CI 证据回填（[PR #15](https://github.com/Linductor-alkaid/mirador/pull/15)，
+run `35053412807`）：13/13 job 全绿（linux gcc/clang debug、warnings/asan/ubsan/tsan、
+opencv-adapter、capture-adapters、integrations-ncnn、fuzz、windows msvc/ninja、
+android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-05` 交付完成；
+唯一剩余工作项 `M6-06`（收尾与 go/no-go 判定）待实施。
