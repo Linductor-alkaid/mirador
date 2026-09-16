@@ -19,3 +19,13 @@ if(TARGET mirador::geometry)
     target_link_libraries(mirador_bench_geometric_proposal PRIVATE mirador::geometry)
     mirador_apply_warnings(mirador_bench_geometric_proposal)
 endif()
+
+# M6-05 (DEC-017): cross-frame association stability probe and the
+# geometry-gated VisualIndex hit comparison. Adds the image module (patch
+# fingerprints) and the cache module (VisualIndex) on top of geometry.
+if(TARGET mirador::geometry AND TARGET mirador::image AND TARGET mirador::cache)
+    add_executable(mirador_bench_proposal_reuse geometric_proposal_reuse_bench.cpp)
+    target_link_libraries(mirador_bench_proposal_reuse PRIVATE mirador::geometry mirador::image
+                                                               mirador::cache)
+    mirador_apply_warnings(mirador_bench_proposal_reuse)
+endif()

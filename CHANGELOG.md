@@ -20,6 +20,14 @@
   （圆角硬边光栅化碎裂为已知机制）；耗时随线段数曲线与 temporal 占位随页
   发布。真实截图离线接入约定补充进
   [evaluation-scenes](docs/benchmarks/evaluation-scenes.md)（数据不入仓）。
+- M6-05（条件触发：M6-04 门槛达标）：跨帧稳定性探针与缓存增益测量
+  （[linux-x64-geometric-proposal-reuse-2026-09](docs/benchmarks/linux-x64-geometric-proposal-reuse-2026-09.md)）：
+  ±2 px 独立抖动 6 帧序列上 proposal 关联率 1.000、配对 IoU ≥ 0.979；
+  VisualIndex 命中对照显示视觉歧义场景基线 top-1 0.250 → 几何门控 0.625
+  （wrong 12→6），视觉可分场景门控零代价（1.000→1.000），并如实报告门控
+  边界：几何相近的相邻尺寸实体（双边比落在窗口内）无法由几何区分。纯测量
+  入口 `mirador_bench_proposal_reuse`，无核心与契约改动（`DEC-017` 第 6 条：
+  增益只测量不作门槛）。
 
 ## [0.2.0] - 2026-09-15
 

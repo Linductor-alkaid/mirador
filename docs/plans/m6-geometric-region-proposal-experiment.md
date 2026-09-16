@@ -67,7 +67,7 @@ M6 是假设验证而非架构承诺：不修改 M0-M5 已冻结契约，融合�
   recall/precision/duplicate/ROI reduction（temporal 项以多帧合成序列占位）；
   `docs/benchmarks/` 发布数字并附 `DEC-011` 口径限定；真实截图离线接入约定
   文档化（显式路径、数据不入仓，沿用 M5-06 约定）。
-- [ ] `M6-05`（条件，触发：`M6-04` 达 `DEC-017` 门槛）跨帧稳定性探针与缓存
+- [x] `M6-05`（条件，触发：`M6-04` 达 `DEC-017` 门槛）跨帧稳定性探针与缓存
   增益测量：同一合成序列上 proposal 关联的稳定性测量（实验 API，不进会话
   契约）；Geometry Descriptor + Tight ROI 作为 VisualIndex 查询补充的命中
   对照实验。不触发时记录不触发原因并保持关闭。
@@ -196,3 +196,36 @@ opencv-adapter、capture-adapters、integrations-ncnn、fuzz、windows msvc/ninj
 android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-04` 交付完成；
 后续工作项 `M6-05`（条件触发：门槛已达标，待收尾判定时决定是否执行）与
 `M6-06` 待实施。
+
+2026-09-16：`M6-05` 实施完成（条件触发：`M6-04` 四项门槛 PASS；分支
+`feat/m6-proposal-stability-cache`，基线 5b5030f；验证由 Independent-
+Verification-Agent 独立执行）。
+
+- 落地内容：`benchmarks/geometric_proposal_reuse_bench.cpp`（链接
+  `mirador::geometry` + `mirador::image` + `mirador::cache`，纯测量、无核心
+  与契约改动）——实验 1 跨帧关联探针：8 实体（6 矩形 + 2 圆角）× 6 帧
+  ±2 px 独立确定性抖动，相邻帧 proposal 按 tight-ROI IoU ≥ 0.60 贪心关联；
+  实验 2 几何门控 VisualIndex 对照：8 个尺寸互异实体、内部图案框相对坐标、
+  指纹取 tight ROI 内缩 3 px 内部裁剪，帧 0–1 建库 / 2–3 查询，distinct
+  （实体独立图案）与 ambiguous（共享低对比图案、相位随帧）双变体，门控 =
+  第一个双边尺寸比在 [0.80, 1.25] 的候选；内置关联与门控自检断言。
+- 数字发布：[linux-x64-geometric-proposal-reuse-2026-09](../benchmarks/linux-x64-geometric-proposal-reuse-2026-09.md)
+  （release，GCC 13.3.0）。实验 1：5 次转移关联率均 1.000、平均配对 IoU
+  0.979–0.986。实验 2：distinct 基线/门控均 1.000（几何补充零代价）；
+  ambiguous 基线 0.250 → 门控 0.625（wrong 12→6），残余 6 次 wrong 经代理
+  归因探针实证全部为几何相近的相邻尺寸对（100x60↔80x50、140x90↔120x80、
+  180x120↔200x140）——几何只能区分几何上可分的实体，支持 issue #11 的
+  "多源匹配依据"定位。`DEC-017` 第 6 条：增益只测量、不作门槛。
+- 文档同步：`benchmarks/README.md` 入口表、CHANGELOG Unreleased。
+- Independent-Verification-Agent 验证：六预设矩阵 ctest 全绿（debug 44 =
+  本机预存 OpenCV 配置，其余 43；基准非 ctest 用例）；新目标六预设齐备；
+  release/debug/asan/ubsan/tsan 五个二进制输出逐字节一致（确定性）；最小
+  默认构建不回归；lint 双口径归零；文档一致性首轮发现 1 处表格错误
+  （ambiguous 门控 miss 误写为 6，实测为 wrong 6 / miss 0），主循环修正后
+  复验 PASS，归因表述经代理的混淆对探针实证。
+
+2026-09-16：CI 证据回填（[PR #15](https://github.com/Linductor-alkaid/mirador/pull/15)，
+run `35053412807`）：13/13 job 全绿（linux gcc/clang debug、warnings/asan/ubsan/tsan、
+opencv-adapter、capture-adapters、integrations-ncnn、fuzz、windows msvc/ninja、
+android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-05` 交付完成；
+唯一剩余工作项 `M6-06`（收尾与 go/no-go 判定）待实施。
