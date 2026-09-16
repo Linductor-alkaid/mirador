@@ -49,6 +49,27 @@
 5. **确定性**：同一 `scene_id` 的数据文件不可变；要改场景就换新 ID（追加
    版本后缀，如 `linux-static-page-v2`），保证历史评测报告可追溯。
 
+## 几何区域 Proposal 真实数据接入（M6-04）
+
+几何区域 Proposal 实验（`DEC-017`）的真实截图评估沿用上方离线数据接入约定，
+并补充以下口径：
+
+1. **场景复用**：真实数据按 `<platform>-<scene>` 场景 ID 组织（如
+   `android-mixed-text`、`linux-x11-window`），不另立场景体系；几何 proposal
+   评估使用同一目录布局（`frames/` + `manifest.json` + `labels.json`）。
+2. **Ground truth**：`labels.json` 中人工标注的语义区域 bounds 即 recall 的
+   GT 实体；不要求标注"装饰性框线"，但鼓励在 `notes` 中列出已知装饰结构，
+   便于区分 precision 折损来源。
+3. **匹配口径**：与合成 harness 一致——proposal `tight_bounds` 对 GT 实体
+   bounds 的 IoU ≥ 0.5 记为覆盖；precision、重复率、ROI 缩减同
+   [linux-x64-geometric-proposal-2026-09](linux-x64-geometric-proposal-2026-09.md)
+   的定义。评估工具对缺失数据（目录、manifest 字段、labels）显式报错，
+   不静默跳过。
+4. **显式路径**：评测数据经调用方显式路径传入离线工具；`benchmarks/`、
+   `tests/` 不引用仓库外固定路径，真实截图与标注永不入仓（`RULE-10`）。
+5. **结论限定**：真实数据结论必须与合成口径分开列报；只有合成证据时，
+   go/no-go 判定必须显式记录"仅有合成证据"（`DEC-017`、`RISK-2026-14`）。
+
 ## 与指标的对账
 
 场景覆盖支撑设计 §23/§26 的指标口径：变化检测漏检/误检、OCR 文本与 bbox、

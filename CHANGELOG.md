@@ -12,6 +12,14 @@
   rectangularity/edge_support 评分、OMBR、Tight/Context 双 ROI）。纯 CPU、
   确定性、显式预算（`kBudgetExceeded`）与取消/deadline 支持。**Experimental：
   契约可能变更，不计入兼容性承诺**（issue #11、设计 §24 M6）。
+- M6-04：合成验证 harness `mirador_bench_geometric_proposal`（五类场景 ×
+  双口径）与首份数字发布（[linux-x64-geometric-proposal-2026-09](docs/benchmarks/linux-x64-geometric-proposal-2026-09.md)）：
+  Mode A（精确线段 → 闭合分析层）汇总 recall 1.000 / precision 0.875 / 重复
+  1 个/实体 / tight-ROI 缩减 ≥ 0.638，`DEC-017` 四项晋升门槛初值全部 PASS；
+  Mode B（一方检测器端到端）按 `RISK-2026-09` 单独列报输入线段质量口径
+  （圆角硬边光栅化碎裂为已知机制）；耗时随线段数曲线与 temporal 占位随页
+  发布。真实截图离线接入约定补充进
+  [evaluation-scenes](docs/benchmarks/evaluation-scenes.md)（数据不入仓）。
 
 ## [0.2.0] - 2026-09-15
 
