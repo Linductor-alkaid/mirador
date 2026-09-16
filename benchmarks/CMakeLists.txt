@@ -10,3 +10,12 @@ mirador_apply_warnings(mirador_bench_change_detection)
 add_executable(mirador_bench_cache_backend cache_backend_bench.cpp)
 target_link_libraries(mirador_bench_cache_backend PRIVATE mirador::fusion)
 mirador_apply_warnings(mirador_bench_cache_backend)
+
+# M6-04 (DEC-017): synthetic verification harness for the experimental
+# geometric region proposals. Links geometry only: the harness rasterizes with
+# its own deterministic code, so no image-module pipeline is involved.
+if(TARGET mirador::geometry)
+    add_executable(mirador_bench_geometric_proposal geometric_proposal_bench.cpp)
+    target_link_libraries(mirador_bench_geometric_proposal PRIVATE mirador::geometry)
+    mirador_apply_warnings(mirador_bench_geometric_proposal)
+endif()
