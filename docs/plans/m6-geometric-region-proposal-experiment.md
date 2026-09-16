@@ -62,7 +62,7 @@ M6 是假设验证而非架构承诺：不修改 M0-M5 已冻结契约，融合�
   Tight ROI、Context ROI 比例扩张 + 最小/最大上限；坐标矩阵（0/90/180/270、
   奇数尺寸、往返容差，`DOD-03`）与越界防护；与 `M6-02` 组装为完整 proposal
   输出。
-- [ ] `M6-04` 验证 harness 与指标发布：合成场景集（确定性生成器 + ground
+- [x] `M6-04` 验证 harness 与指标发布：合成场景集（确定性生成器 + ground
   truth，覆盖矩形 UI、圆角、断裂边界、装饰性框线、纹理干扰）、基准入口计算
   recall/precision/duplicate/ROI reduction（temporal 项以多帧合成序列占位）；
   `docs/benchmarks/` 发布数字并附 `DEC-011` 口径限定；真实截图离线接入约定
@@ -157,3 +157,42 @@ run `35015056962`）：13/13 job 全绿（linux gcc/clang debug、warnings/asan/
 opencv-adapter、capture-adapters、integrations-ncnn、fuzz、windows msvc/ninja、
 android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-02`/`M6-03` 交付完成；
 后续工作项 `M6-04`~`M6-06` 待实施。
+
+2026-09-16：`M6-04` 实施完成（分支 `feat/m6-proposal-verification-harness`，
+基线 30069af；验证由 Independent-Verification-Agent 独立执行）。
+
+- 落地内容：`benchmarks/geometric_proposal_bench.cpp`（仅链接
+  `mirador::geometry`）——1280x800 灰度帧上五类确定性合成场景（矩形 UI 6、
+  圆角 4、断裂边界 4、装饰框线 4 GT + 3 装饰、纹理干扰 494 短划线 + 3 GT，
+  共 21 实体）× 双口径：Mode A 精确线段直入 `propose_regions`（闭合分析层），
+  Mode B 1 px 硬边光栅化 → 一方检测器 → `merge_collinear`
+  （`distance_tolerance=3.0`）→ proposal（`RISK-2026-09` 输入质量口径，含
+  line-recovery 指标）；指标引擎（IoU ≥ 0.5 匹配、recall/precision/dup-max/
+  tight-ROI 缩减，缩减按全部 proposal 并集）内置手算自检断言，漂移即非零
+  退出；`RISK-2026-15` 耗时随线段数曲线（64~1024）；temporal 占位（±2 px
+  整帧平移 5 帧，信息性，`M6-05` 前置）。
+- 数字发布：[linux-x64-geometric-proposal-2026-09](../benchmarks/linux-x64-geometric-proposal-2026-09.md)
+  （release，GCC 13.3.0，Ultra 5 225H）。Mode A 汇总 recall 1.000 / precision
+  0.875 / dup-max 1 / tight-ROI 缩减 min 0.638——`DEC-017` 四项晋升门槛初值
+  全部 PASS；precision 折损全部来自装饰场景设计负例（0.571），符合假设的
+  语义边界（闭合度不区分语义框与装饰框，过滤留给上层融合）。Mode B 除圆角
+  外与 Mode A 一致；圆角失败机制定位为硬边楼梯光栅化下浅对角弧弦的梯度方向
+  震荡（36 px 弧仅恢复 ~8 px，闭合度趋 0 系定义正确行为），记输入质量口径，
+  不作为假设失败证据，闭合层能力由 Mode A（recall 1.000）单独证明。
+- 文档同步：`benchmarks/README.md` 入口表、`evaluation-scenes.md` 新增几何
+  proposal 真实数据接入节（显式路径、数据不入仓、缺失即显式报错、合成/真实
+  结论分开列报）、CHANGELOG Unreleased。
+- Independent-Verification-Agent 验证：六预设矩阵（debug/release/warnings/
+  asan/ubsan/tsan，tsan 经 `setarch -R`）全部 ctest 通过（debug 44 = 本机
+  预存 OpenCV 适配器本地配置，其余 43，基准非 ctest 用例、数量不变）；新
+  目标六预设齐备；harness 退出码 0、两次运行除耗时行逐字节一致（确定性）；
+  自检有效性经注入验证（篡改期望值 → 退出码 1）；最小默认构建通过且
+  `nm -u libmirador_geometry.a` 零第三方依赖；lint 双口径（format 退出码 0、
+  tidy `error:` 0 + 退出码 0）归零；报告表格与实测输出 11/11 行逐列一致。
+
+2026-09-16：CI 证据回填（[PR #14](https://github.com/Linductor-alkaid/mirador/pull/14)，
+run `35047620484`）：13/13 job 全绿（linux gcc/clang debug、warnings/asan/ubsan/tsan、
+opencv-adapter、capture-adapters、integrations-ncnn、fuzz、windows msvc/ninja、
+android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-04` 交付完成；
+后续工作项 `M6-05`（条件触发：门槛已达标，待收尾判定时决定是否执行）与
+`M6-06` 待实施。
