@@ -189,3 +189,10 @@ android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-02`/`M6-03` 交付
   自检有效性经注入验证（篡改期望值 → 退出码 1）；最小默认构建通过且
   `nm -u libmirador_geometry.a` 零第三方依赖；lint 双口径（format 退出码 0、
   tidy `error:` 0 + 退出码 0）归零；报告表格与实测输出 11/11 行逐列一致。
+
+2026-09-16：CI 证据回填（[PR #14](https://github.com/Linductor-alkaid/mirador/pull/14)，
+run `35047620484`）：13/13 job 全绿（linux gcc/clang debug、warnings/asan/ubsan/tsan、
+opencv-adapter、capture-adapters、integrations-ncnn、fuzz、windows msvc/ninja、
+android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-04` 交付完成；
+后续工作项 `M6-05`（条件触发：门槛已达标，待收尾判定时决定是否执行）与
+`M6-06` 待实施。
