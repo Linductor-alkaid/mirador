@@ -1,11 +1,11 @@
 # M6：几何区域 Proposal 实验（实验轨道）
 
-> 状态：In Progress
+> 状态：Completed
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M5
 > 发布点：`v0.3.0`（暂定；实验轨道不改变 M0-M5 的发布语义，收尾时经用户授权）
-> 更新日期：2026-09-16
+> 更新日期：2026-09-20
 > 假设来源：[issue #11](https://github.com/Linductor-alkaid/mirador/issues/11)
 
 ## 目标
@@ -71,10 +71,12 @@ M6 是假设验证而非架构承诺：不修改 M0-M5 已冻结契约，融合�
   增益测量：同一合成序列上 proposal 关联的稳定性测量（实验 API，不进会话
   契约）；Geometry Descriptor + Tight ROI 作为 VisualIndex 查询补充的命中
   对照实验。不触发时记录不触发原因并保持关闭。
-- [ ] `M6-06` 收尾与判定：全 Linux 预设矩阵 + 最小核心构建 + lint 双口径；
+- [x] `M6-06` 收尾与判定：全 Linux 预设矩阵 + 最小核心构建 + lint 双口径；
   `docs/api/README.md`/兼容性登记/CHANGELOG 同步；按 `M6-04`（及触发的
   `M6-05`）数字起草 go/no-go 记录——转正路径另立决策文档，关闭路径留档结论
-  与（如适用）调整重跑条件。
+  与（如适用）调整重跑条件。判定为**合成口径 GO**，转正草案
+  [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+  立档（Proposed，待负责人评审）。
 
 ## 风险与阻塞
 
@@ -88,24 +90,76 @@ M6 是假设验证而非架构承诺：不修改 M0-M5 已冻结契约，融合�
   情形为超线性增长）——处置：线段数与 proposal 数显式预算（`DEC-017` 第 4
   条），超限显式 `kBudgetExceeded`；基准入口报告耗时随线段数曲线。
 
+## Go/No-Go 判定记录（`M6-06`，2026-09-20）
+
+**结论：GO（合成口径）。** `DEC-017` 第 6 条四项晋升门槛初值在 `M6-04`
+合成验证中全部 PASS，条件工作项 `M6-05` 已触发并交付；转正路径按
+`DEC-017` 第 3 条另立决策草案
+[DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+（Proposed，待负责人评审），**实验 API 在其批准前保持 Experimental 标记
+与"不计兼容性承诺"登记不变**。
+
+| 门槛（`DEC-017` 第 6 条，合成口径） | 初值 | 实测（`M6-04` Mode A 汇总） | 判定 |
+| --- | --- | --- | --- |
+| 语义区域 recall | ≥ 0.90 | 1.000 | PASS |
+| proposal precision | ≥ 0.50 | 0.875 | PASS |
+| 重复 proposal | ≤ 2 个/实体 | 1 | PASS |
+| Tight ROI 缩减 | ≥ 60% | min 0.638 | PASS |
+
+辅助证据（只测量、不作门槛，`DEC-017` 第 6 条）：`M6-05` 跨帧关联率
+1.000、配对 IoU ≥ 0.979；VisualIndex 几何门控在视觉歧义场景 top-1
+0.250 → 0.625，视觉可分场景零代价，残余 wrong 经探针归因为几何相近的
+相邻尺寸对——几何只能区分几何上可分的实体，与 issue #11 的"多源匹配
+依据之一"定位一致。
+
+判定限定（随结论一并留档，不得拆开引用）：
+
+- **仅合成证据**（`RISK-2026-14`）：本判定证明"闭合结构先验在合成场景
+  可实现且达门槛"，不证明真实截图价值；真实数据评估按
+  [evaluation-scenes](../benchmarks/evaluation-scenes.md) 离线约定执行且
+  数据不入仓，结论待数据落地后发布。`DEC-018` 阶段 2（融合/输出模型
+  集成）以此为前置条件。
+- **输入质量口径**（`RISK-2026-09`）：Mode B 圆角场景失败源于硬边光栅化
+  下检测器碎段（机制已定位），记输入线段质量，不作为假设失败证据；
+  闭合层能力由 Mode A（recall 1.000）单独证明。
+- **环境口径**（`DEC-011`）：全部数字仅对发布页四元组（Ubuntu 24.04 x64、
+  GCC 13.3.0、Ultra 5 225H）有效，CI runner 与其他平台不作结论。
+- **precision 边界即假设边界**：0.875 的全部折损来自装饰负例——闭合度
+  不区分语义框与装饰框，语义过滤留给 OCR/Detector/Accessibility/Fusion
+  （`DEC-017` 第 5 条），符合预期而非缺陷。
+
+后续动作：`DEC-018` 批准与否由负责人评审（阶段 1 契约冻结 / 阶段 2 融合
+集成的两阶段拆分见该文档）；`v0.3.0` 发布点维持暂定，收尾发布需用户授权。
+issue #11 的实验结论链接见下方验证记录（随本工作项回填）。
+
 ## 测试与退出条件
 
-- [ ] 全部 6 个 Linux 预设（debug/release/warnings/asan/ubsan/tsan）配置、构建、
-  ctest 通过；最小核心构建（默认模块开关组合）不回归；触及文件
-  `clang-format`/`clang-tidy` 无告警（退出码 + `error:` 行双口径）。
-- [ ] 架构：`mirador::geometry` 链接闭包仍仅标准库（架构测试自动覆盖）；实验
-  公共头在 `docs/api/README.md` 与 `docs/compatibility/` 登记为 experimental
-  且不计兼容性承诺。
-- [ ] 确定性与预算：同输入位稳定输出（含浮点路径）；线段/proposal 预算超限
-  显式 `kBudgetExceeded`，非法参数显式 `kInvalidArgument`；无未界增长。
-- [ ] 坐标（`DOD-03`）：Tight/Context ROI 在 0/90/180/270 旋转输入与奇数尺寸
-  下的正确性与往返容差；ROI 不越出帧边界或显式裁剪。
-- [ ] 评分语义：闭合结构与装饰性/断裂线段的正负边界用例；`closure_score` 等
-  描述量在手算场景下与定义一致。
-- [ ] 指标发布：`M6-04` 数字进入 `docs/benchmarks/`，附 `DEC-011` 口径限定与
-  合成/真实数据区分；go/no-go 判定留档（转正决策草案或关闭结论）。
-- [ ] 文档同步：设计 §24 M6、总计划 1.3、`DEC-017`、API 索引、兼容性登记、
-  CHANGELOG（Unreleased）一致；issue #11 留下实验结论链接。
+- [x] 全部 6 个 Linux 预设（debug/release/warnings/asan/ubsan/tsan）配置、构建、
+  ctest 通过（`M6-06` 收口复验：六预设全部退出码 0、43/43，debug 加 OpenCV
+  适配器 44/44；最小核心构建通过，`nm -u` 证实 geometry 闭包仅
+  libc/libm/libstdc++/libgcc + 核心内部符号）；触及文件
+  `clang-format`/`clang-tidy` 无告警（format 退出码 0，tidy CI 同范围 90 文件
+  `error:` 0 行 + 退出码 0，双口径）。
+- [x] 架构：`mirador::geometry` 链接闭包仍仅标准库（架构测试自动覆盖 + 收口
+  `nm -u` 复核）；实验公共头在 `docs/api/README.md` 与 `docs/compatibility/`
+  登记为 experimental 且不计兼容性承诺（后者随 `M6-06` 补登记）。
+- [x] 确定性与预算：同输入位稳定输出（含浮点路径；`M6-02` 位稳定用例 +
+  `M6-04`/`M6-05` harness 双次运行逐字节一致）；线段/proposal 预算超限
+  显式 `kBudgetExceeded`，非法参数显式 `kInvalidArgument`（`M6-02` 19 组
+  负例）；无未界增长。
+- [x] 坐标（`DOD-03`）：Tight/Context ROI 在 0/90/180/270 旋转输入与奇数尺寸
+  下的正确性与往返容差（`M6-02`/`M6-03` 101x51 手算矩阵）；ROI 不越出帧
+  边界或显式裁剪（context padding 钳制 + int32 越界双路径用例）。
+- [x] 评分语义：闭合结构与装饰性/断裂线段的正负边界用例（`M6-02` 闭合/
+  近闭合/开链/T 形/装饰负例）；`closure_score` 等描述量在手算场景下与定义
+  一致。
+- [x] 指标发布：`M6-04` 数字进入 `docs/benchmarks/`，附 `DEC-011` 口径限定与
+  合成/真实数据区分；go/no-go 判定留档（合成口径 GO，
+  [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+  转正决策草案 Proposed）。
+- [ ] 文档同步：设计 §24 M6、总计划 1.4、`DEC-017`、API 索引、兼容性登记、
+  CHANGELOG（Unreleased）一致（`M6-06` 一致性核对通过）；issue #11 实验结论
+  链接随 CI 收尾回填。
 
 ## 验证记录
 
@@ -229,3 +283,36 @@ run `35053412807`）：13/13 job 全绿（linux gcc/clang debug、warnings/asan/
 opencv-adapter、capture-adapters、integrations-ncnn、fuzz、windows msvc/ninja、
 android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-05` 交付完成；
 唯一剩余工作项 `M6-06`（收尾与 go/no-go 判定）待实施。
+
+2026-09-20：`M6-06` 实施完成（分支 `feat/m6-closeout-go-no-go`；纯文档变更，
+验证由 Independent-Verification-Agent 独立执行）。
+
+- go/no-go 判定：**合成口径 GO**（判定记录与四项限定见上方"Go/No-Go 判定
+  记录"节）。`DEC-017` 四项晋升门槛初值依据 `M6-04` 数字全部 PASS，条件
+  工作项 `M6-05` 已触发交付；转正路径按 `DEC-017` 第 3 条起草
+  [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+  （Proposed，两阶段：契约冻结先行 / 融合集成待真实数据），实验 API 在其
+  批准前保持 Experimental 标记。
+- 文档同步：`docs/compatibility/compatibility.md` 补登记 "Experimental API
+  （不计入兼容性承诺）" 节（`M6-02` 时仅登记于 `docs/api/README.md`，本次
+  补齐里程碑退出条件要求的兼容性登记面）；`DEC-017` 头部加 `DEC-018`
+  反向链接；总计划 1.4 修订（`SCOPE-12` 勾选、M6 → Completed）；CHANGELOG
+  Unreleased 新增 `M6-06` 条目；设计 §24 M6 经核对与判定结论一致（实验轨道
+  定位、"转正由新决策记录决定"表述不变，无需修改）。
+- Independent-Verification-Agent 收口验证（全部证据由其执行并回报）：
+  六预设矩阵 configure/build/ctest 全部退出码 0（debug/release/warnings/
+  asan/ubsan 43/43，asan/ubsan/tsan 无报告，tsan 经 `setarch -R`；debug 加
+  OpenCV 适配器重配后 44/44 复现历史基线）；最小核心构建通过，
+  `nm -u libmirador_geometry.a` 未定义符号仅 libc/libm/libstdc++/libgcc 与
+  核心内部符号；lint 双口径归零（clang-format 退出码 0，clang-tidy CI 同
+  范围 90 文件 `error:` 0 行 + 退出码 0）；文档一致性五项核对 PASS——
+  DEC-018/判定记录/CHANGELOG 引用数字与两份基准文档逐项一致、门槛表述与
+  `DEC-017` 第 6 条一致、六个改动文件全部 markdown 相对链接零失效、
+  experimental 状态在 api 索引/兼容性登记/总计划/DEC-018 四处口径统一、
+  判定限定四项齐全。代理报告的唯一观察（里程碑复选框需与总计划同轮同步
+  勾选）即本轮收口提交内容。
+- issue #11 实验结论评论随本分支 CI 收尾发布并回填链接（见下方 CI 证据
+  回填记录）。
+- 待用户授权事项：收尾 PR 合入 master；`v0.3.0` tag 与 GitHub Release；
+  [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+  的评审结论（批准阶段 1 契约冻结与否）。

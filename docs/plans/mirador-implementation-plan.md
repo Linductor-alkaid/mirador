@@ -1,11 +1,16 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.3
+> 版本：1.4
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-16
+> 更新日期：2026-09-20
+>
+> 1.4 修订（2026-09-20）：M6 收口——`M6-06` 完成，go/no-go 判定为合成口径
+> GO（`DEC-017` 四项门槛全 PASS），转正决策草案 [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+> 立档（Proposed，待负责人评审）；`SCOPE-12` 勾选，M6 状态转 Completed；
+> `v0.3.0` 发布点维持暂定（收尾发布需用户授权）。
 >
 > 1.3 修订（2026-09-16）：M6 立项（实验轨道，issue #11；里程碑文档、`DEC-017`
 > 冻结、设计 §24 增补 M6 节）；新增 `SCOPE-12`。同轮经用户授权完成 `v0.2.0`
@@ -42,10 +47,14 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 `M5-01`~`M5-09` 已全部收口并经 PR #12 合入 master（CI 13/13 绿；`DEC-016` 冻结，
 基准/评测集/文档收口完成）。`v0.2.0` 已发布：tag 打在 PR #12 合并提交 236df8f，
 GitHub Release 说明取自 CHANGELOG `0.2.0` 段。整体路线沿用设计文档第 24 节的 M0-M5。M6「几何区域 Proposal 实验
-（实验轨道）」已启动（2026-09-16，立项完成：[里程碑文档](m6-geometric-region-proposal-experiment.md)、
-`DEC-017` 冻结、`SCOPE-12` 新增；承接
-[issue #11](https://github.com/Linductor-alkaid/mirador/issues/11) 的假设验证，
-先证明相关性再决定是否转正）。
+（实验轨道）」已完成（2026-09-20 收口：`M6-01`~`M6-06` 全部交付，PR #13/#14/#15
+与收尾 PR 合入；`M6-04` 合成口径 `DEC-017` 四项晋升门槛全 PASS，条件工作项
+`M6-05` 触发并交付；`M6-06` go/no-go 判定为**合成口径 GO**，转正决策草案
+[DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md) 立档
+（Proposed，两阶段拆分：契约冻结先行、融合集成待真实数据），实验 API 在其
+批准前保持 Experimental；`v0.3.0` 发布点待用户授权；
+[里程碑文档](m6-geometric-region-proposal-experiment.md)含完整判定记录与
+口径限定）。
 
 ## 交付边界
 
@@ -80,10 +89,12 @@ GitHub Release 说明取自 CHANGELOG `0.2.0` 段。整体路线沿用设计文�
   （设计 §21、§24 M0/M5；CI 13 job 全绿含 msvc/ndk/integrations/capture/fuzz，
   基准数字按 `DEC-011` 限定 Linux x64 主环境，补跑条件见
   [docs/compatibility/](../compatibility/compatibility.md)）。
-- [ ] `SCOPE-12` 实验性几何区域 Proposal：闭合/近闭合线段结构分析、Tight/Context
+- [x] `SCOPE-12` 实验性几何区域 Proposal：闭合/近闭合线段结构分析、Tight/Context
   双 ROI 与验证 harness、指标发布与 go/no-go 判定（设计 §24 M6 实验轨道、
   [DEC-017](../decisions/DEC-017-geometric-region-proposal-experiment.md)；
-  实验轨道，API 非冻结、不计入核心架构承诺，转正另立决策）。
+  实验轨道，API 非冻结、不计入核心架构承诺，转正另立决策——判定为合成口径
+  GO，转正草案 [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+  Proposed 待评审）。
 
 ### 明确不包含
 
@@ -131,7 +142,7 @@ GitHub Release 说明取自 CHANGELOG `0.2.0` 段。整体路线沿用设计文�
 | M3 | 传统视觉、检测/OCR 通用组件与视觉索引 | M2 | `v0.1.0-beta.3` | Completed | [m3-traditional-vision-common-components-visual-index.md](m3-traditional-vision-common-components-visual-index.md) |
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Completed | [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md) |
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Completed | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
-| M6 | 几何区域 Proposal 实验（实验轨道） | M5 | `v0.3.0`（暂定） | In Progress | [m6-geometric-region-proposal-experiment.md](m6-geometric-region-proposal-experiment.md) |
+| M6 | 几何区域 Proposal 实验（实验轨道） | M5 | `v0.3.0`（暂定） | Completed | [m6-geometric-region-proposal-experiment.md](m6-geometric-region-proposal-experiment.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
 并与 tag 一一对应。M4 完成设计文档第 26 节的"首个可用版本"验收。

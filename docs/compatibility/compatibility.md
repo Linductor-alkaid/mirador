@@ -1,6 +1,6 @@
 # 兼容性登记
 
-> 状态：Active（`M5-08` 立档）
+> 状态：Active（`M5-08` 立档；M6 增补 experimental API 登记）
 > 更新日期：2026-09-20
 > 负责人：linductor
 
@@ -35,6 +35,15 @@
 | 依赖 | pinned 版本 | 说明 |
 | --- | --- | --- |
 | ncnn | 20260526（commit e54f7b1f，`integrations/deps.lock.json`） | 参考后端专用；`DEC-015` 备选 ONNX Runtime 未启用。合成模型冒烟经 CI 验证；真实权重评测按 `RISK-2026-13` 待用户提供 |
+
+## Experimental API（不计入兼容性承诺）
+
+以下公共头处于实验轨道，字段与签名可能随时变更或移除，**不构成任何兼容性
+承诺**，使用方需自行锁定 commit。
+
+| 头 / 符号 | 登记依据 | 状态说明 |
+| --- | --- | --- |
+| `include/mirador/geometric_proposal.hpp`（`propose_regions`、`GeometricRegionProposal`、`GeometricProposalParams`、`OrientedRect`） | M6 实验轨道（[DEC-017](../decisions/DEC-017-geometric-region-proposal-experiment.md)） | Experimental (M6)：契约可能变更；随 `MIRADOR_BUILD_GEOMETRY` 交付，依赖闭包仍仅标准库。转正评审草案见 [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)（Proposed），批准前本登记持续有效 |
 
 ## 平台功能可用性
 
