@@ -167,7 +167,9 @@ static_assert(std::is_arithmetic_v<decltype(AssociationObservations::center_dist
 static_assert(std::is_arithmetic_v<decltype(FusionTrace::input_evidence_count)>);
 
 /// Directory name -> type snapshot (non-recursive, error-code overloads: the
-/// test must never throw or create anything itself).
+/// test never throws and never creates anything itself; an empty result is a
+/// valid snapshot of an empty directory, while genuine iteration failures are
+/// surfaced through ADD_FAILURE).
 std::map<std::string, std::filesystem::file_type> snapshot_directory(const std::filesystem::path& directory) {
     std::map<std::string, std::filesystem::file_type> entries;
     std::error_code ec;
@@ -197,8 +199,12 @@ TEST(Privacy, PipelineWritesNoFiles) {
     const fs::path temp = fs::temp_directory_path();
     const auto cwd_before = snapshot_directory(cwd);
     const auto temp_before = snapshot_directory(temp);
+    // A bare container/chroot temp directory may legitimately be empty, so
+    // temp_before is not asserted non-empty: snapshot_directory reports real
+    // iteration errors, and the non-empty cwd snapshot exercises the same
+    // iterator path. The no-writes guarantee below is the before/after diff
+    // only — it does not depend on pre-existing temp content.
     ASSERT_FALSE(cwd_before.empty());
-    ASSERT_FALSE(temp_before.empty());
 
     // Full pipeline, several rounds, caches hot: run_ocr stores through the
     // capability cache (kReadWrite), analyze_change stores signatures in the
