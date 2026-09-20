@@ -271,3 +271,31 @@ PR #12；测试由 Independent-Verification-Agent 独立编写执行）：M5-06 
 终轮证据：6 预设全绿 + 最小核心构建 + CI 13/13（终轮 head）全绿，CHANGELOG
 `0.2.0` 就绪。`SCOPE-08`/`SCOPE-09`/`SCOPE-10` 具备勾选证据。`v0.2.0` tag 与
 PR 合并待负责人授权。
+
+2026-09-20：Ubuntu 20.04（focal）平台适配门禁落地（分支
+`feat/ubuntu20.04-adaptation`，PR #16，验证对应 commit `093ec62`；改动仅 CI、
+文档与一处测试环境假设修复，测试修复由 Independent-Verification-Agent 修改、
+执行并回报证据）：
+
+- 范围：GitHub 托管 ubuntu-20.04 runner 已退役，新增 `ubuntu20-04` CI job
+  （focal 容器 + 发行版 `gcc-10`/`g++-10` 10.5.0 + CMake 3.16.3 + Ninja 1.10，
+  显式 `-S`/`-B` 配置并从构建目录内跑 ctest；apt 源含 old-releases 兜底）。
+  公开工具链下限：GCC/Clang ≥ 10（libstdc++ ≥ 10，`std::span` 下限）、
+  CMake ≥ 3.16；focal 自带 GCC 9.4 不受支持。README/CHANGELOG 同步。
+- 依据：`SCOPE-10` 多平台验证；`DEC-005` 的 CMake ≥ 3.16 基线首次拿到执行
+  证据（此前 CI 只跑过 runner 自带的新版 CMake）；`DOD-06`/`RULE-10` 隐私
+  负向测试语义保持。
+- 验证：CI run 35483744928 全 14 job 绿；`gcc10 / ubuntu-20.04` 在 focal
+  容器构建 + ctest 43/43 通过。首轮暴露裸 focal 容器无 C 编译器（GoogleTest
+  声明 C project()，补装 `gcc-10` 后 Configure/Build 通过）；次轮暴露
+  `Privacy.PipelineWritesNoFiles` 的"temp 快照非空"前置断言在裸容器不成立
+  （裸容器 /tmp 天生为空）——本地以空 TMPDIR 忠实复现 CI 失败签名，修复为
+  仅依赖 before/after 差集（迭代器健康由 error-code 上报与非空 cwd 快照共同
+  兜底），修复前复现失败、修复后三种方式全绿，并通过"测试窗口内注入文件必须
+  被差集捕获"的对抗性验证证明保证未削弱。
+- 限制：focal 的 OpenCV 4.2、X11 采集与 `integrations/`（ncnn）面未在
+  20.04 上验证（可选面默认关闭，门禁覆盖默认构建矩阵 + 全部单元/属性/架构/
+  并发/隐私测试）；GCC 9.x 系明确不支持。
+- 同步：`docs/compatibility/compatibility.md`（工具链矩阵 + 已知限制）、
+  README「构建与测试」工具链下限、CHANGELOG Unreleased 平台支持条目、
+  `.github/workflows/ci.yml`（13 → 14 job）。

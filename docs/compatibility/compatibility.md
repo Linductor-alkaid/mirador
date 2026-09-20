@@ -1,7 +1,7 @@
 # 兼容性登记
 
 > 状态：Active（`M5-08` 立档）
-> 更新日期：2026-09-15
+> 更新日期：2026-09-20
 > 负责人：linductor
 
 本文登记 Mirador 实际验证过的构建与运行组合，以及各可选依赖的已知可用版本
@@ -14,10 +14,11 @@
 | --- | --- | --- |
 | C++ 标准 | C++20 | 公共头要求 c++20；无 C++23 依赖 |
 | GCC | 13.3.0（Ubuntu 24.04） | 主开发编译器 |
+| GCC（Ubuntu 20.04） | 10.5.0（focal apt `gcc-10`/`g++-10`） | CI `gcc10 / ubuntu-20.04` job（focal 容器）构建 + 测试；focal 自带 GCC 9.4 无 `std::span`，不受支持 |
 | Clang | 18.1.3 | CI `clang / debug` job + fuzz/harness lint |
 | MSVC | VS 2022（`windows-latest` runner 自带） | CI `msvc / ninja` job 编译 + 测试；公共头编译验证 |
 | Android NDK | 26.3.11579264（arm64-v8a，android-24） | CI `ndk / arm64-v8a` job 编译 + 测试 |
-| CMake | ≥ 3.16（预设需 ≥ 3.21） | `DEC-005`；本机 3.28.3 + Ninja |
+| CMake | ≥ 3.16（预设需 ≥ 3.21） | `DEC-005`；本机 3.28.3 + Ninja；Ubuntu 20.04 自带 3.16.3 经 CI 验证（旧版 CMake 用 `-S`/`-B` 显式配置，无 presets；`ctest --test-dir` 需 ≥ 3.20） |
 | GoogleTest | v1.18.0（pinned submodule） | 仅测试目标链接（`DEC-006`） |
 
 ## 可选依赖（integrator-provided，不随库分发）
@@ -48,6 +49,10 @@
 
 ## 已知行为差异与限制
 
+- Ubuntu 20.04（focal）于 2025-05 结束标准支持：CI 以 focal 容器承载门禁，
+  apt 源若迁至 old-releases 会自动改写兜底；裸 focal 容器无默认编译器，需显式
+  安装 `gcc-10`/`g++-10`（GoogleTest 的 C 工程声明也要求 C 编译器）。focal 的
+  OpenCV 4.2 与可选采集/integration 面未在 20.04 上验证。
 - TSAN 在高熵 ASLR 内核上需 `setarch -R` 运行测试进程（CI 已内置）。
 - XWayland 主机下 root 窗口捕获失败是文档化行为（`x11_capture.hpp` 契约注释），
   非缺陷；该分支由 CI xvfb job 的 Xorg 路径对偶覆盖。

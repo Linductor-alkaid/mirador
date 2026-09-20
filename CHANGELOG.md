@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+### 平台支持
+
+- 新增 Ubuntu 20.04（focal）适配门禁：CI 以 `ubuntu:20.04` 容器 + 发行版
+  `g++-10`（libstdc++ 10，`std::span` 下限）+ CMake 3.16.3 + Ninja 1.10 执行
+  完整构建与测试。公开工具链下限：GCC/Clang ≥ 10（libstdc++ ≥ 10）、CMake
+  ≥ 3.16；focal 自带 GCC 9.4 无 `std::span`，不受支持。GitHub 托管的
+  ubuntu-20.04 runner 已退役，门禁改用 focal 容器承载，并把 focal 源可能
+  迁至 old-releases 的 EOL 情况内置为自动兜底。运行验证随对应 PR 的 CI
+  回填至[兼容性登记](docs/compatibility/compatibility.md)。
+
 ### 新增（M6 实验轨道，`DEC-017`）
 
 - `mirador::geometry` 实验公共契约 `geometric_proposal.hpp`：`propose_regions`

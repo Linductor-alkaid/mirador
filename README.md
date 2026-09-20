@@ -73,6 +73,11 @@ ctest --preset debug
 测试通过 ctest 标签组织（`unit`/`property`/`architecture`），例如 `ctest -L architecture`
 运行架构边界测试。不需要测试时可配置 `-DMIRADOR_BUILD_TESTS=OFF` 跳过第三方依赖。
 
+工具链下限：公共 API 使用 `std::span`，要求 GCC ≥ 10 或 Clang ≥ 10（libstdc++ ≥ 10）；
+CMake ≥ 3.16（使用上面的一行式预设命令需 ≥ 3.21，旧版 CMake 用 `cmake -S . -B <dir>` 等价
+配置）。Ubuntu 20.04 由 CI 以 focal 容器 + `g++-10` 门禁验证（自带 GCC 9.4 不满足要求，
+focal 源内 `apt install g++-10` 即可）。
+
 可选构建面（均默认关闭）：`MIRADOR_BUILD_ADAPTERS_OPENCV`（需系统 OpenCV）、
 `MIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX`（需 X11，Xvfb/Xorg 下有冒烟测试）、
 `MIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS`（仅 Windows 主机，CI 编译验证）、
