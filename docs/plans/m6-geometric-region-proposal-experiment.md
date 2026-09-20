@@ -4,7 +4,7 @@
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M5
-> 发布点：`v0.3.0`（暂定；实验轨道不改变 M0-M5 的发布语义，收尾时经用户授权）
+> 发布点：`v0.3.0`（2026-09-20 经用户授权发布；tag 打在 v0.3.0 收尾 PR 合并提交）
 > 更新日期：2026-09-20
 > 假设来源：[issue #11](https://github.com/Linductor-alkaid/mirador/issues/11)
 
@@ -328,3 +328,18 @@ capture-adapters、fuzz、clang-format/clang-tidy lint）。issue #11 实验结�
 （含四项门槛表、辅助测量与完整口径限定，链接基准文档与 `DEC-018` 草案）。
 `M6-06` 交付完成，M6 全部工作项收口；同轮回填总计划决策清单 `DEC-018`
 条目（未冻结决策表 + 已生效决策段落）。
+
+2026-09-20：`v0.3.0` 发布与 `DEC-018` 批准（分支
+`feat/v0.3.0-release-bookkeeping`；PR #17 合入与分支清理、`v0.3.0` tag 与
+GitHub Release、`DEC-018` 评审结论均经用户授权执行；纯文档变更）。
+
+- `DEC-018` 批准（Proposed → Accepted）：阶段 1 契约冻结即日生效——
+  `geometric_proposal.hpp` 在 `docs/api/README.md` 转正式条目、在
+  `docs/compatibility/` 转正式登记（计入兼容性承诺），`DEC-017` 注记
+  豁免终止，设计 §24 M6 补收口状态段；阶段 2 维持真实截图评估前置。
+- `v0.3.0` 发布：CHANGELOG `0.3.0` 段定稿（M6 实验轨道 + focal 门禁 +
+  `DEC-018` 阶段 1 转正），tag 打在 v0.3.0 收尾 PR 合并提交，GitHub
+  Release 说明取自该段；本节上方"待用户授权事项"全部执行完毕。
+- 上方"Go/No-Go 判定记录"与退出条件中的"实验 API 保持 Experimental"
+  表述以本条为准更新：自 2026-09-20 起 `geometric_proposal.hpp` 为正式
+  契约（`DEC-018` 阶段 1）。

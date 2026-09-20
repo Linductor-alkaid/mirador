@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-20
+
+M6「几何区域 Proposal 实验（实验轨道，`DEC-017`）」全部工作项落地与
+Ubuntu 20.04（focal）适配门禁
+（[PR #16](https://github.com/Linductor-alkaid/mirador/pull/16)、
+[PR #17](https://github.com/Linductor-alkaid/mirador/pull/17) 及收尾
+PR，CI 14/14 全绿）。go/no-go 判定为合成口径 GO；
+[DEC-018](docs/decisions/DEC-018-geometric-region-proposal-promotion.md)
+经负责人授权批准（Accepted），阶段 1 契约冻结生效。全部验证由
+Independent-Verification-Agent 独立执行。
+
 ### 平台支持
 
 - 新增 Ubuntu 20.04（focal）适配门禁：CI 以 `ubuntu:20.04` 容器 + 发行版
@@ -20,8 +31,9 @@
 - `mirador::geometry` 实验公共契约 `geometric_proposal.hpp`：`propose_regions`
   把线段组织为闭合/近闭合结构并输出 `GeometricRegionProposal`（closure/
   rectangularity/edge_support 评分、OMBR、Tight/Context 双 ROI）。纯 CPU、
-  确定性、显式预算（`kBudgetExceeded`）与取消/deadline 支持。**Experimental：
-  契约可能变更，不计入兼容性承诺**（issue #11、设计 §24 M6）。
+  确定性、显式预算（`kBudgetExceeded`）与取消/deadline 支持。M6 内以
+  Experimental 标记交付（issue #11、设计 §24 M6）；**本版本内经 `DEC-018`
+  阶段 1 转正为正式契约**（见下方变更）。
 - M6-04：合成验证 harness `mirador_bench_geometric_proposal`（五类场景 ×
   双口径）与首份数字发布（[linux-x64-geometric-proposal-2026-09](docs/benchmarks/linux-x64-geometric-proposal-2026-09.md)）：
   Mode A（精确线段 → 闭合分析层）汇总 recall 1.000 / precision 0.875 / 重复
@@ -43,10 +55,16 @@
   tight-ROI 缩减 min 0.638），完整判定记录与口径限定（仅合成证据
   `RISK-2026-14`、`RISK-2026-09` 输入质量口径、`DEC-011` 环境口径）见
   [M6 里程碑](docs/plans/m6-geometric-region-proposal-experiment.md)。
-  转正决策草案 [DEC-018](docs/decisions/DEC-018-geometric-region-proposal-promotion.md)
-  立档（Proposed，待负责人评审）：契约冻结先行、融合集成待真实截图评估。
-  **实验 API 在 DEC-018 批准前保持 Experimental**；`docs/compatibility/`
-  补登记 experimental API 节（不计兼容性承诺）。
+  转正决策 [DEC-018](docs/decisions/DEC-018-geometric-region-proposal-promotion.md)
+  立档并经负责人授权批准（见下方变更）。
+
+### 变更
+
+- `DEC-018` 阶段 1 转正（经用户授权批准，Accepted 2026-09-20）：
+  `geometric_proposal.hpp` 撤销 Experimental 标记，
+  `docs/api/README.md` 与 `docs/compatibility/` 转为正式登记，**自本版本起
+  计入兼容性承诺**；阶段 2（`temporal_stability` 契约与融合/输出模型集成）
+  以真实截图评估为前置，另行立项，本版本不包含。
 
 ## [0.2.0] - 2026-09-15
 

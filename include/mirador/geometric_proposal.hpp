@@ -12,7 +12,7 @@
 
 namespace mirador {
 
-/// Experimental (M6): center, extents and edge angle of an oriented rectangle
+/// Center, extents and edge angle of an oriented rectangle
 /// (see `GeometricRegionProposal::oriented_bounds`).
 struct OrientedRect {
     PointF center;
@@ -22,10 +22,11 @@ struct OrientedRect {
     float angle_deg = 0.0F;
 };
 
-/// Experimental (M6, DEC-017): the geometric region proposal contract is under
-/// validation and MAY change without a compatibility notice; it is not covered
-/// by the M0-M5 compatibility register. Promotion to a supported capability
-/// requires a dedicated decision record (DEC-017 promotion gate).
+/// Frozen public contract (M6 deliverable, issue #11 hypothesis): promoted
+/// from the DEC-017 experiment track by DEC-018 stage 1 (2026-09-20) and
+/// covered by the compatibility register; changes follow the compatibility
+/// change process. `temporal_stability` and fusion/output-model integration
+/// remain DEC-018 stage 2 and are intentionally absent from this header.
 ///
 /// A proposal is a closed or near-closed structure of line segments (issue #11
 /// hypothesis) described by geometric-completeness evidence only: it never
