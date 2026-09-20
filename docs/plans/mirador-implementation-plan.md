@@ -48,7 +48,9 @@ tag 打在 PR #8 合并提交）。M4「融合、稳定 ID 与 SoM」已完成�
 基准/评测集/文档收口完成）。`v0.2.0` 已发布：tag 打在 PR #12 合并提交 236df8f，
 GitHub Release 说明取自 CHANGELOG `0.2.0` 段。整体路线沿用设计文档第 24 节的 M0-M5。M6「几何区域 Proposal 实验
 （实验轨道）」已完成（2026-09-20 收口：`M6-01`~`M6-06` 全部交付，PR #13/#14/#15
-与收尾 PR 合入；`M6-04` 合成口径 `DEC-017` 四项晋升门槛全 PASS，条件工作项
+已合入，收尾 [PR #17](https://github.com/Linductor-alkaid/mirador/pull/17)
+CI 14/14 绿、待用户授权合入；`M6-04` 合成口径 `DEC-017` 四项晋升门槛全 PASS，
+条件工作项
 `M6-05` 触发并交付；`M6-06` go/no-go 判定为**合成口径 GO**，转正决策草案
 [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md) 立档
 （Proposed，两阶段拆分：契约冻结先行、融合集成待真实数据），实验 API 在其
@@ -156,6 +158,7 @@ GitHub Release 说明取自 CHANGELOG `0.2.0` 段。整体路线沿用设计文�
 | [DEC-009](../decisions/DEC-009-elsed-integration.md) | ELSED 集成方式 | 已冻结：一方等价实现进 M3，ELSED 本体为可选适配延后（见 [DEC-009](../decisions/DEC-009-elsed-integration.md)） | linductor | M3 |
 | [DEC-010](../decisions/DEC-010-stable-id-matching.md) | 稳定 ID 匹配算法 | 已冻结：门控后贪心一对一匹配起步，分裂/合并做事件识别与 generation 递增（见 [DEC-010](../decisions/DEC-010-stable-id-matching.md)） | linductor | M4 |
 | [DEC-011](../decisions/DEC-011-benchmark-environments.md) | 基准设备清单 | 已冻结：Linux x64 主基准环境 + 方法口径；物理 Android/Windows 记录补跑条件（见 [DEC-011](../decisions/DEC-011-benchmark-environments.md)） | linductor | M5 |
+| [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md) | 几何 Proposal 转正 | **Proposed（M6-06 起草，待负责人评审）**：两阶段——契约冻结先行；融合/输出模型集成待真实截图评估或明确接受仅合成证据 | linductor | 负责人评审 |
 
 已生效决策见 [docs/decisions/](../decisions/)：`DEC-001` 同步 API 与无 executor、`DEC-002`
 Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`DEC-004` 公共边界
@@ -167,7 +170,10 @@ Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`D
 存放、评测接入分层）。M5-05 新增：`DEC-016`（kDisplay 变换来源与融合开放契约：
 适配层提供 kOriented→kDisplay `Transform2D`，`run_*` 输出空间保持帧族）。M6 立项
 新增：`DEC-017`（几何区域 Proposal 实验轨道与契约边界：落点 `mirador::geometry`、
-API 非冻结 Experimental 标记、确定性/预算底线不放宽、晋升门槛初值）。
+API 非冻结 Experimental 标记、确定性/预算底线不放宽、晋升门槛初值）。`M6-06`
+收口新增：[DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+（几何 Proposal 转正决策**草案**，Proposed 待评审：契约冻结先行、融合集成待
+真实数据；批准前实验 API 维持 Experimental）。
 
 ## 通用完成定义
 
@@ -310,3 +316,28 @@ PR 合并待负责人授权。
 - 同步：`docs/compatibility/compatibility.md`（工具链矩阵 + 已知限制）、
   README「构建与测试」工具链下限、CHANGELOG Unreleased 平台支持条目、
   `.github/workflows/ci.yml`（13 → 14 job）。
+
+2026-09-20：M6 收口（`M6-06`，分支 `feat/m6-closeout-go-no-go`，[PR #17](https://github.com/Linductor-alkaid/mirador/pull/17)，
+验证对应 commit `b05f783`；纯文档变更，验证由 Independent-Verification-Agent
+独立执行）：
+
+- go/no-go 判定：**合成口径 GO**——`DEC-017` 四项晋升门槛初值依 `M6-04`
+  数字全部 PASS（recall 1.000 / precision 0.875 / 重复 1 个/实体 / tight-ROI
+  缩减 min 0.638），条件工作项 `M6-05` 已触发交付；完整判定记录与四项口径
+  限定（`RISK-2026-14`/`RISK-2026-09`/`DEC-011`/语义边界）见
+  [M6 里程碑](m6-geometric-region-proposal-experiment.md) "Go/No-Go 判定
+  记录"节。
+- [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
+  转正决策草案立档（Proposed，待负责人评审）：阶段 1 契约冻结（去
+  Experimental、计兼容性承诺）、阶段 2 融合/输出模型集成（前置真实截图
+  评估或明确接受仅合成证据）；实验 API 在其批准前保持 Experimental。
+- 同步：`docs/compatibility/` 补登记 Experimental API 节（不计兼容性承诺）、
+  `DEC-017` 反向链接、总计划决策清单 `DEC-018` 条目、CHANGELOG Unreleased、
+  issue #11 实验结论评论
+  ([issuecomment-5747855883](https://github.com/Linductor-alkaid/mirador/issues/11#issuecomment-5747855883))。
+- 验证：六预设矩阵退出码全 0（43/43，debug+OpenCV 44/44，tsan 经
+  `setarch -R`）；最小核心构建通过且 `nm -u` 证实 geometry 闭包仅
+  libc/libm/libstdc++/libgcc + 核心内部；lint 双口径归零（format 退出码 0、
+  tidy 90 文件 `error:` 0 行）；文档一致性五项核对 PASS；CI run
+  `35490950715` 14/14 job 全绿。
+- 待用户授权：PR #17 合入 master、`v0.3.0` tag 与 Release、`DEC-018` 评审结论。

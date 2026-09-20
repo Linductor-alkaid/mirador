@@ -157,9 +157,10 @@ issue #11 的实验结论链接见下方验证记录（随本工作项回填）�
   合成/真实数据区分；go/no-go 判定留档（合成口径 GO，
   [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
   转正决策草案 Proposed）。
-- [ ] 文档同步：设计 §24 M6、总计划 1.4、`DEC-017`、API 索引、兼容性登记、
-  CHANGELOG（Unreleased）一致（`M6-06` 一致性核对通过）；issue #11 实验结论
-  链接随 CI 收尾回填。
+- [x] 文档同步：设计 §24 M6、总计划 1.4、`DEC-017`、API 索引、兼容性登记、
+  CHANGELOG（Unreleased）一致（`M6-06` 一致性核对通过，总计划决策清单补
+  `DEC-018` 条目）；issue #11 实验结论链接已回填：
+  [issuecomment-5747855883](https://github.com/Linductor-alkaid/mirador/issues/11#issuecomment-5747855883)。
 
 ## 验证记录
 
@@ -316,3 +317,14 @@ android ndk arm64-v8a、clang-format/clang-tidy lint）。`M6-05` 交付完成�
 - 待用户授权事项：收尾 PR 合入 master；`v0.3.0` tag 与 GitHub Release；
   [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
   的评审结论（批准阶段 1 契约冻结与否）。
+
+2026-09-20：CI 证据回填与收口（[PR #17](https://github.com/Linductor-alkaid/mirador/pull/17)，
+run `35490950715`，验证对应 commit `b05f783`）：**14/14 job 全绿**（linux
+gcc/clang debug、warnings/asan/ubsan/tsan、gcc10/ubuntu-20.04、windows
+msvc/ninja、android ndk arm64-v8a、opencv-adapter、integrations-ncnn、
+capture-adapters、fuzz、clang-format/clang-tidy lint）。issue #11 实验结论
+评论已发布：
+[issuecomment-5747855883](https://github.com/Linductor-alkaid/mirador/issues/11#issuecomment-5747855883)
+（含四项门槛表、辅助测量与完整口径限定，链接基准文档与 `DEC-018` 草案）。
+`M6-06` 交付完成，M6 全部工作项收口；同轮回填总计划决策清单 `DEC-018`
+条目（未冻结决策表 + 已生效决策段落）。
