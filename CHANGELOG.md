@@ -38,6 +38,15 @@
   边界：几何相近的相邻尺寸实体（双边比落在窗口内）无法由几何区分。纯测量
   入口 `mirador_bench_proposal_reuse`，无核心与契约改动（`DEC-017` 第 6 条：
   增益只测量不作门槛）。
+- M6-06（收尾判定）：go/no-go 判定为**合成口径 GO**——`DEC-017` 四项晋升
+  门槛初值全 PASS（recall 1.000 / precision 0.875 / 重复 1 个/实体 /
+  tight-ROI 缩减 min 0.638），完整判定记录与口径限定（仅合成证据
+  `RISK-2026-14`、`RISK-2026-09` 输入质量口径、`DEC-011` 环境口径）见
+  [M6 里程碑](docs/plans/m6-geometric-region-proposal-experiment.md)。
+  转正决策草案 [DEC-018](docs/decisions/DEC-018-geometric-region-proposal-promotion.md)
+  立档（Proposed，待负责人评审）：契约冻结先行、融合集成待真实截图评估。
+  **实验 API 在 DEC-018 批准前保持 Experimental**；`docs/compatibility/`
+  补登记 experimental API 节（不计兼容性承诺）。
 
 ## [0.2.0] - 2026-09-15
 
