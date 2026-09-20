@@ -406,6 +406,8 @@ Mirador 自身许可证可以维持 MIT 方向，但每个可选依赖、参考�
 
 该里程碑是假设验证而非架构承诺：实验 API 在验证通过前不冻结、不计入兼容性承诺，`temporal_stability` 等跨帧描述量推迟到跨帧工作项；最终语义判断仍由 OCR、Detector、Accessibility 与 Evidence Fusion 承担，几何 Proposal 不产生语义标签。验证以合成场景指标先行（语义区域召回、候选精确率、时间稳定性、重复率、ROI 缩减、缓存增益），真实截图按离线数据接入约定评估且数据不入仓；是否把该能力晋升为正式能力（进入 §8 输出模型与融合证据源）由验证结果经新的决策记录决定，验证不通过则记录结论并关闭或调整后重跑。
 
+M6 已于 2026-09-20 收口：`DEC-017` 第 6 条四项晋升门槛初值在合成口径全部 PASS（go/no-go 判定 GO 与口径限定见 M6 里程碑），经负责人授权批准 [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md) 执行两阶段转正——阶段 1 契约冻结即日生效（`geometric_proposal.hpp` 撤销 Experimental 标记、计入兼容性承诺，仍位于 `mirador::geometry`，依赖闭包不变）；阶段 2（进入 §8 输出模型与 §16 融合证据源、`temporal_stability` 正式契约、VisualIndex 几何门控正式化）以真实截图评估为前置条件，另行立项，本节其余描述在阶段 2 立项前继续有效。
+
 ## 25. 首版 API 使用示例
 
 以下示例展示调用方拥有调度与 Backend，Mirador 只组织视觉处理。具体命名可在 M0 原型中调整，但依赖关系不应改变。

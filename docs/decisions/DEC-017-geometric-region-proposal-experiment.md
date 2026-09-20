@@ -4,9 +4,10 @@
 > 日期：2026-09-16
 > 负责人：linductor
 > 冻结里程碑：M6
-> 替代/被替代：无（第 3 条的转正通道由
-> [DEC-018](DEC-018-geometric-region-proposal-promotion.md) 草案承接，本记录
-> 对实验轨道的界定持续有效）
+> 替代/被替代：无（第 3 条预留的转正通道已由
+> [DEC-018](DEC-018-geometric-region-proposal-promotion.md)（Accepted，
+> 2026-09-20）执行——阶段 1 契约冻结生效，对本头的 Experimental 豁免终止；
+> 本记录对实验轨道的历史界定与阶段 2 前置的效力持续有效）
 > 关联：[issue #11](https://github.com/Linductor-alkaid/mirador/issues/11)
 
 ## 背景与问题

@@ -36,14 +36,11 @@
 | --- | --- | --- |
 | ncnn | 20260526（commit e54f7b1f，`integrations/deps.lock.json`） | 参考后端专用；`DEC-015` 备选 ONNX Runtime 未启用。合成模型冒烟经 CI 验证；真实权重评测按 `RISK-2026-13` 待用户提供 |
 
-## Experimental API（不计入兼容性承诺）
-
-以下公共头处于实验轨道，字段与签名可能随时变更或移除，**不构成任何兼容性
-承诺**，使用方需自行锁定 commit。
+## 公共 API 兼容性登记（`DEC-018` 阶段 1 冻结）
 
 | 头 / 符号 | 登记依据 | 状态说明 |
 | --- | --- | --- |
-| `include/mirador/geometric_proposal.hpp`（`propose_regions`、`GeometricRegionProposal`、`GeometricProposalParams`、`OrientedRect`） | M6 实验轨道（[DEC-017](../decisions/DEC-017-geometric-region-proposal-experiment.md)） | Experimental (M6)：契约可能变更；随 `MIRADOR_BUILD_GEOMETRY` 交付，依赖闭包仍仅标准库。转正评审草案见 [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)（Proposed），批准前本登记持续有效 |
+| `include/mirador/geometric_proposal.hpp`（`propose_regions`、`GeometricRegionProposal`、`GeometricProposalParams`、`OrientedRect`） | M6 实验轨道交付（[DEC-017](../decisions/DEC-017-geometric-region-proposal-experiment.md)）；[DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)（Accepted，2026-09-20）阶段 1 转正 | 自 2026-09-20 起**计入兼容性承诺**：字段与签名变更走兼容性变更流程；随 `MIRADOR_BUILD_GEOMETRY` 交付，依赖闭包仍仅标准库。`temporal_stability` 契约与融合/输出模型集成属 `DEC-018` 阶段 2，另行立项 |
 
 ## 平台功能可用性
 

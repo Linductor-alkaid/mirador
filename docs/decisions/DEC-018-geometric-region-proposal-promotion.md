@@ -1,6 +1,7 @@
 # DEC-018：几何区域 Proposal 转正（契约冻结先行，融合集成待真实数据）
 
-> 状态：Proposed（2026-09-20，M6-06 收尾判定产出；待负责人评审）
+> 状态：Accepted（2026-09-20，经负责人授权批准；阶段 1 契约冻结即日生效，
+> 阶段 2 维持"真实截图评估前置、独立立项"不变）
 > 日期：2026-09-20
 > 负责人：linductor
 > 冻结里程碑：M6
@@ -36,17 +37,16 @@ M6 实验轨道（`DEC-017`）已按约定完成全部工作项。`M6-04` 合成
   `DEC-011` 单一 Linux x64 环境；实验实现已过 6 预设 + sanitizer + lint
   双口径与 CI 14 job 门禁。
 
-## 决策（草案，两项均待批准）
+## 决策
 
-**两阶段转正**，证据强度与承诺深度对齐：
+**两阶段转正**，证据强度与承诺深度对齐（2026-09-20 经负责人授权批准）：
 
 1. **阶段 1（批准即生效）：契约冻结。** `include/mirador/geometric_proposal.hpp`
    撤销 "Experimental (M6)" 标记，纳入兼容性承诺：`docs/api/README.md` 从
    experimental 注记转为正式条目，`docs/compatibility/compatibility.md`
    experimental 登记转为正式登记，`DEC-017` 第 3 条对该头的豁免终止。
    公共契约（`GeometricRegionProposal`、`GeometricProposalParams`、
-   `propose_regions` 签名与错误语义）自批准起按既有变更纪律管理。
-   - 依据：契约质量证据完整（确定性、预算、坐标矩阵、越界防护、sanitizer、
+   `propose_regions` 签名与错误语义）自批准起按既有变更纪律管理。 - 依据：契约质量证据完整（确定性、预算、坐标矩阵、越界防护、sanitizer、
      lint、CI），合成门槛全数 PASS；冻结本身不扩大核心架构边界——API 仍位于
      `mirador::geometry`，链接闭包仍仅标准库，不进入融合与输出模型。
 2. **阶段 2（独立立项，不在本决策内执行）：融合与输出模型集成。** 把
