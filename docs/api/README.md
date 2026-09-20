@@ -78,6 +78,6 @@ SPI 的过滤/共线合并自由函数（`filter_segments`、`merge_collinear`�
 | `examples/icon_state_index_tour.cpp` | 图标状态入库 → 扰动查询 → 复用策略 |
 | `examples/hybrid_localization_tour.cpp` | 融合 → 稳定 ID → SoM → generation 校验 |
 
-运行方式见根 [README](../../README.md#示例与基准)。基准入口与数字发布见
+运行方式见根 [README](../../README.md#examples)。基准入口与数字发布见
 [docs/benchmarks/](../benchmarks/)；评测集场景约定见
 [evaluation-scenes](../benchmarks/evaluation-scenes.md)。
