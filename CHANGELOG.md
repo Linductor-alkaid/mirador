@@ -31,8 +31,9 @@ Independent-Verification-Agent 独立执行。
 - `mirador::geometry` 实验公共契约 `geometric_proposal.hpp`：`propose_regions`
   把线段组织为闭合/近闭合结构并输出 `GeometricRegionProposal`（closure/
   rectangularity/edge_support 评分、OMBR、Tight/Context 双 ROI）。纯 CPU、
-  确定性、显式预算（`kBudgetExceeded`）与取消/deadline 支持。**Experimental：
-  契约可能变更，不计入兼容性承诺**（issue #11、设计 §24 M6）。
+  确定性、显式预算（`kBudgetExceeded`）与取消/deadline 支持。M6 内以
+  Experimental 标记交付（issue #11、设计 §24 M6）；**本版本内经 `DEC-018`
+  阶段 1 转正为正式契约**（见下方变更）。
 - M6-04：合成验证 harness `mirador_bench_geometric_proposal`（五类场景 ×
   双口径）与首份数字发布（[linux-x64-geometric-proposal-2026-09](docs/benchmarks/linux-x64-geometric-proposal-2026-09.md)）：
   Mode A（精确线段 → 闭合分析层）汇总 recall 1.000 / precision 0.875 / 重复

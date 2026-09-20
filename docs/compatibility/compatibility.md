@@ -1,6 +1,7 @@
 # 兼容性登记
 
-> 状态：Active（`M5-08` 立档；M6 增补 experimental API 登记）
+> 状态：Active（`M5-08` 立档；M6 登记 `geometric_proposal.hpp`，`DEC-018`
+> 阶段 1 转正后为正式兼容性登记）
 > 更新日期：2026-09-20
 > 负责人：linductor
 
