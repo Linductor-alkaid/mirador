@@ -18,6 +18,7 @@
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/status.hpp>
+#include <mirador/visual_fingerprint.hpp>
 
 #include <gtest/gtest.h>
 
@@ -28,9 +29,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <optional>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -48,7 +47,9 @@ using mirador::RectF;
 using mirador::RectI;
 using mirador::Rotation;
 using mirador::TargetTrack;
+using mirador::TrackObservation;
 using mirador::TrackState;
+using mirador::TrackTemplate;
 using mirador::VisualPatchFingerprint;
 using mirador::VisualRegion;
 
@@ -181,32 +182,95 @@ void expect_pool_untouched(const PoolSnapshot& before, const ObjectTracker& trac
     EXPECT_EQ(tracker.track_ids(), before.ids);
 }
 
-void expect_tracks_equal(const TargetTrack& lhs, const TargetTrack& rhs) {
+void expect_track_identity_equal(const TargetTrack& lhs, const TargetTrack& rhs) {
     EXPECT_EQ(lhs.track_id, rhs.track_id);
     EXPECT_EQ(lhs.state, rhs.state);
     EXPECT_EQ(lhs.last_bounds, rhs.last_bounds);
     EXPECT_EQ(lhs.predicted_center, rhs.predicted_center);
-    ASSERT_EQ(lhs.position_history.size(), rhs.position_history.size());
-    for (size_t i = 0; i < lhs.position_history.size(); ++i) {
-        EXPECT_EQ(lhs.position_history[i].frame_sequence, rhs.position_history[i].frame_sequence);
-        EXPECT_EQ(lhs.position_history[i].bounds, rhs.position_history[i].bounds);
-        EXPECT_EQ(lhs.position_history[i].confidence, rhs.position_history[i].confidence);
-        EXPECT_EQ(lhs.position_history[i].layout_generation, rhs.position_history[i].layout_generation);
-    }
     EXPECT_EQ(lhs.layout_generation, rhs.layout_generation);
-    ASSERT_EQ(lhs.templates.size(), rhs.templates.size());
-    for (size_t i = 0; i < lhs.templates.size(); ++i) {
-        EXPECT_EQ(lhs.templates[i].fingerprint, rhs.templates[i].fingerprint);
-        EXPECT_EQ(lhs.templates[i].frame_sequence, rhs.templates[i].frame_sequence);
-        EXPECT_EQ(lhs.templates[i].layout_generation, rhs.templates[i].layout_generation);
-        EXPECT_EQ(lhs.templates[i].capture_grade, rhs.templates[i].capture_grade);
-    }
+}
+
+void expect_track_semantics_equal(const TargetTrack& lhs, const TargetTrack& rhs) {
     EXPECT_EQ(lhs.negative_templates.size(), rhs.negative_templates.size());
     EXPECT_EQ(lhs.semantics.label, rhs.semantics.label);
     EXPECT_EQ(lhs.semantics.text, rhs.semantics.text);
     EXPECT_EQ(lhs.confidence, rhs.confidence);
     EXPECT_EQ(lhs.last_verified_sequence, rhs.last_verified_sequence);
     EXPECT_EQ(lhs.terminated_sequence, rhs.terminated_sequence);
+}
+
+void expect_observation_equal(const TrackObservation& lhs, const TrackObservation& rhs) {
+    EXPECT_EQ(lhs.frame_sequence, rhs.frame_sequence);
+    EXPECT_EQ(lhs.bounds, rhs.bounds);
+    EXPECT_EQ(lhs.confidence, rhs.confidence);
+    EXPECT_EQ(lhs.layout_generation, rhs.layout_generation);
+}
+
+void expect_observations_equal(const std::vector<TrackObservation>& lhs, const std::vector<TrackObservation>& rhs) {
+    ASSERT_EQ(lhs.size(), rhs.size());
+    for (size_t i = 0; i < lhs.size(); ++i) {
+        expect_observation_equal(lhs[i], rhs[i]);
+    }
+}
+
+void expect_template_entry_equal(const TrackTemplate& lhs, const TrackTemplate& rhs) {
+    EXPECT_EQ(lhs.fingerprint, rhs.fingerprint);
+    EXPECT_EQ(lhs.frame_sequence, rhs.frame_sequence);
+    EXPECT_EQ(lhs.layout_generation, rhs.layout_generation);
+    EXPECT_EQ(lhs.capture_grade, rhs.capture_grade);
+}
+
+void expect_template_entries_equal(const std::vector<TrackTemplate>& lhs, const std::vector<TrackTemplate>& rhs) {
+    ASSERT_EQ(lhs.size(), rhs.size());
+    for (size_t i = 0; i < lhs.size(); ++i) {
+        expect_template_entry_equal(lhs[i], rhs[i]);
+    }
+}
+
+void expect_tracks_equal(const TargetTrack& lhs, const TargetTrack& rhs) {
+    expect_track_identity_equal(lhs, rhs);
+    expect_track_semantics_equal(lhs, rhs);
+    expect_observations_equal(lhs.position_history, rhs.position_history);
+    expect_template_entries_equal(lhs.templates, rhs.templates);
+    expect_template_entries_equal(lhs.negative_templates, rhs.negative_templates);
+}
+
+/// Adoption of `id` must succeed and report exactly `expected_evicted`.
+void expect_adopt_evicts(ObjectTracker& tracker, const ImageView& view, uint64_t id, uint64_t sequence,
+                         const std::vector<uint64_t>& expected_evicted) {
+    const auto adopted = tracker.adopt_track(make_region(id, RectF{0.0F, 0.0F, 8.0F, 8.0F}), view, sequence);
+    ASSERT_TRUE(adopted.ok()) << adopted.status().message();
+    EXPECT_EQ(adopted.value().evicted_track_ids, expected_evicted);
+}
+
+/// The stored adoption template of `id` must equal the fingerprint computed
+/// directly through the public crop + patch-fingerprint API on the same view.
+void expect_adoption_template_matches_direct(const ObjectTracker& tracker, uint64_t id, const ImageView& view,
+                                             const RectF& bounds, int32_t thumb_side) {
+    const TargetTrack* track = tracker.find_track(id);
+    ASSERT_NE(track, nullptr);
+    ASSERT_EQ(track->templates.size(), 1U);
+    const auto reference = direct_template(view, bounds, thumb_side);
+    ASSERT_TRUE(reference.ok()) << reference.status().message();
+    EXPECT_EQ(track->templates[0].fingerprint, reference.value())
+        << "covering-ROI template mismatch for bounds " << bounds.x << "," << bounds.y;
+}
+
+/// One full rotation-matrix case: adoption on the rotated view must match the
+/// direct computation of the same presented space.
+void expect_rotation_adoption_matches_direct(const TestImage& image, Rotation rotation, const RectF& bounds) {
+    ObjectTracker tracker = make_tracker();
+    const ImageView view = view_of(image, rotation);
+    const auto adopted = tracker.adopt_track(make_region(11U, bounds), view, 4);
+    ASSERT_TRUE(adopted.ok()) << "rotation " << static_cast<int>(rotation) << ": " << adopted.status().message();
+    ASSERT_EQ(tracker.track_count(), 1U);
+    expect_adoption_template_matches_direct(tracker, 11U, view, bounds, tracker.options().template_thumb_side);
+
+    const TargetTrack* track = tracker.find_track(11U);
+    ASSERT_NE(track, nullptr);
+    EXPECT_EQ(track->last_bounds, bounds);
+    const PointF expected_center{bounds.x + bounds.width / 2.0F, bounds.y + bounds.height / 2.0F};
+    EXPECT_EQ(track->predicted_center, expected_center);
 }
 
 // --- create: defaults and option validation --------------------------------------
@@ -589,20 +653,14 @@ TEST(ObjectTrackerTest, AdoptCapturesTemplateMatchingDirectPublicComputation) {
     };
     int32_t next_id = 1;
     for (const RectF& bounds : cases) {
+        const auto id = static_cast<uint64_t>(next_id);
         ObjectTracker tracker = make_tracker();
         const TestImage image = make_rgba_image(16, 12);
         const ImageView view = view_of(image);
 
-        const auto adopted = tracker.adopt_track(make_region(static_cast<uint64_t>(next_id), bounds), view, 2);
+        const auto adopted = tracker.adopt_track(make_region(id, bounds), view, 2);
         ASSERT_TRUE(adopted.ok()) << adopted.status().message();
-        const TargetTrack* track = tracker.find_track(static_cast<uint64_t>(next_id));
-        ASSERT_NE(track, nullptr);
-        ASSERT_EQ(track->templates.size(), 1U);
-
-        const auto reference = direct_template(view, bounds, tracker.options().template_thumb_side);
-        ASSERT_TRUE(reference.ok()) << reference.status().message();
-        EXPECT_EQ(track->templates[0].fingerprint, reference.value())
-            << "covering-ROI template mismatch for bounds " << bounds.x << "," << bounds.y;
+        expect_adoption_template_matches_direct(tracker, id, view, bounds, tracker.options().template_thumb_side);
         ++next_id;
     }
 }
@@ -734,19 +792,11 @@ TEST(ObjectTrackerTest, AdoptTerminatedEvictionOrdersByOldestVerification) {
     ASSERT_TRUE(tracker.terminate(2U, 20).ok());
     ASSERT_TRUE(tracker.terminate(4U, 21).ok());
 
-    const auto first = tracker.adopt_track(make_region(5U, RectF{0.0F, 0.0F, 8.0F, 8.0F}), view, 10);
-    ASSERT_TRUE(first.ok()) << first.status().message();
-    EXPECT_EQ(first.value().evicted_track_ids, (std::vector<uint64_t>{2U}));
-
-    const auto second = tracker.adopt_track(make_region(6U, RectF{0.0F, 0.0F, 8.0F, 8.0F}), view, 11);
-    ASSERT_TRUE(second.ok()) << second.status().message();
-    EXPECT_EQ(second.value().evicted_track_ids, (std::vector<uint64_t>{4U}));
-
+    expect_adopt_evicts(tracker, view, 5U, 10, {2U});
+    expect_adopt_evicts(tracker, view, 6U, 11, {4U});
     // All terminated archives are gone; the next victim is the oldest live
     // track by last_verified_sequence (id 1, lvs 0, vs id 3, lvs 2).
-    const auto third = tracker.adopt_track(make_region(7U, RectF{0.0F, 0.0F, 8.0F, 8.0F}), view, 12);
-    ASSERT_TRUE(third.ok()) << third.status().message();
-    EXPECT_EQ(third.value().evicted_track_ids, (std::vector<uint64_t>{1U}));
+    expect_adopt_evicts(tracker, view, 7U, 12, {1U});
 
     EXPECT_EQ(tracker.evicted_track_count(), 3U);
     EXPECT_EQ(tracker.track_ids(), (std::vector<uint64_t>{3U, 5U, 6U, 7U}));
@@ -1025,20 +1075,7 @@ TEST(ObjectTrackerTest, AdoptCoversAllRotationsOnOddSizedView) {
     const RectF bounds{1.5F, 2.5F, 8.2F, 6.4F};       // fractional edges
 
     for (const Rotation rotation : {Rotation::k0, Rotation::k90, Rotation::k180, Rotation::k270}) {
-        ObjectTracker tracker = make_tracker();
-        const ImageView view = view_of(image, rotation);
-        const auto adopted = tracker.adopt_track(make_region(11U, bounds), view, 4);
-        ASSERT_TRUE(adopted.ok()) << "rotation " << static_cast<int>(rotation) << ": " << adopted.status().message();
-        ASSERT_EQ(tracker.track_count(), 1U);
-
-        const TargetTrack* track = tracker.find_track(11U);
-        ASSERT_NE(track, nullptr);
-        ASSERT_EQ(track->templates.size(), 1U);
-        const auto reference = direct_template(view, bounds, tracker.options().template_thumb_side);
-        ASSERT_TRUE(reference.ok()) << reference.status().message();
-        EXPECT_EQ(track->templates[0].fingerprint, reference.value()) << "rotation " << static_cast<int>(rotation);
-        EXPECT_EQ(track->last_bounds, bounds);
-        EXPECT_EQ(track->predicted_center, (PointF{bounds.x + bounds.width / 2.0F, bounds.y + bounds.height / 2.0F}));
+        expect_rotation_adoption_matches_direct(image, rotation, bounds);
     }
 }
 
@@ -1094,6 +1131,68 @@ TEST(ObjectTrackerTest, AdoptRegionFlushWithViewEdges) {
     EXPECT_EQ(tracker.byte_size(), expected_track_bytes(32, 1, 1, 0, 0) * 2);
 }
 
+/// One deterministic operation sequence: four adoptions (the fourth forces a
+/// count eviction), one termination, one more adoption (evicts the terminated
+/// archive). `ok` is false when any step fails; failures are reported inside.
+struct SequenceRun {
+    bool ok = false;
+    ObjectTracker tracker;
+    std::vector<std::vector<uint64_t>> evictions;
+    std::vector<uint64_t> adopted_ids;
+};
+
+SequenceRun run_object_tracker_sequence(const ObjectTrackerOptions& options, const ImageView& view,
+                                        const RectF& bounds) {
+    SequenceRun run;
+    run.tracker = make_tracker(options);
+    for (const uint64_t id : {10U, 20U, 30U, 40U}) {
+        const auto adopted = run.tracker.adopt_track(make_region(id, bounds, 0.8F, "a", "b"), view, id - 10U);
+        if (!adopted.ok()) {
+            ADD_FAILURE() << "adopt " << id << ": " << adopted.status().message();
+            return run;
+        }
+        run.adopted_ids.push_back(adopted.value().track_id);
+        run.evictions.push_back(adopted.value().evicted_track_ids);
+    }
+    if (!run.tracker.terminate(30U, 50).ok()) {
+        ADD_FAILURE() << "terminate 30 failed";
+        return run;
+    }
+    const auto last = run.tracker.adopt_track(make_region(60U, bounds, 0.8F, "a", "b"), view, 5);
+    if (!last.ok()) {
+        ADD_FAILURE() << "adopt 60: " << last.status().message();
+        return run;
+    }
+    run.adopted_ids.push_back(last.value().track_id);
+    run.evictions.push_back(last.value().evicted_track_ids);
+    run.ok = true;
+    return run;
+}
+
+void expect_pool_runs_identical(const SequenceRun& first, const SequenceRun& second) {
+    // At least one adoption must have evicted something, so the determinism
+    // comparison actually covers eviction bookkeeping.
+    EXPECT_TRUE(std::any_of(first.evictions.begin(), first.evictions.end(),
+                            [](const std::vector<uint64_t>& evicted) { return !evicted.empty(); }));
+    EXPECT_EQ(first.adopted_ids, second.adopted_ids);
+    EXPECT_EQ(first.evictions, second.evictions);
+    EXPECT_EQ(first.tracker.track_ids(), second.tracker.track_ids());
+    EXPECT_EQ(first.tracker.byte_size(), second.tracker.byte_size());
+    EXPECT_EQ(first.tracker.evicted_track_count(), second.tracker.evicted_track_count());
+}
+
+void expect_track_maps_identical(const ObjectTracker& first, const ObjectTracker& second) {
+    const std::vector<uint64_t> ids = first.track_ids();
+    ASSERT_EQ(ids.size(), second.track_ids().size());
+    for (const uint64_t id : ids) {
+        const TargetTrack* lhs = first.find_track(id);
+        const TargetTrack* rhs = second.find_track(id);
+        ASSERT_NE(lhs, nullptr);
+        ASSERT_NE(rhs, nullptr);
+        expect_tracks_equal(*lhs, *rhs);  // includes exact fingerprint bytes
+    }
+}
+
 TEST(ObjectTrackerTest, IdenticalSequencesYieldBitwiseIdenticalPools) {
     // Exact 3-track byte accounting plus headroom for the next template
     // capture, so the sequence forces count evictions (capture runs before
@@ -1107,61 +1206,16 @@ TEST(ObjectTrackerTest, IdenticalSequencesYieldBitwiseIdenticalPools) {
 
     const TestImage image = make_rgba_image(24, 16);
     const RectF bounds{1.0F, 2.0F, 16.0F, 12.0F};
+    const ImageView view = view_of(image);
 
-    auto run_sequence = [options, &image, bounds]() {
-        ObjectTracker tracker = make_tracker(options);
-        const ImageView view = view_of(image);
-        std::vector<std::vector<uint64_t>> evictions;
-        std::vector<uint64_t> adopted_ids;
-        for (const uint64_t id : {10U, 20U, 30U, 40U}) {
-            const auto adopted = tracker.adopt_track(make_region(id, bounds, 0.8F, "a", "b"), view, id - 10U);
-            if (!adopted.ok()) {
-                return std::optional<
-                    std::tuple<ObjectTracker, std::vector<std::vector<uint64_t>>, std::vector<uint64_t>>>{};
-            }
-            adopted_ids.push_back(adopted.value().track_id);
-            evictions.push_back(adopted.value().evicted_track_ids);
-        }
-        if (!tracker.terminate(30U, 50).ok()) {
-            return std::optional<
-                std::tuple<ObjectTracker, std::vector<std::vector<uint64_t>>, std::vector<uint64_t>>>{};
-        }
-        const auto last = tracker.adopt_track(make_region(60U, bounds, 0.8F, "a", "b"), view, 5);
-        if (!last.ok()) {
-            return std::optional<
-                std::tuple<ObjectTracker, std::vector<std::vector<uint64_t>>, std::vector<uint64_t>>>{};
-        }
-        adopted_ids.push_back(last.value().track_id);
-        evictions.push_back(last.value().evicted_track_ids);
-        return std::optional<std::tuple<ObjectTracker, std::vector<std::vector<uint64_t>>, std::vector<uint64_t>>>{
-            std::tuple{std::move(tracker), evictions, adopted_ids}};
-    };
-
-    const auto first_run = run_sequence();
-    const auto second_run = run_sequence();
-    ASSERT_TRUE(first_run.has_value());
-    ASSERT_TRUE(second_run.has_value());
-    auto& [first_tracker, first_evictions, first_ids] = *first_run;
-    auto& [second_tracker, second_evictions, second_ids] = *second_run;
-
-    EXPECT_TRUE(std::any_of(first_evictions.begin(), first_evictions.end(),
-                            [](const std::vector<uint64_t>& evicted) { return !evicted.empty(); }));
-    EXPECT_EQ(first_ids, second_ids);
-    EXPECT_EQ(first_evictions, second_evictions);
-    EXPECT_EQ(first_tracker.track_ids(), second_tracker.track_ids());
-    EXPECT_EQ(first_tracker.byte_size(), second_tracker.byte_size());
-    EXPECT_EQ(first_tracker.evicted_track_count(), second_tracker.evicted_track_count());
-    ASSERT_EQ(first_tracker.track_ids().size(), second_tracker.track_ids().size());
-    for (const uint64_t id : first_tracker.track_ids()) {
-        const TargetTrack* lhs = first_tracker.find_track(id);
-        const TargetTrack* rhs = second_tracker.find_track(id);
-        ASSERT_NE(lhs, nullptr);
-        ASSERT_NE(rhs, nullptr);
-        expect_tracks_equal(*lhs, *rhs);  // includes exact fingerprint bytes
-    }
-    for (int64_t used : {first_tracker.byte_size(), second_tracker.byte_size()}) {
-        EXPECT_LE(used, first_tracker.options().pool_budget_bytes);
-    }
+    const SequenceRun first = run_object_tracker_sequence(options, view, bounds);
+    const SequenceRun second = run_object_tracker_sequence(options, view, bounds);
+    ASSERT_TRUE(first.ok);
+    ASSERT_TRUE(second.ok);
+    expect_pool_runs_identical(first, second);
+    expect_track_maps_identical(first.tracker, second.tracker);
+    EXPECT_LE(first.tracker.byte_size(), first.tracker.options().pool_budget_bytes);
+    EXPECT_LE(second.tracker.byte_size(), first.tracker.options().pool_budget_bytes);
 }
 
 }  // namespace
