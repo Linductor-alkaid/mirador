@@ -174,5 +174,10 @@ A/B/C/D 基准发布；go/no-go 判定。
 - 同步：API 索引（fusion 节 Experimental 条目）、兼容性登记新增
   Experimental API 节（不计兼容性承诺）、CHANGELOG Unreleased、设计 §5
   冻结落点注记、总计划 1.8 修订与里程碑索引。
-- 限制：跨平台（MSVC/NDK/focal）编译证据随本分支 PR 的 CI 运行回填；阈值
-  初值为开发冒烟默认值，M7-09 校准（`DEC-019` 第 5 条）。
+- CI 回填：PR #20（[run 35626923647](https://github.com/Linductor-alkaid/mirador/actions/runs/35626923647)）
+  14/14 job 全绿——msvc/ninja、ndk/arm64-v8a、gcc10（focal 容器）、clang debug/fuzz、
+  integrations-ncnn、capture/opencv 适配与 clang-format/clang-tidy 双口径。
+  首轮 CI lint 在测试文件暴露 11 处违规（断言辅助函数认知复杂度、const/qualified-auto、
+  optional 解引用、include-cleaner；此前 tidy 检查只覆盖了实现文件），按仓库先例
+  拆分辅助函数修复（35 用例名称、数量与断言语义不变），复跑后全绿。
+- 限制：阈值初值为开发冒烟默认值，M7-09 校准（`DEC-019` 第 5 条）。
