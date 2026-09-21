@@ -1,8 +1,8 @@
 # 兼容性登记
 
 > 状态：Active（`M5-08` 立档；M6 登记 `geometric_proposal.hpp`，`DEC-018`
-> 阶段 1 转正后为正式兼容性登记）
-> 更新日期：2026-09-20
+> 阶段 1 转正后为正式兼容性登记；M7 新增 Experimental API 节）
+> 更新日期：2026-09-21
 > 负责人：linductor
 
 本文登记 Mirador 实际验证过的构建与运行组合，以及各可选依赖的已知可用版本
@@ -42,6 +42,12 @@
 | 头 / 符号 | 登记依据 | 状态说明 |
 | --- | --- | --- |
 | `include/mirador/geometric_proposal.hpp`（`propose_regions`、`GeometricRegionProposal`、`GeometricProposalParams`、`OrientedRect`） | M6 实验轨道交付（[DEC-017](../decisions/DEC-017-geometric-region-proposal-experiment.md)）；[DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)（Accepted，2026-09-20）阶段 1 转正 | 自 2026-09-20 起**计入兼容性承诺**：字段与签名变更走兼容性变更流程；随 `MIRADOR_BUILD_GEOMETRY` 交付，依赖闭包仍仅标准库。`temporal_stability` 契约与融合/输出模型集成属 `DEC-018` 阶段 2，另行立项 |
+
+## Experimental API 登记（M7，不计兼容性承诺）
+
+| 头 / 符号 | 登记依据 | 状态说明 |
+| --- | --- | --- |
+| `include/mirador/object_tracker.hpp`（`TrackState`、`EvidenceGrade`、`TrackObservation`、`TrackTemplate`、`TrackSemantics`、`TargetTrack`、`ObjectTrackerOptions`、`TrackAdoption`、`ObjectTracker`） | M7-01 契约冻结（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) Accepted；[跟踪设计](../design/object-tracking-design.md)） | **Experimental**：M7 内字段与签名可调整；`ObjectTracker` 随管线工作项（M7-03 起）在同一头内扩展，直至 M7-09/M7-10 go/no-go 判定后经决策冻结才计入兼容性承诺。阈值初值为开发默认值，M7-09 校准（`DEC-019` 第 5 条） |
 
 ## 平台功能可用性
 

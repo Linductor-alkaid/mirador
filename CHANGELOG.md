@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+### 新增（M7 跨帧目标跟踪，`DEC-019`，Experimental）
+
+- M7 立项生效（2026-09-21，负责人批准）：[DEC-019](docs/decisions/DEC-019-cross-frame-object-tracking.md)
+  （跨帧目标跟踪能力立项）与 [DEC-020](docs/decisions/DEC-020-tracker-backend-spi.md)
+  （`TrackerBackend` SPI 契约）转 Accepted，[跟踪设计](docs/design/object-tracking-design.md)
+  与 [M7 里程碑](docs/plans/m7-cross-frame-object-tracking.md)生效。
+- M7-01：`mirador::fusion` 新增 Experimental 公共契约
+  `object_tracker.hpp`——`TrackState` 四态生命周期（`kTracking/kUncertain/
+  kLost/kTerminated`）、`TargetTrack` 有界目标池数据模型（位置历史/模板/负模板/
+  语义快照）与 `ObjectTracker` 池管理（`create` 选项校验、`adopt_track`
+  模板捕获与显式淘汰、`terminate` 失败可见、预算与淘汰 trace 计数）。全部
+  默认值（目标数、位置历史上限、模板/负模板数、字节预算、
+  `uncertain_frame_limit`、验证阈值初值、重检测退避初值）冻结于
+  `ObjectTrackerOptions`，阈值初值随 M7-09 校准。帧级跟踪管线（门控短路/
+  邻域验证/运动补偿/级联重检测）随 M7-03 起在同一 Experimental 头内扩展；
+  契约经 M7-09/M7-10 go/no-go 判定后才计入兼容性承诺。
+
 ## [0.3.0] - 2026-09-20
 
 M6「几何区域 Proposal 实验（实验轨道，`DEC-017`）」全部工作项落地与

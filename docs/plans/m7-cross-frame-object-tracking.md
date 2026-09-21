@@ -1,6 +1,7 @@
 # M7：跨帧目标跟踪（低负载 SOT 与级联重检测）
 
-> 状态：Proposed（立项随 [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) 评审）
+> 状态：In Progress（2026-09-21 立项生效：[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)
+> / [DEC-020](../decisions/DEC-020-tracker-backend-spi.md) 经负责人批准转 Accepted）
 > 负责人：linductor
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
@@ -48,7 +49,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 
 ## 工作项
 
-- [ ] `M7-01` 契约冻结：`TrackState`/`TargetTrack`/`ObjectTracker` 公共契约
+- [x] `M7-01` 契约冻结：`TrackState`/`TargetTrack`/`ObjectTracker` 公共契约
   （`mirador::fusion`，Experimental 标记）与全部默认值（目标数、位置历史上限、
   模板/负模板数、字节预算、`uncertain_frame_limit`、验证阈值初值、重检测
   退避初值），附伪实现测试与确定性/取消/错误语义说明；同步 API 索引与
@@ -140,4 +141,38 @@ A/B/C/D 基准发布；go/no-go 判定。
 
 ## 验证记录
 
-（按日期追加；立项时尚无实施记录。）
+2026-09-21：M7 立项生效与 `M7-01` 交付（分支 `feat/m7-cross-frame-object-tracking`；
+测试由 Independent-Verification-Agent 独立编写与执行）：
+
+- 立项：负责人指示"依照设计与计划，继续下一阶段开发"——[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)
+  与 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md) 同轮批准转
+  Accepted，[跟踪设计](../design/object-tracking-design.md)转 Active，本里程碑
+  转 In Progress；总计划 1.8 修订。
+- `M7-01`：公共契约 `include/mirador/object_tracker.hpp`（`TrackState` 四态、
+  `EvidenceGrade` 四级、`TrackObservation`/`TrackTemplate`/`TrackSemantics`、
+  `TargetTrack`、`ObjectTrackerOptions`、`TrackAdoption`、`ObjectTracker`）与
+  `src/fusion/object_tracker.cpp`。全部默认值冻结：`max_targets` 64、
+  `max_position_history` 32、`max_templates` 4、`max_negative_templates` 4、
+  `template_thumb_side` 32、`pool_budget_bytes` 1 MiB、`uncertain_frame_limit` 5、
+  `max_generation_lag` 1、验证阈值初值 NCC 强 0.8/弱 0.6、峰旁瓣比 5.0、结构
+  偏差容差 0.2、验证 ROI 对角比例 1.0、重检测退避 1/60 帧、最大尝试 8。
+  `terminate` 归档释放模板/负模板/位置历史，仅保留身份记录（失败可见）。
+  池预算、显式淘汰（terminated 优先 → 最旧验证 → 低 id）与失败原子性
+  （错误路径池不变）为冻结语义。帧级管线方法（门控短路/邻域验证/运动补偿/
+  级联重检测原语）随 `M7-03`~`M7-08` 在同一 Experimental 头内扩展
+  （`PerceptionSession` M2 建类、M4 增 `fuse()` 的既有演进先例）。
+- 验证：`mirador.fusion.object_tracker` 35 用例覆盖 create 校验矩阵、adopt
+  错误原子性、covering-ROI 模板指纹与公共 API 逐位一致、字节记账公式、
+  显式淘汰四规则、字节预算压力、terminate 生命周期、reset、0/90/180/270
+  旋转 × 奇数尺寸 × 非连续 stride × 贴边坐标矩阵（`DOD-03`）与双 tracker
+  确定性。首轮发现 2 处实现缺陷（terminate 字节记账多减 history/语义、
+  精确满池时捕获预算阻塞淘汰）与 1 处契约歧义（归档是否保留位置历史，
+  裁决为释放），修复后复验通过。六预设：debug 45/45（`mirador.adapters.opencv`
+  为 debug 既有条目差异）、asan/ubsan/tsan/release/warnings 各 44/44，
+  ASAN/UBSAN/TSAN 零告警；clang-format 三文件零违规；clang-tidy
+  `--warnings-as-errors='*'` 实现文件退出码 0；架构与隐私测试随全量套件通过。
+- 同步：API 索引（fusion 节 Experimental 条目）、兼容性登记新增
+  Experimental API 节（不计兼容性承诺）、CHANGELOG Unreleased、设计 §5
+  冻结落点注记、总计划 1.8 修订与里程碑索引。
+- 限制：跨平台（MSVC/NDK/focal）编译证据随本分支 PR 的 CI 运行回填；阈值
+  初值为开发冒烟默认值，M7-09 校准（`DEC-019` 第 5 条）。
