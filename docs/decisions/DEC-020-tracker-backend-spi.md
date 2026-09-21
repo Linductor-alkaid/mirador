@@ -1,6 +1,7 @@
 # DEC-020：TrackerBackend SPI 契约（有状态跟踪后端）
 
-> 状态：Proposed（待负责人评审批准；最迟 M7-11 实施前冻结）
+> 状态：Accepted（2026-09-21，随 [DEC-019](DEC-019-cross-frame-object-tracking.md)
+> 同轮批准；语义边界即日生效，接口字段与错误语义最迟 M7-11 契约冻结时定稿）
 > 日期：2026-09-21
 > 负责人：linductor
 > 冻结里程碑：M7

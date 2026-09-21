@@ -1,11 +1,17 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.7
+> 版本：1.8
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-21
+>
+> 1.8 修订（2026-09-21）：M7 立项生效——负责人指示"依照设计与计划，继续
+> 下一阶段开发"，[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)
+> 与 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md) 同轮批准转
+> Accepted；M7 里程碑转 In Progress（分支 `feat/m7-cross-frame-object-tracking`），
+> `M7-01` 目标池契约冻结交付（`object_tracker.hpp`，Experimental）。
 >
 > 1.7 修订（2026-09-21）：按负责人指示将轻量深度 tracker 升级为 M7 计划性
 > 交付——新增 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md)
@@ -75,7 +81,10 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 `geometric_proposal.hpp` 计入兼容性承诺，阶段 2 融合/输出模型集成待真实
 截图评估另行立项）；`v0.3.0` tag 与 GitHub Release 经用户授权发布；
 [里程碑文档](m6-geometric-region-proposal-experiment.md)含完整判定记录与
-口径限定）。
+口径限定）。M7「跨帧目标跟踪（低负载 SOT 与级联重检测）」已启动
+（2026-09-21，立项生效：`DEC-019`/`DEC-020` 经负责人批准转 Accepted，
+[里程碑文档](m7-cross-frame-object-tracking.md)转 In Progress；`M7-01`
+目标池契约冻结已交付）。
 
 ## 交付边界
 
@@ -174,7 +183,7 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Completed | [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md) |
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Completed | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
 | M6 | 几何区域 Proposal 实验（实验轨道） | M5 | `v0.3.0` | Completed | [m6-geometric-region-proposal-experiment.md](m6-geometric-region-proposal-experiment.md) |
-| M7 | 跨帧目标跟踪（低负载 SOT 与级联重检测） | M6 | `v0.4.0`（暂定） | Proposed | [m7-cross-frame-object-tracking.md](m7-cross-frame-object-tracking.md) |
+| M7 | 跨帧目标跟踪（低负载 SOT 与级联重检测） | M6 | `v0.4.0`（暂定） | In Progress | [m7-cross-frame-object-tracking.md](m7-cross-frame-object-tracking.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
 并与 tag 一一对应。M4 完成设计文档第 26 节的"首个可用版本"验收。
@@ -206,10 +215,10 @@ API 非冻结 Experimental 标记、确定性/预算底线不放宽、晋升门�
 模型集成以真实截图评估为前置，另行立项）。1.6 修订新增：
 [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)（跨帧目标
 跟踪能力立项：fusion 落点、双通道证据模型、显式丢失语义与级联重检测原语、
-合成先行 + go/no-go 转正路径；Proposed，待负责人评审）。1.7 修订新增：
+合成先行 + go/no-go 转正路径；1.8 修订经负责人批准为 Accepted）。1.7 修订新增：
 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md)（`TrackerBackend`
 SPI 契约：有状态会话句柄制、同步/取消语义、能力结果缓存豁免界定；
-Proposed，待负责人评审，最迟 M7-11 实施前冻结）。
+1.8 修订同轮批准为 Accepted，接口字段最迟 M7-11 契约冻结时定稿）。
 
 ## 通用完成定义
 
