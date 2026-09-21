@@ -1,11 +1,26 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.5
+> 版本：1.7
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-20
+> 更新日期：2026-09-21
+>
+> 1.7 修订（2026-09-21）：按负责人指示将轻量深度 tracker 升级为 M7 计划性
+> 交付——新增 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md)
+> （`TrackerBackend` SPI 契约：有状态会话句柄、同步边界、缓存豁免界定，
+> Proposed）；`POST-06` 由延后项升级为计划性交付物（NanoTrack ncnn 参考
+> 后端随 M7-11~13 落于 `integrations/`，复用 `DEC-015` ncnn 基础设施）；
+> 新增 `RISK-2026-18`（深度通道置信冲突/漂移污染）。DEC-019 同步修订决策
+> 第 6 条（仍 Proposed）。
+>
+> 1.6 修订（2026-09-21）：M7「跨帧目标跟踪（低负载 SOT 与级联重检测）」
+> 立项草案立档——新增 [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)
+> （Proposed，待负责人评审）、[跟踪设计](../design/object-tracking-design.md)
+> 与 [M7 里程碑](m7-cross-frame-object-tracking.md)（Proposed）；新增
+> `SCOPE-13`、`POST-06`/`POST-07`、`RISK-2026-17`/`RISK-2026-16`。范围未
+> 生效，随 DEC-019 评审结论确定。
 >
 > 1.5 修订（2026-09-20）：经用户授权发布 `v0.3.0`（tag 打在 v0.3.0 收尾 PR
 > 合并提交）；批准 [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
@@ -102,6 +117,15 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
   [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
   已批准（Accepted）：阶段 1 契约冻结生效并计入兼容性承诺，阶段 2 融合/
   输出模型集成待真实数据另行立项）。
+- [ ] `SCOPE-13` 跨帧目标跟踪：跟踪状态机（`kTracking/kUncertain/kLost/
+  kTerminated`）与有界目标池、变化检测门控三级短路、邻域验证（模板 NCC +
+  闭合结构一致性）、全局运动补偿与布局代际、丢失判定与级联重检测原语及
+  身份复核、`TrackerBackend` SPI（[DEC-020](../decisions/DEC-020-tracker-backend-spi.md)，
+  Proposed）与 NanoTrack ncnn 参考后端（`integrations/`，`DEC-015` 机制）
+  及深度增强通道条件化融合（设计 §24 M7、[跟踪设计](../design/object-tracking-design.md)、
+  [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)（Proposed）；
+  合成验证先行，`ObjectTracker`/`TrackerBackend` 契约 Experimental 至
+  go/no-go 判定后经决策冻结）。
 
 ### 明确不包含
 
@@ -150,6 +174,7 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 | M4 | 融合、稳定 ID 与 SoM | M3 | `v0.1.0` | Completed | [m4-fusion-stable-id-and-som.md](m4-fusion-stable-id-and-som.md) |
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Completed | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
 | M6 | 几何区域 Proposal 实验（实验轨道） | M5 | `v0.3.0` | Completed | [m6-geometric-region-proposal-experiment.md](m6-geometric-region-proposal-experiment.md) |
+| M7 | 跨帧目标跟踪（低负载 SOT 与级联重检测） | M6 | `v0.4.0`（暂定） | Proposed | [m7-cross-frame-object-tracking.md](m7-cross-frame-object-tracking.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
 并与 tag 一一对应。M4 完成设计文档第 26 节的"首个可用版本"验收。
@@ -178,7 +203,13 @@ API 非冻结 Experimental 标记、确定性/预算底线不放宽、晋升门�
 收口新增：[DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)
 （几何 Proposal 两阶段转正，2026-09-20 经用户授权批准为 Accepted：阶段 1
 契约冻结已生效、`geometric_proposal.hpp` 计入兼容性承诺；阶段 2 融合/输出
-模型集成以真实截图评估为前置，另行立项）。
+模型集成以真实截图评估为前置，另行立项）。1.6 修订新增：
+[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)（跨帧目标
+跟踪能力立项：fusion 落点、双通道证据模型、显式丢失语义与级联重检测原语、
+合成先行 + go/no-go 转正路径；Proposed，待负责人评审）。1.7 修订新增：
+[DEC-020](../decisions/DEC-020-tracker-backend-spi.md)（`TrackerBackend`
+SPI 契约：有状态会话句柄制、同步/取消语义、能力结果缓存豁免界定；
+Proposed，待负责人评审，最迟 M7-11 实施前冻结）。
 
 ## 通用完成定义
 
@@ -204,6 +235,11 @@ API 非冻结 Experimental 标记、确定性/预算底线不放宽、晋升门�
 - `POST-02` 异步扩展接口（不破坏核心 ABI）— 触发：多个调用方证明同步封装不足。
 - `POST-03` 光流/轻量特征增强变化检测 — 触发：M1 基准漏检/误检率超标。
 - `POST-04` Embedder Backend 与嵌入视觉索引 — 触发：M3 图标索引命中率不足。
+- `POST-07` CF tracker（KCF/MOSSE 类）进 `mirador::geometry` 可选实现 —
+  触发：M7 邻域验证在快速位移场景精度不足且模板 NCC 与深度增强通道均
+  不可救；无模型依赖，源码引入先许可证审查（同 `DEC-009` 流程）。
+  （`POST-06` 已于 1.7 修订升级为计划性交付物，见下方"计划性交付物
+  （1.7 修订）"清单。）
 
 **计划性独立交付物（1.1 修订，自延后项升级）**：
 
@@ -215,6 +251,16 @@ API 非冻结 Experimental 标记、确定性/预算底线不放宽、晋升门�
   仓库内 `integrations/` + `MIRADOR_BUILD_INTEGRATIONS` 默认 OFF，评测接入分层
   （合成模型冒烟 / 使用者显式路径提供权重的真实模型评测）。交付随 M5 `M5-02`~`M5-04`
   实施。模型权重不进仓库，示例通过用户显式提供路径运行。
+
+**计划性交付物（1.7 修订，自延后项升级）**：
+
+- `POST-06` `TrackerBackend` SPI 与 NanoTrack ncnn 参考后端——有状态跟踪
+  后端的公共契约（会话句柄制，语义见 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md)，
+  Proposed）与参考实现（`integrations/`，复用 `POST-05` 的 `NcnnRuntime`
+  与默认零获取机制；权重不入仓、用户显式路径）。2026-09-21 按负责人指示
+  由"触发后演进"升级为 M7 计划性交付（`M7-11`~`M7-13`）；定位为深度增强
+  可选通道，传统双通道仍为主路径，未注入时管线零变化。许可证与模型来源
+  审查随 `M7-12` 登记 `docs/supply-chain/`。
 
 ## 风险
 
@@ -229,6 +275,17 @@ API 非冻结 Experimental 标记、确定性/预算底线不放宽、晋升门�
 - `RISK-2026-09` 一方线段检测器在真实场景（屏幕分隔线、道路边界）的检出质量未与
   ELSED 对齐 — 跟进：M3 以确定性正确性为准，M5 基准收口；触发条件见
   [DEC-009](../decisions/DEC-009-elsed-integration.md)（M3 立项新增）。
+- `RISK-2026-17` 跟踪位置先验在滚动/布局突变期结构性失效（运动补偿不足或
+  全局/局部变化误判）— 跟进：M7 `M7-04`/`M7-07` 与 A/B/C/D 对比矩阵 B/C
+  差值、`*-scroll` 延续率；回退为收紧代际判定或位置通道降权
+  （[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)）。
+- `RISK-2026-16` `*-similar-icons` 场景跟踪 swap（impostor 负证据不足）—
+  跟进：M7 负模板机制与 swap 率门槛；回退为相似外观候选一律降级
+  `kUncertain`（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)）。
+- `RISK-2026-18` 深度增强通道与传统双通道置信冲突或深度 tracker 漂移污染
+  模板池 — 跟进：M7 `M7-13` 组合规则（冲突保守降级 + 高置信模板更新仅取
+  双通道一致帧）；深度通道可选注入，不达标时上层可关闭，主路径不受影响
+  （[DEC-020](../decisions/DEC-020-tracker-backend-spi.md)）。
 
 ## 验证记录
 

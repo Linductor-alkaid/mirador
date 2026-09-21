@@ -408,6 +408,10 @@ Mirador 自身许可证可以维持 MIT 方向，但每个可选依赖、参考�
 
 M6 已于 2026-09-20 收口：`DEC-017` 第 6 条四项晋升门槛初值在合成口径全部 PASS（go/no-go 判定 GO 与口径限定见 M6 里程碑），经负责人授权批准 [DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md) 执行两阶段转正——阶段 1 契约冻结即日生效（`geometric_proposal.hpp` 撤销 Experimental 标记、计入兼容性承诺，仍位于 `mirador::geometry`，依赖闭包不变）；阶段 2（进入 §8 输出模型与 §16 融合证据源、`temporal_stability` 正式契约、VisualIndex 几何门控正式化）以真实截图评估为前置条件，另行立项，本节其余描述在阶段 2 立项前继续有效。
 
+### M7：跨帧目标跟踪（Proposed，随 DEC-019 评审立项）
+
+把 §16 的稳定 ID 从"相邻快照关联"扩展为带时间维度的持续跟踪：在 `PerceptionSession` 内对同一视觉对象维持身份与位置估计，常态以 §10/§11 变化检测门控短路（画面未变或变化 ROI 与目标外推不相交时近零成本复用），局部变化时以模板 NCC（峰值+峰旁瓣质量）与已冻结的 `GeometricRegionProposal` 闭合结构一致性做双通道邻域验证，丢失时以显式状态机（`kTracking/kUncertain/kLost/kTerminated`）与预算化原语支持上层按需触发 Detector 重检测并做候选身份复核。位置-时间先验作为条件化软证据参与门控：静止期全权重，经全局运动补偿后覆盖滚动期，布局代际递增时清零降权——先验只作门控与占位，身份确认需外观或语义证据。能力落在 `mirador::fusion`（状态机、有界目标池、条件化证据融合），`mirador::image` 新增纯 CPU 确定性全局位移估计原语，零新依赖、不触及核心链接闭包；`ObjectTracker` 契约在 M7 内保持 Experimental，go/no-go 判定 GO 后经决策冻结。详细设计（统计模型、状态机、管线、指标与 A/B/C/D 基准矩阵）见[跨帧目标跟踪设计](object-tracking-design.md)，工作项见 M7 里程碑，能力边界与转正路径见 [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)。轻量深度 tracker 经 `TrackerBackend` SPI 注入（契约语义见 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md)）作为可选增强通道：NanoTrack ncnn 参考后端随 M7 落于 `integrations/`（复用 `DEC-015` ncnn 基础设施，权重不入仓），未注入时管线零变化；CF tracker 仍为延后项 `POST-07`，触发条件随决策记录冻结。
+
 ## 25. 首版 API 使用示例
 
 以下示例展示调用方拥有调度与 Backend，Mirador 只组织视觉处理。具体命名可在 M0 原型中调整，但依赖关系不应改变。
