@@ -311,7 +311,10 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   自断言通过——相对 M1 基线无可测回归结论维持。
 - 限制：`build(tests)` 修复仅改 TSAN 分支的测试注册命令（非 TSAN 预设
   注册零差异），debug/tsan 完整 ctest 与五构建 object_tracker 直跑已在
-  修复后复验；release/asan/ubsan/warnings 预设的完整 ctest 未在该修复
-  commit 之上重跑，六预设完整门禁随编排脚本在本提交之上重跑确认。
-- CI 回填：待补（分支未推送；PR 与 CI run 链接随 CI 门禁落地回填，同
-  M7-01/M7-02 先例）。
+  修复后复验；release/asan/ubsan/warnings 预设的完整 ctest 由 CI 在包含
+  该修复的分支 head 上重跑通过（见下方 CI 回填）。
+- CI 回填：PR #22（[run 35756793022](https://github.com/Linductor-alkaid/mirador/actions/runs/35756793022)）
+  14/14 job 全绿——msvc/ninja、ndk/arm64-v8a、gcc10（focal 容器）、clang
+  debug/fuzz、gcc 六预设（debug/asan/ubsan/tsan/warnings）、
+  integrations-ncnn、capture/opencv 适配与 clang-format/clang-tidy 双
+  口径；首轮通过，无修复往返。
