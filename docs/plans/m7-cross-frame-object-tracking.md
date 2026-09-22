@@ -213,3 +213,7 @@ Independent-Verification-Agent 独立编写与执行）：
   （状态机随 M7-06 落地后补测；实现检视确认门禁仅拒绝 `kTerminated`）；
   `advance_layout_generation` 的 uint32 耗尽分支无法实际注入，未测。代际
   推进的触发判定（全局变化分类）与代际切换降级随 M7-07/M7-06 交付。
+- CI 回填：PR #21（[run 35685102913](https://github.com/Linductor-alkaid/mirador/actions/runs/35685102913)）
+  14/14 job 全绿——msvc/ninja、ndk/arm64-v8a、gcc10（focal 容器）、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与
+  clang-format/clang-tidy 双口径；首轮通过，无修复往返。
