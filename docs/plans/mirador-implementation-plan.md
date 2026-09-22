@@ -1,11 +1,31 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.9
+> 版本：1.11
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-22
+> 更新日期：2026-09-23
+>
+> 1.11 修订（2026-09-23）：M7 工作项 `M7-03` 变化检测门控三级短路测试与
+> 门禁证据落地，工作项勾选——Independent-Verification-Agent 验证套件
+> 16 用例（三级分类、同帧多 track 独立短路、DOD-03 坐标矩阵、取消/超时
+> 转化、确定性）随契约修正 commit 合入；本地门禁 tsan 失败定位为高熵
+> ASLR 内核环境冲突（与被测代码无关），经测试注册 `setarch -R` 修复后
+> 裸 `ctest --preset tsan` 44/44，debug ctest 45/45，object_tracker 直跑
+> 五构建各 72/72；门控基准复跑 gate-only p50 0.198–0.244 µs 落已发布
+> 0.09–0.34 µs 区间，相对 M1 基线无可测回归结论维持。CI 证据随 PR #22
+> 回填（run 35759053505，14/14 job 全绿，PR 待合入）；`SCOPE-13` 维持
+> 未勾选（M7 进行中）。
+>
+> 1.10 修订（2026-09-22）：M7 工作项 `M7-03` 变化检测门控三级短路实现与
+> 基准对照交付于工作分支 `feat/m7-03-change-gated-short-circuit`——
+> `ObjectTracker::evaluate_change_gate`（消费调用方 `ChangeReport` 的纯决策
+> 门控，kNone 全短路/kPartial 逐 track ROI 相交判定/kGlobal 不短路）与
+> `mirador_bench_change_gate` 开销对照（gate-only p50 0.09–0.34 µs，对 M1
+> 基线无可测回归，数字发布于 `docs/benchmarks/`）；测试由
+> Independent-Verification-Agent 独立执行，工作项勾选与 CI 证据随门禁落地
+> 回填。`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.9 修订（2026-09-22）：M7 工作项 `M7-02` 目标池有界结构交付——
 > `ObjectTracker` 池有界变更原语（`record_observation`/`add_template`/
@@ -89,7 +109,10 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 口径限定）。M7「跨帧目标跟踪（低负载 SOT 与级联重检测）」已启动
 （2026-09-21，立项生效：`DEC-019`/`DEC-020` 经负责人批准转 Accepted，
 [里程碑文档](m7-cross-frame-object-tracking.md)转 In Progress；`M7-01`
-目标池契约冻结与 `M7-02` 池有界变更原语已交付）。
+目标池契约冻结、`M7-02` 池有界变更原语已交付，`M7-03` 变化检测门控三级
+短路已交付并勾选（实现、16 用例验证套件、门控基准与门禁证据落地；CI
+证据已回填：[PR #22](https://github.com/Linductor-alkaid/mirador/pull/22)
+run 35759053505 14/14 job 全绿，待合入）。
 
 ## 交付边界
 

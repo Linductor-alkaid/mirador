@@ -1,5 +1,6 @@
 #include <mirador/object_tracker.hpp>
 
+#include <mirador/change_detection.hpp>
 #include <mirador/crop.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
@@ -9,6 +10,8 @@
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/status.hpp>
+
+#include "rect_math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -48,6 +51,64 @@ void truncate_text(std::string& text) noexcept {
     if (text.size() > ObjectTracker::kMaxSemanticsTextBytes) {
         text.resize(ObjectTracker::kMaxSemanticsTextBytes);
     }
+}
+
+/// True when every change ROI is a non-empty rect.
+[[nodiscard]] bool rois_valid(const std::vector<RectI>& regions) noexcept {
+    return std::all_of(regions.begin(), regions.end(),
+                       [](const RectI& region) { return region.width > 0 && region.height > 0; });
+}
+
+/// Pool entry for one track under a given active-path decision: kTracking
+/// tracks get `active_decision`, every other state an explicit kInactive.
+[[nodiscard]] TrackGateDecision pool_entry(const TargetTrack& track,
+                                           const ChangeGateDecision active_decision) noexcept {
+    const bool active = track.state == TrackState::kTracking;
+    return TrackGateDecision{track.track_id, track.state, active ? active_decision : ChangeGateDecision::kInactive,
+                             std::nullopt};
+}
+
+/// First (scan-order) ROI intersecting `bounds`, or nullopt when the bounds
+/// stay clear of every change ROI (edge-touching counts as clear). Integer
+/// ROIs convert to float per comparison (exact), keeping the scan
+/// allocation-free.
+[[nodiscard]] std::optional<size_t> first_intersecting_roi(const std::vector<RectI>& regions,
+                                                           const RectF& bounds) noexcept {
+    for (size_t index = 0; index < regions.size(); ++index) {
+        const RectF roi{static_cast<float>(regions[index].x), static_cast<float>(regions[index].y),
+                        static_cast<float>(regions[index].width), static_cast<float>(regions[index].height)};
+        if (fusion_internal::intersection_area(roi, bounds) > 0.0) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+/// Appends the kPartial per-track verdicts (levels 2/3 of the gate) to
+/// `trace`: one entry per track, independent per track, with the
+/// cancellation/deadline checked per track. Returns the matching Status when
+/// `context` aborts the scan mid-way (no partial trace is published — the
+/// caller discards `trace`).
+[[nodiscard]] Result<void> append_partial_trace(ChangeGateTrace& trace, const std::vector<RectI>& regions,
+                                                const std::vector<TargetTrack>& tracks,
+                                                const ExecutionContext& context) noexcept {
+    for (const TargetTrack& track : tracks) {
+        if (is_cancelled(context)) {
+            return Status{ErrorCode::kCancelled, "evaluate_change_gate cancelled"};
+        }
+        if (deadline_reached(context)) {
+            return Status{ErrorCode::kTimeout, "evaluate_change_gate deadline reached"};
+        }
+        if (track.state != TrackState::kTracking) {
+            trace.tracks.push_back(pool_entry(track, ChangeGateDecision::kInactive));
+            continue;
+        }
+        const std::optional<size_t> hit = first_intersecting_roi(regions, track.last_bounds);
+        trace.tracks.push_back(
+            TrackGateDecision{track.track_id, track.state,
+                              hit.has_value() ? ChangeGateDecision::kVerify : ChangeGateDecision::kReuse, hit});
+    }
+    return Status::success();
 }
 
 }  // namespace
@@ -362,6 +423,50 @@ std::vector<TrackObservation> ObjectTracker::observations_in_generation(uint64_t
         }
     }
     return entries;
+}
+
+Result<ChangeGateTrace> ObjectTracker::evaluate_change_gate(const ChangeReport& report,
+                                                            const ExecutionContext& context) const noexcept {
+    if (is_cancelled(context)) {
+        return Status{ErrorCode::kCancelled, "evaluate_change_gate cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return Status{ErrorCode::kTimeout, "evaluate_change_gate deadline reached"};
+    }
+    if (!rois_valid(report.changed_regions)) {
+        return Status{ErrorCode::kInvalidArgument, "evaluate_change_gate change ROI must be non-empty"};
+    }
+
+    ChangeGateTrace trace;
+    trace.classification = report.classification;
+    trace.tracks.reserve(tracks_.size());
+    switch (report.classification) {
+        case ChangeClassification::kNone:
+            // Level 1: the frame is unchanged — reuse every track without any
+            // per-track geometric work (the near-zero path).
+            for (const TargetTrack& track : tracks_) {
+                trace.tracks.push_back(pool_entry(track, ChangeGateDecision::kReuse));
+            }
+            break;
+        case ChangeClassification::kPartial:
+            // Levels 2/3: per-track ROI intersection against last_bounds (the
+            // extrapolated position until M7-04/M7-07).
+            if (const auto appended = append_partial_trace(trace, report.changed_regions, tracks_, context);
+                !appended.ok()) {
+                return appended.status();
+            }
+            break;
+        case ChangeClassification::kGlobal:
+            // Level 3 for every track: nothing short-circuits. The layout
+            // generation advance stays with the M7-07 pipeline.
+            for (const TargetTrack& track : tracks_) {
+                trace.tracks.push_back(pool_entry(track, ChangeGateDecision::kVerify));
+            }
+            break;
+        default:
+            return Status{ErrorCode::kInvalidArgument, "evaluate_change_gate unknown change classification"};
+    }
+    return trace;
 }
 
 void ObjectTracker::reset() noexcept {

@@ -1,6 +1,7 @@
 #ifndef MIRADOR_OBJECT_TRACKER_HPP
 #define MIRADOR_OBJECT_TRACKER_HPP
 
+#include <mirador/change_detection.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_view.hpp>
@@ -181,6 +182,47 @@ struct TrackAdoption {
     std::vector<uint64_t> evicted_track_ids;
 };
 
+/// Per-track verdict of one change-gate evaluation (object-tracking design
+/// section 6.1, M7-03). The gate classifies only: it never mutates the pool
+/// and never fabricates a verification outcome (the neighborhood verifier is
+/// M7-05).
+enum class ChangeGateDecision : uint8_t {
+    /// Short-circuit reuse (levels 1-2 of the gate): the frame is unchanged
+    /// or no change ROI intersects the track's bounds, so the track keeps its
+    /// position estimate and no verification work is spent on it this frame.
+    kReuse,
+    /// Level-3 entry: a change ROI intersects the track's bounds (or the
+    /// classification is kGlobal) — the track goes to the neighborhood
+    /// verification entry, whose body is delivered with M7-05.
+    kVerify,
+    /// The track is not kTracking (kUncertain/kLost/kTerminated): the gate
+    /// makes no short-circuit decision for it and reports the state explicitly
+    /// instead of skipping it silently (state transitions belong to M7-06).
+    kInactive,
+};
+
+/// One track's entry of a `ChangeGateTrace`.
+struct TrackGateDecision {
+    uint64_t track_id = 0;
+    /// Track state at decision time (echo; the gate never changes it).
+    TrackState state = TrackState::kTracking;
+    ChangeGateDecision decision = ChangeGateDecision::kInactive;
+    /// Scan-order index into `ChangeReport::changed_regions` of the first ROI
+    /// intersecting the track's bounds. Set only for kVerify verdicts under a
+    /// kPartial classification; a kGlobal verdict stays empty because the
+    /// whole frame changed and no single ROI drives its verification.
+    std::optional<size_t> change_region_index;
+};
+
+/// Deterministic whole-pool result of one `evaluate_change_gate` call: the
+/// echoed classification plus one entry per held track in ascending
+/// `track_id` order (the pool's deterministic enumeration order, terminated
+/// archives included). Bounded by `options().max_targets` entries.
+struct ChangeGateTrace {
+    ChangeClassification classification = ChangeClassification::kNone;
+    std::vector<TrackGateDecision> tracks;
+};
+
 /// Bounded cross-frame target pool over fused regions (object-tracking design
 /// section 5, SCOPE-13). The pool is the structural core of the M7 tracker:
 /// adoption captures the initial appearance template from the frame, every
@@ -314,6 +356,67 @@ public:
     /// the track is unknown or no entry matches. Never throws.
     [[nodiscard]] std::vector<TrackObservation> observations_in_generation(uint64_t track_id,
                                                                            uint32_t generation) const noexcept;
+
+    /// Change-gated three-level short circuit over the whole pool (M7-03;
+    /// object-tracking design section 6.1). Consumes the caller's
+    /// `ChangeReport` — the session main loop runs `detect_change` (M1); this
+    /// gate holds no previous frame and never re-implements change detection —
+    /// and classifies every held track as a pure read (`const`): no pool state
+    /// changes on any path.
+    ///
+    /// Levels (cost-ascending, per design section 6.1):
+    ///   1. `kNone` — frame not significantly changed: every kTracking track
+    ///      is `kReuse` with zero per-track geometric work (the near-zero
+    ///      path; the fingerprint comparison is the cost `detect_change`
+    ///      already paid).
+    ///   2. `kPartial` — per track, the change ROIs are tested against
+    ///      `last_bounds`, which until the motion primitives land (M7-04/
+    ///      M7-07) is exactly the extrapolated position (`predicted_center`
+    ///      is the `last_bounds` center). No intersection → `kReuse`
+    ///      (disjoint short circuit); intersection → `kVerify` carrying the
+    ///      first intersecting ROI's scan-order index. Verdicts are
+    ///      independent per track: one track's verdict never influences
+    ///      another's.
+    ///   3. `kGlobal` — no track short-circuits: every kTracking track is
+    ///      `kVerify` (with an empty `change_region_index`). The
+    ///      layout-generation advance a global classification may trigger
+    ///      belongs to the M7-07 pipeline and is deliberately NOT done here
+    ///      (see `advance_layout_generation`).
+    ///
+    /// Adjudications ahead of the M7-06 state machine: tracks in
+    /// kUncertain/kLost/kTerminated get an explicit `kInactive` entry — never
+    /// a silent skip; terminated archives stay visible in the trace. Reuse
+    /// never advances `last_verified_sequence` or any other evidence field:
+    /// a short-circuit consumes no appearance evidence (design section 3 —
+    /// the position prior is gating/placeholder evidence only), so
+    /// evidence-grade confirmations stay with the M7-06 state machine and
+    /// frame-stamped history bookkeeping stays with the caller via
+    /// `record_observation`. The gate is a pure decision and therefore takes
+    /// no frame_sequence.
+    ///
+    /// RISK-2026-17 note: before motion compensation exists (M7-04/M7-07), a
+    /// scroll-class change intersects every track and all of them enter the
+    /// verification entry — that is the designed behavior at this stage, not
+    /// a defect.
+    ///
+    /// Coordinates: the change ROIs must be expressed in this tracker's single
+    /// coordinate space (for session pipelines the oriented view space — the
+    /// same space `ChangeReport::changed_regions` uses when `detect_change`
+    /// runs on the presented view); mixing spaces across calls is the caller's
+    /// error, as everywhere in this header.
+    ///
+    /// Determinism: identical inputs produce bit-identical traces (ascending
+    /// `track_id`; ROI indices follow the report's scan order). Errors:
+    /// kInvalidArgument when `report.classification` holds an unknown value or
+    /// any entry of `changed_regions` is not a non-empty rect;
+    /// kCancelled/kTimeout from `context` (checked at entry and per track on
+    /// the kPartial path; a cancelled call returns only the Status, never a
+    /// partial trace). On error the tracker is untouched. Bounded work:
+    /// O(tracks × ROIs), both bounded (RULE-06); the scan is scalar-only, so
+    /// nothing is allocated beyond the returned trace and, on error, the
+    /// Status message. Never throws.
+    [[nodiscard]] Result<ChangeGateTrace> evaluate_change_gate(const ChangeReport& report,
+                                                               const ExecutionContext& context = {}) const noexcept;
 
     /// Drops all pool state; the next adoption starts from scratch. Caller
     /// initiated — the tracker never clears itself silently.

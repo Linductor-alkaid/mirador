@@ -8,10 +8,16 @@
 // untouched. The M7-02 section below independently verifies the bounded pool
 // primitives (record_observation, add_template, add_negative_template,
 // advance_layout_generation, observations_in_generation), the per-resource
-// eviction counters and the byte_size formula.
+// eviction counters and the byte_size formula. The M7-03 section at the end
+// independently verifies the change-gated three-level short circuit
+// (evaluate_change_gate): three-level semantics, per-track independence,
+// determinism, purity, the DOD-03 coordinate matrix, explicit inactive
+// verdicts, cancellation/deadline conversion, bounded work and the M1
+// detect_change end-to-end report contract.
 
 #include <mirador/object_tracker.hpp>
 
+#include <mirador/change_detection.hpp>
 #include <mirador/crop.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
@@ -32,6 +38,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -2118,6 +2125,659 @@ TEST(ObjectTrackerTest, ByteSizeMatchesFormulaAcrossTemplatesNegativesAndGenerat
     ASSERT_TRUE(tracker.adopt_track(make_region(2U, RectF{2.0F, 2.0F, 4.0F, 4.0F}, 0.4F, "z"), view, 8).ok());
     EXPECT_EQ(tracker.byte_size(), expected_track_bytes(16, 5, 6, 2, 2) + expected_track_bytes(16, 1, 1, 1, 0));
     expect_byte_invariant(tracker);
+}
+
+// --- M7-03 change-gated three-level short circuit: evaluate_change_gate ------------
+//
+// Independent verification of the change gate (object-tracking design section
+// 6.1): level semantics (kNone all-reuse / kPartial per-track ROI intersection
+// / kGlobal all-verify), per-track independence, bit-identical determinism,
+// purity (no pool mutation, no evidence-field advance, no premature layout
+// generation), the DOD-03 coordinate matrix, explicit kInactive verdicts for
+// non-kTracking states, kCancelled/kTimeout conversion without a partial
+// trace, bounded work, and the caller-side ChangeReport contract with the real
+// M1 detector. Privacy (RULE-10/DOD-06) is structural here: a ChangeGateTrace
+// carries only ids, states, decisions and ROI indices — no template or frame
+// content exists to leak — and the shared privacy suite covers the binary.
+
+using mirador::ChangeClassification;
+using mirador::ChangeDetectionParams;
+using mirador::ChangeGateDecision;
+using mirador::ChangeGateTrace;
+using mirador::ChangeReport;
+using mirador::detect_change;
+using mirador::TrackGateDecision;
+
+/// Minimal caller-side report: the gate consumes only the classification and
+/// the change ROIs (the session main loop owns `detect_change`).
+ChangeReport make_gate_report(const ChangeClassification classification, std::vector<RectI> regions) {
+    ChangeReport report;
+    report.classification = classification;
+    report.changed_regions = std::move(regions);
+    return report;
+}
+
+/// Overwrites an RGBA8 rect with a flat gray value (end-to-end detector cases).
+void fill_rgba_rect(TestImage& image, const RectI& rect, const uint8_t gray) {
+    for (int32_t y = rect.y; y < rect.y + rect.height; ++y) {
+        for (int32_t x = rect.x; x < rect.x + rect.width; ++x) {
+            const size_t offset =
+                static_cast<size_t>(y) * static_cast<size_t>(image.stride) + static_cast<size_t>(x) * 4U;
+            image.pixels[offset + 0] = static_cast<std::byte>(gray);
+            image.pixels[offset + 1] = static_cast<std::byte>(gray);
+            image.pixels[offset + 2] = static_cast<std::byte>(gray);
+            image.pixels[offset + 3] = static_cast<std::byte>(255);
+        }
+    }
+}
+
+void adopt_or_fail(ObjectTracker& tracker, const ImageView& view, const uint64_t id, const RectF& bounds) {
+    const auto adopted = tracker.adopt_track(make_region(id, bounds), view, 1);
+    ASSERT_TRUE(adopted.ok()) << "adopt " << id << ": " << adopted.status().message();
+}
+
+const TrackGateDecision* entry_of(const ChangeGateTrace& trace, const uint64_t track_id) {
+    const auto match = std::find_if(trace.tracks.begin(), trace.tracks.end(),
+                                    [track_id](const TrackGateDecision& entry) { return entry.track_id == track_id; });
+    return match == trace.tracks.end() ? nullptr : &*match;
+}
+
+/// One trace entry: decision, state echo, and the documented
+/// `change_region_index` discipline (set only for kVerify under kPartial).
+void expect_entry(const ChangeGateTrace& trace, const uint64_t track_id, const TrackState expected_state,
+                  const ChangeGateDecision expected_decision, const std::optional<size_t> expected_index,
+                  const char* label) {
+    const TrackGateDecision* entry = entry_of(trace, track_id);
+    ASSERT_NE(entry, nullptr) << label << ": no trace entry for track " << track_id;
+    EXPECT_EQ(entry->decision, expected_decision) << label << ", track " << track_id;
+    EXPECT_EQ(entry->state, expected_state) << label << ", track " << track_id;
+    EXPECT_EQ(entry->change_region_index.has_value(), expected_index.has_value()) << label << ", track " << track_id;
+    if (expected_index.has_value() && entry->change_region_index.has_value()) {
+        EXPECT_EQ(*entry->change_region_index, *expected_index) << label << ", track " << track_id;
+    }
+}
+
+/// Full copies of every held track, for pure-decision comparisons.
+std::vector<TargetTrack> tracks_copy_of(const ObjectTracker& tracker) {
+    std::vector<TargetTrack> copies;
+    copies.reserve(tracker.track_count());
+    for (const uint64_t id : tracker.track_ids()) {
+        const TargetTrack* track = tracker.find_track(id);
+        EXPECT_NE(track, nullptr) << "enumerated id " << id << " not resolvable";
+        if (track != nullptr) {
+            copies.push_back(*track);
+        }
+    }
+    return copies;
+}
+
+void expect_pool_tracks_equal(const std::vector<TargetTrack>& before, const ObjectTracker& tracker) {
+    ASSERT_EQ(tracker.track_count(), before.size());
+    for (const TargetTrack& copy : before) {
+        const TargetTrack* track = tracker.find_track(copy.track_id);
+        ASSERT_NE(track, nullptr) << "track " << copy.track_id << " vanished";
+        expect_tracks_equal(*track, copy);
+    }
+}
+
+/// One entry of a bitwise trace comparison (split out to keep both functions
+/// under the complexity gate; the locals pin the optional access for the
+/// analyzer).
+void expect_gate_entries_bitwise_equal(const TrackGateDecision& lhs, const TrackGateDecision& rhs, const size_t index) {
+    EXPECT_EQ(lhs.track_id, rhs.track_id) << "entry " << index;
+    EXPECT_EQ(lhs.state, rhs.state) << "entry " << index;
+    EXPECT_EQ(lhs.decision, rhs.decision) << "entry " << index;
+    const std::optional<size_t> lhs_region = lhs.change_region_index;
+    const std::optional<size_t> rhs_region = rhs.change_region_index;
+    EXPECT_EQ(lhs_region.has_value(), rhs_region.has_value()) << "entry " << index;
+    if (lhs_region.has_value() && rhs_region.has_value()) {
+        EXPECT_EQ(*lhs_region, *rhs_region) << "entry " << index;
+    }
+}
+
+void expect_traces_bitwise_equal(const ChangeGateTrace& lhs, const ChangeGateTrace& rhs) {
+    EXPECT_EQ(lhs.classification, rhs.classification);
+    ASSERT_EQ(lhs.tracks.size(), rhs.tracks.size());
+    for (size_t i = 0; i < lhs.tracks.size(); ++i) {
+        ASSERT_NO_FATAL_FAILURE(expect_gate_entries_bitwise_equal(lhs.tracks[i], rhs.tracks[i], i));
+    }
+}
+
+TEST(ObjectTrackerTest, ChangeGateEmptyPoolEchoesClassification) {
+    const ObjectTracker tracker = make_tracker();
+    for (const ChangeClassification classification :
+         {ChangeClassification::kNone, ChangeClassification::kPartial, ChangeClassification::kGlobal}) {
+        const auto gated = tracker.evaluate_change_gate(make_gate_report(classification, {}));
+        ASSERT_TRUE(gated.ok()) << gated.status().message();
+        EXPECT_TRUE(gated.value().tracks.empty());
+        EXPECT_EQ(gated.value().classification, classification);
+    }
+}
+
+TEST(ObjectTrackerTest, ChangeGateNoneReusesEveryTrackingTrack) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(48, 32);
+    const ImageView view = view_of(image);
+    // Scrambled adoption order; the trace enumerates ascending track_id.
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 3U, RectF{2.0F, 2.0F, 8.0F, 6.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 1U, RectF{20.0F, 4.0F, 10.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 2U, RectF{34.0F, 12.0F, 8.0F, 6.0F}));
+
+    const auto gated = tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kNone, {}));
+    ASSERT_TRUE(gated.ok()) << gated.status().message();
+    EXPECT_EQ(gated.value().classification, ChangeClassification::kNone);
+    ASSERT_EQ(gated.value().tracks.size(), 3U);
+    EXPECT_EQ(gated.value().tracks[0].track_id, 1U);
+    EXPECT_EQ(gated.value().tracks[1].track_id, 2U);
+    EXPECT_EQ(gated.value().tracks[2].track_id, 3U);
+    for (const TrackGateDecision& entry : gated.value().tracks) {
+        EXPECT_EQ(entry.decision, ChangeGateDecision::kReuse);
+        EXPECT_EQ(entry.state, TrackState::kTracking);
+        EXPECT_FALSE(entry.change_region_index.has_value());
+    }
+
+    // Level 1 ignores ROIs entirely: even a full-frame ROI under kNone cannot
+    // turn into verification work.
+    const auto with_rois =
+        tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kNone, {RectI{0, 0, 48, 32}}));
+    ASSERT_TRUE(with_rois.ok()) << with_rois.status().message();
+    for (const TrackGateDecision& entry : with_rois.value().tracks) {
+        EXPECT_EQ(entry.decision, ChangeGateDecision::kReuse);
+        EXPECT_FALSE(entry.change_region_index.has_value());
+    }
+}
+
+/// The gate is a pure decision on every level: no pool counter and no track
+/// field changes — reuse consumes no appearance evidence (design section 3),
+/// and kGlobal must not pre-trigger the M7-07 layout generation advance.
+TEST(ObjectTrackerTest, ChangeGateIsPureOnEveryLevelAndNeverAdvancesGeneration) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(48, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 5U, RectF{4.0F, 4.0F, 12.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 6U, RectF{24.0F, 10.0F, 10.0F, 8.0F}));
+    ASSERT_TRUE(tracker.terminate(5U, 7).ok());
+
+    const std::vector<ChangeReport> reports{
+        make_gate_report(ChangeClassification::kNone, {}),
+        make_gate_report(ChangeClassification::kPartial, {RectI{2, 2, 30, 20}}),  // overlaps everything
+        make_gate_report(ChangeClassification::kGlobal, {}),
+    };
+    for (const ChangeReport& report : reports) {
+        const PoolSnapshot before = snapshot_of(tracker);
+        const std::vector<TargetTrack> before_tracks = tracks_copy_of(tracker);
+
+        const auto gated = tracker.evaluate_change_gate(report);
+        ASSERT_TRUE(gated.ok()) << gated.status().message();
+
+        expect_pool_untouched(before, tracker);
+        ASSERT_NO_FATAL_FAILURE(expect_pool_tracks_equal(before_tracks, tracker));
+        // The global-classification trigger of advance_layout_generation
+        // belongs to the M7-07 pipeline and must not run here.
+        EXPECT_EQ(tracker.layout_generation(), 0U);
+    }
+}
+
+/// Level 2, disjoint side: rect intersection is half-open, so an ROI ending
+/// exactly at (or starting exactly at) a track edge shares zero area with it
+/// and the track short-circuits.
+TEST(ObjectTrackerTest, ChangeGatePartialEdgeTouchingRoisShortCircuit) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(48, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 9U, RectF{10.0F, 10.0F, 20.0F, 10.0F}));
+
+    const std::vector<RectI> clear_rois{
+        RectI{0, 0, 4, 4},     // far away
+        RectI{31, 10, 4, 4},   // one-pixel gap past the right edge (30)
+        RectI{0, 10, 10, 10},  // ends exactly at the left edge (10)
+        RectI{30, 10, 5, 5},   // starts exactly at the right edge (30)
+        RectI{10, 0, 10, 10},  // ends exactly at the top edge (10)
+        RectI{10, 20, 10, 5},  // starts exactly at the bottom edge (20)
+        RectI{30, 20, 5, 5},   // corner touch
+        RectI{36, 24, 8, 6},   // fully outside
+    };
+    for (const RectI& roi : clear_rois) {
+        const auto gated = tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kPartial, {roi}));
+        ASSERT_TRUE(gated.ok()) << gated.status().message();
+        ASSERT_EQ(gated.value().tracks.size(), 1U);
+        EXPECT_EQ(gated.value().tracks[0].decision, ChangeGateDecision::kReuse) << "roi " << roi.x << "," << roi.y;
+        EXPECT_FALSE(gated.value().tracks[0].change_region_index.has_value());
+    }
+}
+
+/// Level 2/3 boundary: an ROI with positive overlap area produces the explicit
+/// kVerify entry (the M7-05 verifier's entry point — never a fabricated
+/// verification result), carrying the first intersecting ROI's scan-order
+/// index.
+TEST(ObjectTrackerTest, ChangeGatePartialIntersectingRoiCarriesFirstScanOrderIndex) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(48, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 9U, RectF{10.0F, 10.0F, 20.0F, 10.0F}));
+
+    const std::vector<RectI> hitting_rois{
+        RectI{12, 12, 4, 4},   // fully inside the track
+        RectI{0, 0, 48, 32},   // track fully inside the ROI
+        RectI{29, 12, 2, 2},   // one-pixel overlap past the right edge
+        RectI{-5, 12, 16, 2},  // negative origin overlapping the left part
+    };
+    for (const RectI& roi : hitting_rois) {
+        const auto gated = tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kPartial, {roi}));
+        ASSERT_TRUE(gated.ok()) << gated.status().message();
+        ASSERT_EQ(gated.value().tracks.size(), 1U);
+        EXPECT_EQ(gated.value().tracks[0].decision, ChangeGateDecision::kVerify) << "roi " << roi.x << "," << roi.y;
+        const std::optional<size_t> hit_index = gated.value().tracks[0].change_region_index;
+        if (!hit_index.has_value()) {
+            ADD_FAILURE() << "kVerify without change_region_index, roi " << roi.x << "," << roi.y;
+            continue;
+        }
+        EXPECT_EQ(*hit_index, 0U);
+    }
+
+    // The carried index is the FIRST intersecting ROI in the report's scan
+    // order — not the largest or the closest one.
+    const auto second_hits = tracker.evaluate_change_gate(
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 2, 2}, RectI{12, 12, 4, 4}, RectI{40, 0, 4, 4}}));
+    ASSERT_TRUE(second_hits.ok()) << second_hits.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_entry(second_hits.value(), 9U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                         std::optional<size_t>{1}, "second-hits"));
+
+    const auto first_hits = tracker.evaluate_change_gate(make_gate_report(
+        ChangeClassification::kPartial, {RectI{12, 12, 2, 2}, RectI{0, 0, 2, 2}, RectI{14, 14, 2, 2}}));
+    ASSERT_TRUE(first_hits.ok()) << first_hits.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_entry(first_hits.value(), 9U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                         std::optional<size_t>{0}, "first-hits"));
+}
+
+/// Same-frame multi-track independence: each verdict depends only on its own
+/// track's bounds; one track entering verification never influences the others.
+TEST(ObjectTrackerTest, ChangeGatePartialDecidesEachTrackIndependently) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(64, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 30U, RectF{40.0F, 2.0F, 8.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 10U, RectF{2.0F, 2.0F, 8.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 20U, RectF{20.0F, 2.0F, 8.0F, 8.0F}));
+
+    const auto middle_only =
+        tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kPartial, {RectI{22, 4, 4, 4}}));
+    ASSERT_TRUE(middle_only.ok()) << middle_only.status().message();
+    ASSERT_EQ(middle_only.value().tracks.size(), 3U);
+    ASSERT_NO_FATAL_FAILURE(expect_entry(middle_only.value(), 10U, TrackState::kTracking, ChangeGateDecision::kReuse,
+                                         std::nullopt, "middle-only"));
+    ASSERT_NO_FATAL_FAILURE(expect_entry(middle_only.value(), 20U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                         std::optional<size_t>{0}, "middle-only"));
+    ASSERT_NO_FATAL_FAILURE(expect_entry(middle_only.value(), 30U, TrackState::kTracking, ChangeGateDecision::kReuse,
+                                         std::nullopt, "middle-only"));
+
+    // First and third hit by different ROIs; the middle stays clear of both.
+    const auto ends_hit = tracker.evaluate_change_gate(
+        make_gate_report(ChangeClassification::kPartial, {RectI{4, 4, 2, 2}, RectI{44, 4, 2, 2}}));
+    ASSERT_TRUE(ends_hit.ok()) << ends_hit.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_entry(ends_hit.value(), 10U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                         std::optional<size_t>{0}, "ends-hit"));
+    ASSERT_NO_FATAL_FAILURE(expect_entry(ends_hit.value(), 20U, TrackState::kTracking, ChangeGateDecision::kReuse,
+                                         std::nullopt, "ends-hit"));
+    ASSERT_NO_FATAL_FAILURE(expect_entry(ends_hit.value(), 30U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                         std::optional<size_t>{1}, "ends-hit"));
+
+    // One-pixel separation: the ROI overlaps the first track by one pixel and
+    // stops one pixel short of the second.
+    const auto near_miss =
+        tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kPartial, {RectI{9, 4, 10, 4}}));
+    ASSERT_TRUE(near_miss.ok()) << near_miss.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_entry(near_miss.value(), 10U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                         std::optional<size_t>{0}, "near-miss"));
+    ASSERT_NO_FATAL_FAILURE(expect_entry(near_miss.value(), 20U, TrackState::kTracking, ChangeGateDecision::kReuse,
+                                         std::nullopt, "near-miss"));
+    ASSERT_NO_FATAL_FAILURE(expect_entry(near_miss.value(), 30U, TrackState::kTracking, ChangeGateDecision::kReuse,
+                                         std::nullopt, "near-miss"));
+}
+
+/// Level 3: kGlobal never short-circuits; every kTracking track goes to the
+/// verification entry with no region index (no single ROI drives it).
+TEST(ObjectTrackerTest, ChangeGateGlobalVerifiesEveryTrackingTrack) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(64, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 11U, RectF{4.0F, 4.0F, 10.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 12U, RectF{30.0F, 10.0F, 12.0F, 8.0F}));
+    ASSERT_TRUE(tracker.terminate(11U, 5).ok());
+
+    for (const std::vector<RectI>& regions : {std::vector<RectI>{}, std::vector<RectI>{RectI{0, 0, 64, 32}}}) {
+        const auto gated = tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kGlobal, regions));
+        ASSERT_TRUE(gated.ok()) << gated.status().message();
+        EXPECT_EQ(gated.value().classification, ChangeClassification::kGlobal);
+        ASSERT_EQ(gated.value().tracks.size(), 2U);
+        ASSERT_NO_FATAL_FAILURE(expect_entry(gated.value(), 11U, TrackState::kTerminated, ChangeGateDecision::kInactive,
+                                             std::nullopt, "global"));
+        ASSERT_NO_FATAL_FAILURE(expect_entry(gated.value(), 12U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                             std::nullopt, "global"));
+    }
+}
+
+/// Non-kTracking tracks surface as explicit kInactive entries (state echoed)
+/// instead of a silent skip — under every level, and even when a change ROI
+/// directly overlaps the archived track's bounds. kUncertain/kLost are not
+/// constructible through the public API until the M7-06 state machine lands
+/// (plan "限制与衔接"); they share the same pool_entry path and get direct
+/// coverage then.
+TEST(ObjectTrackerTest, ChangeGateReportsInactiveTracksExplicitly) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(48, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 5U, RectF{4.0F, 4.0F, 12.0F, 8.0F}));
+    ASSERT_TRUE(tracker.terminate(5U, 9).ok());
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 6U, RectF{24.0F, 10.0F, 10.0F, 8.0F}));
+
+    const std::vector<ChangeReport> reports{
+        make_gate_report(ChangeClassification::kNone, {}),
+        // The ROI exactly covers the terminated track's bounds: still kInactive.
+        make_gate_report(ChangeClassification::kPartial, {RectI{4, 4, 12, 8}}),
+        make_gate_report(ChangeClassification::kGlobal, {}),
+    };
+    const std::vector<ChangeGateDecision> active_verdicts{ChangeGateDecision::kReuse, ChangeGateDecision::kReuse,
+                                                          ChangeGateDecision::kVerify};
+    for (size_t i = 0; i < reports.size(); ++i) {
+        const auto gated = tracker.evaluate_change_gate(reports[i]);
+        ASSERT_TRUE(gated.ok()) << gated.status().message();
+        ASSERT_EQ(gated.value().tracks.size(), 2U);
+        ASSERT_NO_FATAL_FAILURE(expect_entry(gated.value(), 5U, TrackState::kTerminated, ChangeGateDecision::kInactive,
+                                             std::nullopt, "inactive"));
+        ASSERT_NO_FATAL_FAILURE(
+            expect_entry(gated.value(), 6U, TrackState::kTracking, active_verdicts[i], std::nullopt, "inactive"));
+    }
+}
+
+/// Determinism (milestone exit condition): identical pools and identical
+/// reports produce bit-identical traces, across repeated calls and across
+/// independently constructed instances.
+
+/// One deterministic-report case: a repeat call on the same instance and a
+/// call on the independent instance must produce bit-identical traces.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest ASSERT_* macro expansion dominates the metric
+void expect_gate_report_deterministic(const ObjectTracker& first, const ObjectTracker& second,
+                                      const ChangeReport& report) {
+    const auto one = first.evaluate_change_gate(report);
+    const auto two = first.evaluate_change_gate(report);
+    const auto other = second.evaluate_change_gate(report);
+    ASSERT_TRUE(one.ok()) << one.status().message();
+    ASSERT_TRUE(two.ok()) << two.status().message();
+    ASSERT_TRUE(other.ok()) << other.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_traces_bitwise_equal(one.value(), two.value()));
+    ASSERT_NO_FATAL_FAILURE(expect_traces_bitwise_equal(one.value(), other.value()));
+}
+
+/// One independently constructed instance of the deterministic three-track
+/// pool (scrambled adoption order, identical inputs).
+ObjectTracker make_deterministic_pool(const RectF& bounds_a, const RectF& bounds_b, const RectF& bounds_c) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(48, 32);
+    const ImageView view = view_of(image);
+    EXPECT_TRUE(tracker.adopt_track(make_region(40U, bounds_c), view, 1).ok());
+    EXPECT_TRUE(tracker.adopt_track(make_region(20U, bounds_a), view, 1).ok());
+    EXPECT_TRUE(tracker.adopt_track(make_region(30U, bounds_b), view, 1).ok());
+    return tracker;
+}
+
+TEST(ObjectTrackerTest, ChangeGateDeterministicAcrossInstancesAndRepeats) {
+    const RectF bounds_a{2.0F, 2.0F, 8.0F, 8.0F};
+    const RectF bounds_b{20.0F, 4.0F, 10.0F, 6.0F};
+    const RectF bounds_c{36.0F, 12.0F, 8.0F, 8.0F};
+
+    const ObjectTracker first = make_deterministic_pool(bounds_a, bounds_b, bounds_c);
+    const ObjectTracker second = make_deterministic_pool(bounds_a, bounds_b, bounds_c);
+
+    const std::vector<ChangeReport> reports{
+        make_gate_report(ChangeClassification::kNone, {}),
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 6, 6}, RectI{22, 5, 4, 4}, RectI{38, 14, 6, 6}}),
+        make_gate_report(ChangeClassification::kGlobal, {}),
+    };
+    for (const ChangeReport& report : reports) {
+        ASSERT_NO_FATAL_FAILURE(expect_gate_report_deterministic(first, second, report));
+    }
+}
+
+/// DOD-03 coordinate matrix for the intersection verdicts: 0/90/180/270
+/// degree rotations over an odd-sized view with non-contiguous stride. The
+/// tracker's single coordinate space is the presented space, so the ROI
+/// rectangle semantics must not depend on the view's rotation.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest ASSERT_* macro expansion dominates the metric
+TEST(ObjectTrackerTest, ChangeGateVerdictsAcrossRotationMatrixWithOddSizeAndStride) {
+    const RectF bounds{5.0F, 4.0F, 8.0F, 6.0F};  // inside the odd 21x15 view
+    const std::vector<std::pair<RectI, ChangeGateDecision>> cases{
+        {RectI{9, 6, 4, 4}, ChangeGateDecision::kVerify},  // overlaps
+        {RectI{13, 6, 4, 4}, ChangeGateDecision::kReuse},  // touches the right edge (5+8) exactly
+        {RectI{17, 7, 3, 3}, ChangeGateDecision::kReuse},  // disjoint
+    };
+    for (const Rotation rotation : {Rotation::k0, Rotation::k90, Rotation::k180, Rotation::k270}) {
+        ObjectTracker tracker = make_tracker();
+        const TestImage image = make_rgba_image(21, 15, 7);  // odd dims, 7 padding bytes per row
+        const ImageView view = view_of(image, rotation);
+        ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 9U, bounds));
+        const TargetTrack* track = tracker.find_track(9U);
+        ASSERT_NE(track, nullptr);
+        EXPECT_EQ(track->last_bounds, bounds);
+
+        for (const auto& [roi, expected] : cases) {
+            const auto gated = tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kPartial, {roi}));
+            ASSERT_TRUE(gated.ok()) << "rotation " << static_cast<int>(rotation) << ": " << gated.status().message();
+            ASSERT_EQ(gated.value().tracks.size(), 1U);
+            EXPECT_EQ(gated.value().tracks[0].decision, expected)
+                << "rotation " << static_cast<int>(rotation) << ", roi " << roi.x << "," << roi.y;
+            EXPECT_EQ(gated.value().tracks[0].change_region_index.has_value(), expected == ChangeGateDecision::kVerify);
+        }
+    }
+}
+
+/// Invalid reports are rejected with kInvalidArgument and leave the pool
+/// untouched: empty (zero or negative extent) ROIs — in any position of the
+/// list — and unknown classifications. ROI validation deliberately precedes
+/// the level switch, so it applies under kNone as well.
+
+/// One invalid-report case: explicit kInvalidArgument, pool byte-exact and
+/// every track field unchanged.
+void expect_rejected_report_leaves_pool_untouched(const ObjectTracker& tracker, const ChangeReport& report,
+                                                  const PoolSnapshot& before,
+                                                  const std::vector<TargetTrack>& before_tracks) {
+    const auto gated = tracker.evaluate_change_gate(report);
+    ASSERT_FALSE(gated.ok());
+    EXPECT_EQ(gated.status().code(), ErrorCode::kInvalidArgument);
+    expect_pool_untouched(before, tracker);
+    ASSERT_NO_FATAL_FAILURE(expect_pool_tracks_equal(before_tracks, tracker));
+}
+
+TEST(ObjectTrackerTest, ChangeGateRejectsInvalidReportsLeavingPoolUntouched) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(48, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7U, RectF{2.0F, 2.0F, 10.0F, 8.0F}));
+    const PoolSnapshot before = snapshot_of(tracker);
+    const std::vector<TargetTrack> before_tracks = tracks_copy_of(tracker);
+
+    const std::vector<ChangeReport> invalid{
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 0, 8}}),
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 8, 0}}),
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, -4, 8}}),
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 4, 8, -1}}),
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 8, 8}, RectI{40, 0, 0, 4}}),
+        make_gate_report(ChangeClassification::kNone, {RectI{0, 0, 0, 8}}),
+        make_gate_report(
+            // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange): undefined-value contract test
+            static_cast<ChangeClassification>(77), {}),
+    };
+    for (const ChangeReport& report : invalid) {
+        ASSERT_NO_FATAL_FAILURE(expect_rejected_report_leaves_pool_untouched(tracker, report, before, before_tracks));
+    }
+}
+
+/// Cancellation wins over input validation and yields the explicit Status on
+/// every level; no partial trace is published and the pool is untouched.
+TEST(ObjectTrackerTest, ChangeGateCancelledContextWinsAndPublishesNoPartialTrace) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(64, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7U, RectF{2.0F, 2.0F, 10.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 8U, RectF{20.0F, 4.0F, 10.0F, 8.0F}));
+    const PoolSnapshot before = snapshot_of(tracker);
+
+    ExecutionContext cancelled;
+    cancelled.is_cancelled = [] { return true; };
+
+    const std::vector<ChangeReport> reports{
+        make_gate_report(ChangeClassification::kNone, {}),
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 64, 32}}),
+        make_gate_report(ChangeClassification::kGlobal, {}),
+        // Cancellation takes priority over the invalid ROI.
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 0, 4}}),
+    };
+    for (const ChangeReport& report : reports) {
+        const auto gated = tracker.evaluate_change_gate(report, cancelled);
+        ASSERT_FALSE(gated.ok());
+        EXPECT_EQ(gated.status().code(), ErrorCode::kCancelled);
+        expect_pool_untouched(before, tracker);
+    }
+}
+
+TEST(ObjectTrackerTest, ChangeGateExpiredDeadlineReturnsTimeoutAtEntry) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(64, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7U, RectF{2.0F, 2.0F, 10.0F, 8.0F}));
+    const PoolSnapshot before = snapshot_of(tracker);
+
+    ExecutionContext expired;
+    expired.deadline = std::chrono::steady_clock::now() - std::chrono::hours(1);
+
+    const std::vector<ChangeReport> reports{
+        make_gate_report(ChangeClassification::kNone, {}),
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 64, 32}}),
+        make_gate_report(ChangeClassification::kGlobal, {}),
+        // The deadline takes priority over the invalid ROI.
+        make_gate_report(ChangeClassification::kNone, {RectI{0, 0, 0, 4}}),
+    };
+    for (const ChangeReport& report : reports) {
+        const auto gated = tracker.evaluate_change_gate(report, expired);
+        ASSERT_FALSE(gated.ok());
+        EXPECT_EQ(gated.status().code(), ErrorCode::kTimeout);
+        expect_pool_untouched(before, tracker);
+    }
+}
+
+/// Mid-scan abort on the kPartial path: the contract polls the context at
+/// entry and per track, so a cancellation that flips after the entry check
+/// still aborts the scan with kCancelled and no trace.
+TEST(ObjectTrackerTest, ChangeGateMidScanCancellationAbortsPartialScan) {
+    ObjectTracker tracker = make_tracker();
+    const TestImage image = make_rgba_image(64, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7U, RectF{2.0F, 2.0F, 10.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 8U, RectF{20.0F, 4.0F, 10.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 9U, RectF{40.0F, 6.0F, 10.0F, 8.0F}));
+
+    int polls = 0;
+    ExecutionContext flip_after_entry;
+    flip_after_entry.is_cancelled = [&polls] { return ++polls > 1; };
+
+    const auto gated = tracker.evaluate_change_gate(
+        make_gate_report(ChangeClassification::kPartial, {RectI{0, 0, 64, 32}}), flip_after_entry);
+    ASSERT_FALSE(gated.ok());
+    EXPECT_EQ(gated.status().code(), ErrorCode::kCancelled);
+    EXPECT_GT(polls, 1) << "the per-track poll never ran";
+    // The gate is const: even an aborted scan leaves the pool as it was.
+    EXPECT_EQ(tracker.track_count(), 3U);
+    EXPECT_EQ(tracker.byte_size(), snapshot_of(tracker).used_bytes);
+}
+
+/// Bounded work (RULE-06): the trace holds exactly one entry per track (the
+/// pool is bounded by max_targets), and a bounded ROI list of any size costs
+/// at most O(tracks x ROIs) with no resource of its own left behind.
+TEST(ObjectTrackerTest, ChangeGateTraceBoundedByPoolBoundsAndRoiCount) {
+    ObjectTrackerOptions options;
+    options.max_targets = 4;
+    ObjectTracker tracker = make_tracker(options);
+    const TestImage image = make_rgba_image(48, 32);
+    const ImageView view = view_of(image);
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 11U, RectF{1.0F, 1.0F, 10.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 12U, RectF{13.0F, 1.0F, 10.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 13U, RectF{25.0F, 1.0F, 10.0F, 8.0F}));
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 14U, RectF{37.0F, 1.0F, 10.0F, 8.0F}));
+
+    std::vector<RectI> rois;
+    rois.reserve(32);
+    for (int i = 0; i < 32; ++i) {
+        rois.push_back(RectI{i, 30, 1, 1});  // bottom row, clear of every track
+    }
+    const auto gated = tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kPartial, rois));
+    ASSERT_TRUE(gated.ok()) << gated.status().message();
+    ASSERT_EQ(gated.value().tracks.size(), 4U);
+    for (const TrackGateDecision& entry : gated.value().tracks) {
+        EXPECT_EQ(entry.decision, ChangeGateDecision::kReuse);
+    }
+
+    const auto global = tracker.evaluate_change_gate(make_gate_report(ChangeClassification::kGlobal, {}));
+    ASSERT_TRUE(global.ok()) << global.status().message();
+    ASSERT_EQ(global.value().tracks.size(), 4U);
+    for (const TrackGateDecision& entry : global.value().tracks) {
+        EXPECT_EQ(entry.decision, ChangeGateDecision::kVerify);
+        EXPECT_FALSE(entry.change_region_index.has_value());
+    }
+}
+
+/// End-to-end with the real M1 detector: the gate consumes the session loop's
+/// ChangeReport as-is — the tracker neither holds a previous frame nor
+/// re-implements change detection — and the three levels map to actually
+/// detected scenarios (64x64 frames at the default parameters have an identity
+/// thumbnail mapping).
+TEST(ObjectTrackerTest, ChangeGateConsumesDetectChangeReportsEndToEnd) {
+    const ChangeDetectionParams params;
+    const TestImage base = make_rgba_image(64, 64);
+    const TestImage identical = make_rgba_image(64, 64);
+
+    TestImage disjoint_side = make_rgba_image(64, 64);
+    fill_rgba_rect(disjoint_side, RectI{40, 0, 24, 64}, 250);  // right 3 block columns
+    TestImage hitting_side = make_rgba_image(64, 64);
+    fill_rgba_rect(hitting_side, RectI{0, 0, 24, 64}, 250);  // left 3 block columns
+    TestImage flat = make_rgba_image(64, 64);
+    fill_rgba_rect(flat, RectI{0, 0, 64, 64}, 250);
+
+    ObjectTracker tracker = make_tracker();
+    ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view_of(base), 7U, RectF{0.0F, 0.0F, 8.0F, 8.0F}));
+
+    const auto none = detect_change(view_of(base), view_of(identical), params);
+    ASSERT_TRUE(none.ok()) << none.status().message();
+    ASSERT_EQ(none.value().classification, ChangeClassification::kNone);
+    const auto none_gate = tracker.evaluate_change_gate(none.value());
+    ASSERT_TRUE(none_gate.ok()) << none_gate.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_entry(none_gate.value(), 7U, TrackState::kTracking, ChangeGateDecision::kReuse,
+                                         std::nullopt, "detect-none"));
+
+    const auto disjoint = detect_change(view_of(base), view_of(disjoint_side), params);
+    ASSERT_TRUE(disjoint.ok()) << disjoint.status().message();
+    ASSERT_EQ(disjoint.value().classification, ChangeClassification::kPartial);
+    ASSERT_FALSE(disjoint.value().changed_regions.empty());
+    const auto disjoint_gate = tracker.evaluate_change_gate(disjoint.value());
+    ASSERT_TRUE(disjoint_gate.ok()) << disjoint_gate.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_entry(disjoint_gate.value(), 7U, TrackState::kTracking, ChangeGateDecision::kReuse,
+                                         std::nullopt, "detect-disjoint"));
+
+    const auto hitting = detect_change(view_of(base), view_of(hitting_side), params);
+    ASSERT_TRUE(hitting.ok()) << hitting.status().message();
+    ASSERT_EQ(hitting.value().classification, ChangeClassification::kPartial);
+    ASSERT_FALSE(hitting.value().changed_regions.empty());
+    const auto hitting_gate = tracker.evaluate_change_gate(hitting.value());
+    ASSERT_TRUE(hitting_gate.ok()) << hitting_gate.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_entry(hitting_gate.value(), 7U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                         std::optional<size_t>{0}, "detect-hit"));
+
+    const auto global = detect_change(view_of(base), view_of(flat), params);
+    ASSERT_TRUE(global.ok()) << global.status().message();
+    ASSERT_EQ(global.value().classification, ChangeClassification::kGlobal);
+    const auto global_gate = tracker.evaluate_change_gate(global.value());
+    ASSERT_TRUE(global_gate.ok()) << global_gate.status().message();
+    ASSERT_NO_FATAL_FAILURE(expect_entry(global_gate.value(), 7U, TrackState::kTracking, ChangeGateDecision::kVerify,
+                                         std::nullopt, "detect-global"));
 }
 
 }  // namespace

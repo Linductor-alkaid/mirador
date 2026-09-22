@@ -28,6 +28,28 @@
   `advance_layout_generation`（布局代际确定性递增）与代际分组查询
   `observations_in_generation`。全部路径维持字节预算与显式淘汰/显式错误语义
   （`RULE-06`：不静默增长、不静默丢弃）。
+- M7-03：`ObjectTracker` 新增变化检测门控三级短路 `evaluate_change_gate`——
+  消费调用方（session 主循环）的 `ChangeReport`（M1 `detect_change` 产物，
+  tracker 不自持上一帧、不重复实现变化检测），对池内全部 track 给出确定性
+  逐 track 决策：`kNone` 全部短路复用（零逐 track 几何计算）、`kPartial`
+  逐 track 变化 ROI × `last_bounds` 相交判定（不相交短路、相交进入显式
+  `kVerify` 邻域验证入口，验证器本体随 M7-05）、`kGlobal` 全部不短路。
+  同帧多 track 决策相互独立；非 `kTracking` 态显式返回 `kInactive` 不静默
+  跳过；短路复用不推进 `last_verified_sequence` 等证据字段（纯决策不改池
+  状态，证据级确认随 M7-06 状态机）；全局分类触发的代际递增判定仍归 M7-07。
+  门控开销对照（Linux x64 release，`DEC-011` 口径）：gate-only p50
+  0.09–0.34 µs，相对 M1 `detect_change` 基线无可测回归
+  （[基准报告](docs/benchmarks/linux-x64-change-gate-2026-09.md)）。
+
+### 修复
+
+- TSAN 测试在高熵 ASLR 内核（`vm.mmap_rnd_bits = 32`）概率性启动失败
+  `unexpected memory mapping`（随机化库映射落入 shadow gap，与被测代码无
+  关）：Linux/TSAN 构建下 `mirador_add_test` 注册的每个测试进程现自动经
+  `setarch -R`（util-linux）以固定地址布局启动，裸 `ctest --preset tsan`
+  在受影响内核上稳定通过；CI 对整体 ctest 的 `setarch` 包装保留（嵌套无
+  害），缺失 `setarch` 时配置期显式警告（[兼容性登记](docs/compatibility/compatibility.md)
+  已知行为差异节同步更新）。
 
 ## [0.3.0] - 2026-09-20
 

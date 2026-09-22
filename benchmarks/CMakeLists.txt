@@ -5,6 +5,13 @@ add_executable(mirador_bench_change_detection change_detection_bench.cpp)
 target_link_libraries(mirador_bench_change_detection PRIVATE mirador::image)
 mirador_apply_warnings(mirador_bench_change_detection)
 
+# M7-03 (DEC-019): change-gated short-circuit overhead against the M1
+# detect_change baseline. Links fusion: the gate lives on ObjectTracker and
+# detect_change reaches the executable through fusion's public link interface.
+add_executable(mirador_bench_change_gate change_gate_bench.cpp)
+target_link_libraries(mirador_bench_change_gate PRIVATE mirador::fusion)
+mirador_apply_warnings(mirador_bench_change_gate)
+
 # M5-06 (SCOPE-08): cache hit path and backend outer cost. Links the fusion
 # module because PerceptionSession composes image and cache (DEC-013).
 add_executable(mirador_bench_cache_backend cache_backend_bench.cpp)

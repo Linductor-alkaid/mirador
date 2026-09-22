@@ -6,7 +6,7 @@
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
 > 建议发布点：`v0.4.0`（暂定，随判定收尾确认）
-> 更新日期：2026-09-22
+> 更新日期：2026-09-23
 
 ## 目标
 
@@ -57,7 +57,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-02` 目标池有界结构：track 生命周期管理、LRU/最旧优先显式淘汰、
   按布局代际分组的位置历史、模板与负模板存储；预算超限为显式淘汰并计入
   trace（`RULE-06` 负向测试：超预算不静默增长、不静默丢弃）。
-- [ ] `M7-03` 变化检测门控三级短路：画面未变/变化 ROI 不相交的近零路径、
+- [x] `M7-03` 变化检测门控三级短路：画面未变/变化 ROI 不相交的近零路径、
   ROI 相交触发的验证入口；同帧多 track 独立短路；短路路径不引入相对 M1
   变化检测基线的可测回归（基准对照）。
 - [ ] `M7-04` 全局位移估计原语（`mirador::image`）：低分辨率平移搜索、
@@ -217,3 +217,108 @@ Independent-Verification-Agent 独立编写与执行）：
   14/14 job 全绿——msvc/ninja、ndk/arm64-v8a、gcc10（focal 容器）、clang
   debug/fuzz、integrations-ncnn、capture/opencv 适配与
   clang-format/clang-tidy 双口径；首轮通过，无修复往返。
+
+2026-09-22：`M7-03` 变化检测门控三级短路交付（分支
+`feat/m7-03-change-gated-short-circuit`；实现与基准已合入工作分支，测试由
+Independent-Verification-Agent 独立编写与执行，六预设门禁与 CI 证据按仓库
+先例回填）：
+
+- 交付：`ObjectTracker::evaluate_change_gate`（Experimental，帧级管线首个
+  方法落 `object_tracker.hpp`，兑现 M7-01 冻结注记）与配套类型
+  `ChangeGateDecision`/`TrackGateDecision`/`ChangeGateTrace`。门控消费调用
+  方（session 主循环）跑出的 M1 `detect_change` `ChangeReport`，tracker 不
+  自持上一帧、不重复实现变化检测；输出按 track_id 升序（池确定性枚举序）
+  的逐 track 决策：`kNone` 全部 `kReuse`（零逐 track 几何计算，近零路径）、
+  `kPartial` 逐 track 变化 ROI × `last_bounds` 相交判定（`predicted_center`
+  在 M7-04/M7-07 前恒为 `last_bounds` 中心；不相交 `kReuse`、相交 `kVerify`
+  并携带首条相交 ROI 扫描序索引）、`kGlobal` 全部 `kVerify` 不短路。契约
+  裁决：门控为纯决策（`const`，任何路径不改池状态），短路复用不推进
+  `last_verified_sequence` 等证据字段（位置先验非外观证据，设计 §3；证据
+  级确认随 M7-06，历史簿记经 `record_observation` 留给调用方，故方法不收
+  `frame_sequence`）；非 `kTracking` 态显式 `kInactive` 不静默跳过；
+  `kGlobal` 触发的 `advance_layout_generation` 判定仍归 M7-07（禁止提前）；
+  相交判定复用 `src/fusion/rect_math.h` 既有工具，O(tracks × ROIs) 有界，
+  错误路径池天然不变；kCancelled/kTimeout 经 `ExecutionContext` 显式转化
+  （入口 + kPartial 逐 track 检查，取消只返回 Status 不返回半份 trace）；
+  滚动类变化全员进入验证入口为本阶段预期行为（`RISK-2026-17`，补偿随
+  M7-04/M7-07）。
+- 基准对照（M7-03 特有验收）：新增 `benchmarks/change_gate_bench.cpp`
+  （`mirador_bench_change_gate`，M1 基准同口径，场景分类与 verify 计数由
+  基准自身断言）。Linux x64 release（`DEC-011` 口径）：gate-only p50
+  0.09–0.34 µs（三次运行、全部三级路径稳定），detect+gate 与 detect 单独
+  计时差值在运行噪声内——三级短路路径相对 M1 `detect_change` 基线无可测
+  回归；数字与口径限定发布于
+  [docs/benchmarks/linux-x64-change-gate-2026-09.md](../benchmarks/linux-x64-change-gate-2026-09.md)。
+- 本地验证（交付时点）：debug 预设构建零告警通过；门控基准四场景断言
+  通过（kNone→9 reuse / partial-disjoint→9 reuse / partial-hit→2 verify
+  +7 reuse / kGlobal→9 verify）；`mirador.fusion.object_tracker` 既有 56
+  用例 debug 直跑通过；clang-format 全仓 dry-run 零违规；clang-tidy
+  `--warnings-as-errors='*'` 对本次两个改动源文件（`object_tracker.cpp`、
+  `change_gate_bench.cpp`）退出码 0（首轮 8 处：认知复杂度 41>25 拆分
+  辅助函数、include-cleaner ×2、C 数组 ×2、多余拷贝、显式宽化 ×2，
+  均已修）。
+- 文档同步：头文件契约注释（三级语义、证据字段不动与
+  `last_verified_sequence` 裁决、坐标空间、确定性与错误语义）、设计 §6.1
+  M7-03 冻结落点注记、API 索引 fusion 节、兼容性 Experimental 登记、
+  CHANGELOG Unreleased、总计划 1.10 修订、基准报告新档。
+- 限制与衔接：邻域验证器本体随 M7-05，`kVerify` 仅为显式入口，门控不伪造
+  验证结果；`kUncertain`/`kLost` 态仍不可经公共 API 构造（M7-02 限制段延
+  续），门控对其的 `kInactive` 路径与 `kTerminated`（经 `terminate` 可构造）
+  同一实现分支，M7-06 状态机落地后补齐两态的构造级测试；同帧多 track 独
+  立短路、DOD-03 坐标矩阵（0/90/180/270 × 奇数尺寸 × 非连续 stride × 贴
+  边）与取消/超时转化由 Independent-Verification-Agent 测试覆盖（门控为
+  纯 `RectF` 判定，不涉 stride/方向重采样，矩阵按坐标入口覆盖）；六预设
+  ctest、sanitizer 与 CI 证据待回填后勾选工作项。
+
+2026-09-23：验证员发现 1 处低严重度契约注释与实现不符——头注释声称门控
+"无返回 trace 之外的分配"，而 kPartial 成功路径经 `float_rois` 分配临时
+`std::vector<RectF>`（受 report ROI 数有界，无功能/资源上限影响）。处置：
+不放宽契约，改为逐 ROI 就地转换（标量 int→float，精确）消除临时量、删除
+`float_rois` 辅助，头注释措辞改为"分配限于返回 trace 与错误路径 Status
+消息"（错误 Status message 本身有字符串分配，如实交底）。本地复验：debug
+构建零告警、`mirador.fusion.object_tracker` 全部 72 用例（含验证套件
+16 用例）通过、两改动文件 clang-format 归零、clang-tidy
+`--warnings-as-errors='*'` 对 `object_tracker.cpp` 退出码 0；门控基准复测
+gate-only p50 0.199–0.240 µs 仍落原 0.09–0.34 µs 区间（基准报告表已换为
+修复后 run）。同日本地门禁另发现 tsan 预设 `ctest` 概率性失败（exit 8，
+35/44）：定位为高熵 ASLR 内核（`vm.mmap_rnd_bits = 32`）下 TSAN shadow
+gap 与随机化库映射冲突，与 M7-03 代码无关（`setarch -R` 包装下 44/44 稳
+定通过）——修复为 Linux/TSAN 构建的测试注册自动经 `setarch -R` 启动每个
+测试进程（`build(tests)` commit），裸 `ctest --preset tsan` 三连跑
+44/44，CI 的整体包装保留。
+
+2026-09-23：`M7-03` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-03-change-gated-short-circuit`；验证套件由
+Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsan 门禁
+修复见上段）：
+
+- 验证覆盖：`mirador.fusion.object_tracker` 新增 16 个 M7-03 用例（二进制
+  56 → 72）——三级分类逐场景断言（kNone 全复用、kPartial 贴边 ROI 短路/
+  相交携带首条扫描序索引/同帧多 track 独立决策、kGlobal 全验证）、空池
+  回显分类、非 `kTracking` 态显式 `kInactive`、纯决策不改池且不推进代际、
+  双实例逐位确定性、DOD-03 坐标矩阵（0/90/180/270 × 奇数尺寸 × 非连续
+  stride × 贴边）、非法 `ChangeReport` 拒绝且池不变、取消/超时显式转化
+  （入口超时、取消优先且不发布半份 trace、kPartial 扫描中取消中止）、
+  trace 有界（池上限 × ROI 数）与端到端消费 `detect_change` 报告。
+- 门禁：debug 预设 ctest 45/45；tsan 预设经上段 `setarch -R` 注册修复后
+  裸 `ctest --preset tsan` 44/44；`mirador.fusion.object_tracker` 直跑
+  debug/release/asan/ubsan/tsan（tsan 经 setarch 包装）各 72/72 且
+  sanitizer 零报告；clang-format 全仓 dry-run 归零；clang-tidy
+  `--warnings-as-errors='*'` 对 `object_tracker.cpp` 与
+  `object_tracker_test.cpp` 退出码 0。门控基准复跑（1280x720、9 tracks、
+  300 迭代）：gate-only p50 0.198–0.244 µs 落已发布 0.09–0.34 µs 区间，
+  detect+gate 与 detect 单独计时差值在噪声内，四场景分类与 verify 计数
+  自断言通过——相对 M1 基线无可测回归结论维持。
+- 限制：`build(tests)` 修复仅改 TSAN 分支的测试注册命令（非 TSAN 预设
+  注册零差异），debug/tsan 完整 ctest 与五构建 object_tracker 直跑已在
+  修复后复验；asan/ubsan/warnings 预设的完整 ctest 由 CI 在包含该修复
+  的分支 head 上重跑通过（见下方 CI 回填；CI 矩阵无 release 预设，release
+  侧证据为本地 object_tracker 直跑与门控基准复跑）。
+- CI 回填：PR #22 两轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35756793022](https://github.com/Linductor-alkaid/mirador/actions/runs/35756793022)
+  （head b11b70d，覆盖验证套件、契约修正与 `setarch -R` 注册修复）先行
+  通过；分支 head [run 35759053505](https://github.com/Linductor-alkaid/mirador/actions/runs/35759053505)
+  （head 3a2cb3c，仅追加文档回填 commit，34m30s）复证全绿；首轮通过，
+  无修复往返。

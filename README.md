@@ -233,11 +233,12 @@ cmake --build build/release --target mirador_example_hybrid_localization
 ./build/release/examples/mirador_example_hybrid_localization
 ```
 
-Benchmarks (`mirador_bench_change_detection`, `mirador_bench_cache_backend`,
-`mirador_bench_geometric_proposal`, `mirador_bench_proposal_reuse`, and
-`benchmarks/measure_sizes.sh`) measure p50/p95 latency, cache overhead, peak RSS
-and artifact sizes on your machine. Published numbers are in
-[docs/benchmarks/](docs/benchmarks/); they are not comparable across machines.
+Benchmarks (`mirador_bench_change_detection`, `mirador_bench_change_gate`,
+`mirador_bench_cache_backend`, `mirador_bench_geometric_proposal`,
+`mirador_bench_proposal_reuse`, and `benchmarks/measure_sizes.sh`) measure
+p50/p95 latency, cache overhead, peak RSS and artifact sizes on your machine.
+Published numbers are in [docs/benchmarks/](docs/benchmarks/); they are not
+comparable across machines.
 
 ## API
 
