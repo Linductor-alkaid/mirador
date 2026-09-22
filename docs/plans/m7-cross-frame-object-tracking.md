@@ -270,3 +270,15 @@ Independent-Verification-Agent 独立编写与执行，六预设门禁与 CI 证
   边）与取消/超时转化由 Independent-Verification-Agent 测试覆盖（门控为
   纯 `RectF` 判定，不涉 stride/方向重采样，矩阵按坐标入口覆盖）；六预设
   ctest、sanitizer 与 CI 证据待回填后勾选工作项。
+
+2026-09-23：验证员发现 1 处低严重度契约注释与实现不符——头注释声称门控
+"无返回 trace 之外的分配"，而 kPartial 成功路径经 `float_rois` 分配临时
+`std::vector<RectF>`（受 report ROI 数有界，无功能/资源上限影响）。处置：
+不放宽契约，改为逐 ROI 就地转换（标量 int→float，精确）消除临时量、删除
+`float_rois` 辅助，头注释措辞改为"分配限于返回 trace 与错误路径 Status
+消息"（错误 Status message 本身有字符串分配，如实交底）。本地复验：debug
+构建零告警、`mirador.fusion.object_tracker` 全部 72 用例（含验证套件
+16 用例）通过、两改动文件 clang-format 归零、clang-tidy
+`--warnings-as-errors='*'` 对 `object_tracker.cpp` 退出码 0；门控基准复测
+gate-only p50 0.199–0.240 µs 仍落原 0.09–0.34 µs 区间（基准报告表已换为
+修复后 run）。

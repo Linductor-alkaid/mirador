@@ -29,10 +29,14 @@ track 池、三次独立运行、全部三级路径）为 **p50 0.09–0.34 µs*
 
 | 场景 | 分类 | verify/reuse | detect p50 | detect p95 | gate p50 | gate p95 | detect+gate p50 | detect+gate p95 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| unchanged | kNone | 0/9 | 3471.57 µs | 3513.15 µs | 0.206 µs | 0.208 µs | 3470.31 µs | 3512.08 µs |
-| partial-disjoint | kPartial | 0/9 | 10844.22 µs | 10951.79 µs | 0.252 µs | 0.256 µs | 10825.12 µs | 10928.85 µs |
-| partial-hit | kPartial | 2/7 | 10863.71 µs | 10983.64 µs | 0.120 µs | 0.122 µs | 10808.76 µs | 10898.35 µs |
-| global-rot180 | kGlobal | 9/0 | 10861.06 µs | 10990.11 µs | 0.199 µs | 0.201 µs | 5108.23 µs* | 10829.01 µs |
+| unchanged | kNone | 0/9 | 3465.89 µs | 3508.87 µs | 0.207 µs | 0.216 µs | 3474.74 µs | 3534.81 µs |
+| partial-disjoint | kPartial | 0/9 | 10854.83 µs | 10990.41 µs | 0.237 µs | 0.242 µs | 10852.50 µs | 10953.45 µs |
+| partial-hit | kPartial | 2/7 | 10839.25 µs | 10966.42 µs | 0.240 µs | 0.244 µs | 10786.40 µs | 10941.45 µs |
+| global-rot180 | kGlobal | 9/0 | 10832.69 µs | 10939.81 µs | 0.199 µs | 0.208 µs | 10835.46 µs | 10967.05 µs |
+
+（表为门控实现修复版后的复测 run——2026-09-23 验证员发现头注释"无额外
+分配"与 kPartial 临时 ROI 拷贝不符，实现改为逐 ROI 就地转换后数字仍落
+原 0.09–0.34 µs 区间；修复前 run 的同表数字仅个别 p50 在噪声内不同。）
 
 口径说明：
 
@@ -42,11 +46,12 @@ track 池、三次独立运行、全部三级路径）为 **p50 0.09–0.34 µs*
   全短路（9 reuse、零逐 track 几何计算）、partial-disjoint 为二级逐 track
   判定全不相交（9 reuse）、partial-hit 为 2 verify + 7 reuse（同帧多 track
   独立短路）、global-rot180 为三级全不短路（9 verify）。
-- *global-rot180 的 detect+gate p50 受本机 CPU 频率抖动影响（同 run 的
-  p95 10829 µs 与 detect 单独 p95 对齐）；unchanged 快速路径在本机存在
-  1.6–3.5 ms 双峰（与 [2026-09-15 基线报告](linux-x64-change-detection-sizes-2026-09.md)
-  的 1.64/3.50 ms 一致）。因此**"无可测回归"以 gate-only 直接测量为主要
-  口径**（0.09–0.34 µs，run 间稳定），detect+gate 合并列仅作对照。
+- unchanged 快速路径在本机存在 1.6–3.5 ms 双峰（与
+  [2026-09-15 基线报告](linux-x64-change-detection-sizes-2026-09.md)
+  的 1.64/3.50 ms 一致；global-rot180 的 detect+gate 合并列在个别 run 亦
+  受同款 CPU 频率抖动影响，其 p95 始终与 detect 单独 p95 对齐）。因此
+  **"无可测回归"以 gate-only 直接测量为主要口径**（0.09–0.34 µs，run 间
+  稳定），detect+gate 合并列仅作对照。
 - 9 tracks 为 3×3 网格（`max_targets` 默认 64 的小子集）；门控为
   O(tracks × ROIs)，partial 场景为 9 tracks × 1 ROI，每对相交判定为常数
   开销，池规模线性外推不改变量级。

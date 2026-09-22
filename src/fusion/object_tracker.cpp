@@ -59,18 +59,6 @@ void truncate_text(std::string& text) noexcept {
                        [](const RectI& region) { return region.width > 0 && region.height > 0; });
 }
 
-/// Float copy of the report's integer change ROIs (exact), so the per-track
-/// intersection scan is conversion-free.
-[[nodiscard]] std::vector<RectF> float_rois(const std::vector<RectI>& regions) {
-    std::vector<RectF> rois;
-    rois.reserve(regions.size());
-    for (const RectI& region : regions) {
-        rois.push_back(RectF{static_cast<float>(region.x), static_cast<float>(region.y),
-                             static_cast<float>(region.width), static_cast<float>(region.height)});
-    }
-    return rois;
-}
-
 /// Pool entry for one track under a given active-path decision: kTracking
 /// tracks get `active_decision`, every other state an explicit kInactive.
 [[nodiscard]] TrackGateDecision pool_entry(const TargetTrack& track,
@@ -81,11 +69,15 @@ void truncate_text(std::string& text) noexcept {
 }
 
 /// First (scan-order) ROI intersecting `bounds`, or nullopt when the bounds
-/// stay clear of every change ROI (edge-touching counts as clear).
-[[nodiscard]] std::optional<size_t> first_intersecting_roi(const std::vector<RectF>& rois,
+/// stay clear of every change ROI (edge-touching counts as clear). Integer
+/// ROIs convert to float per comparison (exact), keeping the scan
+/// allocation-free.
+[[nodiscard]] std::optional<size_t> first_intersecting_roi(const std::vector<RectI>& regions,
                                                            const RectF& bounds) noexcept {
-    for (size_t index = 0; index < rois.size(); ++index) {
-        if (fusion_internal::intersection_area(rois[index], bounds) > 0.0) {
+    for (size_t index = 0; index < regions.size(); ++index) {
+        const RectF roi{static_cast<float>(regions[index].x), static_cast<float>(regions[index].y),
+                        static_cast<float>(regions[index].width), static_cast<float>(regions[index].height)};
+        if (fusion_internal::intersection_area(roi, bounds) > 0.0) {
             return index;
         }
     }
@@ -97,7 +89,7 @@ void truncate_text(std::string& text) noexcept {
 /// cancellation/deadline checked per track. Returns the matching Status when
 /// `context` aborts the scan mid-way (no partial trace is published — the
 /// caller discards `trace`).
-[[nodiscard]] Result<void> append_partial_trace(ChangeGateTrace& trace, const std::vector<RectF>& rois,
+[[nodiscard]] Result<void> append_partial_trace(ChangeGateTrace& trace, const std::vector<RectI>& regions,
                                                 const std::vector<TargetTrack>& tracks,
                                                 const ExecutionContext& context) noexcept {
     for (const TargetTrack& track : tracks) {
@@ -111,7 +103,7 @@ void truncate_text(std::string& text) noexcept {
             trace.tracks.push_back(pool_entry(track, ChangeGateDecision::kInactive));
             continue;
         }
-        const std::optional<size_t> hit = first_intersecting_roi(rois, track.last_bounds);
+        const std::optional<size_t> hit = first_intersecting_roi(regions, track.last_bounds);
         trace.tracks.push_back(
             TrackGateDecision{track.track_id, track.state,
                               hit.has_value() ? ChangeGateDecision::kVerify : ChangeGateDecision::kReuse, hit});
@@ -459,7 +451,7 @@ Result<ChangeGateTrace> ObjectTracker::evaluate_change_gate(const ChangeReport& 
         case ChangeClassification::kPartial:
             // Levels 2/3: per-track ROI intersection against last_bounds (the
             // extrapolated position until M7-04/M7-07).
-            if (const auto appended = append_partial_trace(trace, float_rois(report.changed_regions), tracks_, context);
+            if (const auto appended = append_partial_trace(trace, report.changed_regions, tracks_, context);
                 !appended.ok()) {
                 return appended.status();
             }

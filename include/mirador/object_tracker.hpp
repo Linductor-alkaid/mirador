@@ -412,8 +412,9 @@ public:
     /// kCancelled/kTimeout from `context` (checked at entry and per track on
     /// the kPartial path; a cancelled call returns only the Status, never a
     /// partial trace). On error the tracker is untouched. Bounded work:
-    /// O(tracks × ROIs), both bounded (RULE-06); no allocation beyond the
-    /// returned trace. Never throws.
+    /// O(tracks × ROIs), both bounded (RULE-06); the scan is scalar-only, so
+    /// nothing is allocated beyond the returned trace and, on error, the
+    /// Status message. Never throws.
     [[nodiscard]] Result<ChangeGateTrace> evaluate_change_gate(const ChangeReport& report,
                                                                const ExecutionContext& context = {}) const noexcept;
 
