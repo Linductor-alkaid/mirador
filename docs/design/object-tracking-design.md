@@ -1,6 +1,7 @@
 # Mirador 跨帧目标跟踪（低负载 SOT）设计
 
-> 状态：Proposed（随 [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) 评审）
+> 状态：Active（随 [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)
+> 于 2026-09-21 Accepted 生效；M7 内 Experimental 契约以 go/no-go 判定为冻结前置）
 > 日期：2026-09-21
 > 负责人：linductor
 > 上位设计：[Mirador 开发设计方案](mirador-development-design.md)（§10、§11、§12、§16、§18、§24）
@@ -141,6 +142,11 @@ struct TargetTrack {
 字节预算全部显式配置且默认值冻结于 M7-01；超限为显式淘汰（LRU/最旧优先）并
 计入 trace，不得无界增长。目标池为小型结构化数据 + 灰度 patch 模板，常态内存
 占用在 KB 量级，随目标池字节预算报告。
+
+M7-01 冻结落点：`include/mirador/object_tracker.hpp`（`ObjectTracker` 有界
+目标池；本图的 `SemanticLabels` 冻结为 `TrackSemantics` 的 `label`/`text`
+两个有界字段，其余字段一一对应；帧级管线方法随 M7-03 起在同一 Experimental
+头内扩展）。
 
 ## 6. 跟踪管线
 

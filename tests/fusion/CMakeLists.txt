@@ -32,6 +32,14 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-01 bounded target pool contract (DEC-019): options, adoption atomicity,
+# byte accounting, eviction order, terminate lifecycle, coordinate matrix.
+mirador_add_test(
+    NAME mirador.fusion.object_tracker
+    SOURCES object_tracker_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp

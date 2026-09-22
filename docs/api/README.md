@@ -50,6 +50,9 @@ SPI 的过滤/共线合并自由函数（`filter_segments`、`merge_collinear`�
 `fusion.hpp`（`fuse_evidence`/`FusionOptions`/`FusionTrace`，kDisplay 变换契约见
 `DEC-016`）、`semantic_snapshot.hpp`（`RegionSource` 位掩码、`VisualRegion`、
 `SemanticSnapshot`、generation 校验）、`stable_id_tracker.hpp`（`DEC-010`）、
+`object_tracker.hpp`（跨帧目标跟踪：`TrackState`/`TargetTrack` 有界目标池与
+`ObjectTracker` 生命周期，设计 §24 M7、`DEC-019`；**Experimental**：随 M7
+go/no-go 判定冻结，冻结前不计兼容性承诺）、
 `perception_session.hpp`（感知入口：变化分析 → 按需 Backend → 坐标恢复 → 缓存 →
 融合发布，`DEC-013`）。
 
