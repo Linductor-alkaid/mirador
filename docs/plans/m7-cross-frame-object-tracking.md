@@ -6,7 +6,7 @@
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
 > 建议发布点：`v0.4.0`（暂定，随判定收尾确认）
-> 更新日期：2026-09-21
+> 更新日期：2026-09-22
 
 ## 目标
 
@@ -54,7 +54,7 @@ A/B/C/D 基准发布；go/no-go 判定。
   模板/负模板数、字节预算、`uncertain_frame_limit`、验证阈值初值、重检测
   退避初值），附伪实现测试与确定性/取消/错误语义说明；同步 API 索引与
   兼容性 Experimental 登记。
-- [ ] `M7-02` 目标池有界结构：track 生命周期管理、LRU/最旧优先显式淘汰、
+- [x] `M7-02` 目标池有界结构：track 生命周期管理、LRU/最旧优先显式淘汰、
   按布局代际分组的位置历史、模板与负模板存储；预算超限为显式淘汰并计入
   trace（`RULE-06` 负向测试：超预算不静默增长、不静默丢弃）。
 - [ ] `M7-03` 变化检测门控三级短路：画面未变/变化 ROI 不相交的近零路径、
@@ -181,3 +181,35 @@ A/B/C/D 基准发布；go/no-go 判定。
   optional 解引用、include-cleaner；此前 tidy 检查只覆盖了实现文件），按仓库先例
   拆分辅助函数修复（35 用例名称、数量与断言语义不变），复跑后全绿。
 - 限制：阈值初值为开发冒烟默认值，M7-09 校准（`DEC-019` 第 5 条）。
+
+2026-09-22：`M7-02` 目标池有界结构交付（实现于主循环，测试由
+Independent-Verification-Agent 独立编写与执行）：
+
+- 交付：`ObjectTracker` 池有界变更原语——`record_observation`（有界位置历史
+  追加：当前池代际打戳、confidence 钳制、溢出显式淘汰最旧并计入
+  `evicted_observation_count`；纯簿记，不触碰 `state`/`last_bounds`/
+  `predicted_center`/`confidence`/`last_verified_sequence`——证据级确认更新
+  留给 M7-06 状态机）、`add_template`（模板集存储：index 0 初始模板钉死，
+  溢出淘汰最旧非初始模板并计数，`max_templates == 1` 无可淘汰显式失败）、
+  `add_negative_template`（负模板存储：无钉死项淘汰最旧，容量 0 显式
+  kBudgetExceeded）、`advance_layout_generation`（代际确定性递增，
+  uint32 耗尽显式失败）、`observations_in_generation`（按代际分组的历史
+  查询，设计 §6.4）与三个淘汰 trace 计数器（`reset` 清零；`terminate` 与
+  adopt 整 track 淘汰不计入——前者是调用方行为，后者只计入
+  `evicted_track_count`）。全部路径维持 M7-01 冻结语义：字节预算公式不变、
+  错误路径池完全不变、淘汰显式可见（`RULE-06`：不静默增长、不静默丢弃）。
+  分组采用"平铺有界存储 + 按代际过滤访问"实现（历史默认 32 条，线性过滤
+  成本可忽略），不改 `TargetTrack` 已冻结的数据布局。
+- 验证：`mirador.fusion.object_tracker` 21 个新用例（56/56）覆盖追加/打戳/
+  钳制、校验矩阵（unknown/terminated/非有限/宽高 ≤ 0/指纹三维不匹配）、
+  溢出淘汰与计数器、字节满池两分支（容量到顶走字节中性交换 vs 未到顶显式
+  拒绝）、校验先于淘汰（满容量下非法条目不触发淘汰）、跨代分组与跳代查询、
+  reset 计数清零、错误穿插的双实例确定性与逐字节核算交叉校验。六预设
+  ctest：debug 45/45、release/warnings/asan/ubsan/tsan 各 44/44（ctest 按
+  二进制注册；二进制内 gtest 35 → 56），object_tracker 在 asan/ubsan/tsan
+  直跑 56/56 且 sanitizer 零报告；clang-format 全仓归零（首轮一处 getter
+  未合并单行，已修）、clang-tidy `--warnings-as-errors='*'` 92 文件退出码 0。
+- 限制与衔接：`kLost`/`kUncertain` 状态下的记录路径暂不可经公共 API 构造
+  （状态机随 M7-06 落地后补测；实现检视确认门禁仅拒绝 `kTerminated`）；
+  `advance_layout_generation` 的 uint32 耗尽分支无法实际注入，未测。代际
+  推进的触发判定（全局变化分类）与代际切换降级随 M7-07/M7-06 交付。

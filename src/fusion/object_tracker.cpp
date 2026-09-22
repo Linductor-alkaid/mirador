@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -231,25 +232,136 @@ Result<TrackAdoption> ObjectTracker::adopt_track(const VisualRegion& region, con
 }
 
 Result<void> ObjectTracker::terminate(uint64_t track_id, uint64_t frame_sequence) noexcept {
-    const auto it = std::lower_bound(tracks_.begin(), tracks_.end(), track_id,
-                                     [](const TargetTrack& track, uint64_t id) { return track.track_id < id; });
-    if (it == tracks_.end() || it->track_id != track_id) {
+    TargetTrack* track = find_track_mutable(track_id);
+    if (track == nullptr) {
         return Status{ErrorCode::kInvalidArgument, "terminate: unknown track id"};
     }
-    if (it->state == TrackState::kTerminated) {
+    if (track->state == TrackState::kTerminated) {
         return Status{ErrorCode::kInvalidArgument, "terminate: track already terminated"};
     }
-    const int64_t before = track_bytes(*it);
-    it->state = TrackState::kTerminated;
-    it->terminated_sequence = frame_sequence;
-    it->templates.clear();
-    it->negative_templates.clear();
-    it->position_history.clear();
-    it->templates.shrink_to_fit();
-    it->negative_templates.shrink_to_fit();
-    it->position_history.shrink_to_fit();
-    used_bytes_ -= before - track_bytes(*it);
+    const int64_t before = track_bytes(*track);
+    track->state = TrackState::kTerminated;
+    track->terminated_sequence = frame_sequence;
+    track->templates.clear();
+    track->negative_templates.clear();
+    track->position_history.clear();
+    track->templates.shrink_to_fit();
+    track->negative_templates.shrink_to_fit();
+    track->position_history.shrink_to_fit();
+    used_bytes_ -= before - track_bytes(*track);
     return Status::success();
+}
+
+Result<void> ObjectTracker::record_observation(uint64_t track_id, const RectF& bounds, float confidence,
+                                               uint64_t frame_sequence) noexcept {
+    if (!all_finite(bounds) || bounds.width <= 0.0F || bounds.height <= 0.0F) {
+        return Status{ErrorCode::kInvalidArgument, "record_observation bounds must be finite and non-empty"};
+    }
+    TargetTrack* track = find_track_mutable(track_id);
+    if (track == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "record_observation: unknown track id"};
+    }
+    if (track->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "record_observation: track already terminated"};
+    }
+    // One observation is a fixed-size element: the count-pressure drop of the
+    // oldest entry always frees exactly the bytes the insertion needs, so the
+    // byte check can only fail below the history bound (explicit error, pool
+    // untouched — never silent growth).
+    const bool at_capacity = track->position_history.size() >= static_cast<size_t>(options_.max_position_history);
+    const int64_t freed = at_capacity ? kObservationOverheadBytes : 0;
+    if (used_bytes_ - freed + kObservationOverheadBytes > options_.pool_budget_bytes) {
+        return Status{ErrorCode::kBudgetExceeded, "record_observation does not fit the pool budget"};
+    }
+    if (at_capacity) {
+        track->position_history.erase(track->position_history.begin());
+        ++evicted_observations_;
+        used_bytes_ -= freed;
+    }
+    track->position_history.push_back(
+        TrackObservation{frame_sequence, bounds, std::clamp(confidence, 0.0F, 1.0F), layout_generation_});
+    used_bytes_ += kObservationOverheadBytes;
+    return Status::success();
+}
+
+Result<void> ObjectTracker::store_template(std::vector<TrackTemplate>& set, int32_t capacity, size_t pinned_entries,
+                                           const TrackTemplate& entry, uint64_t& evicted_counter) noexcept {
+    const auto side = static_cast<int64_t>(options_.template_thumb_side);
+    const auto expected_bytes = static_cast<int64_t>(entry.fingerprint.thumbnail_gray.size());
+    if (entry.fingerprint.thumb_width != options_.template_thumb_side ||
+        entry.fingerprint.thumb_height != options_.template_thumb_side || expected_bytes != side * side) {
+        return Status{ErrorCode::kInvalidArgument, "template fingerprint does not match template_thumb_side"};
+    }
+    const int64_t insertion_bytes = kTemplateOverheadBytes + expected_bytes;
+    const bool at_capacity = set.size() >= static_cast<size_t>(capacity);
+    // Index 0 of the appearance set is the pinned adoption template; eviction
+    // under count pressure takes the oldest entry after the pinned prefix.
+    if (at_capacity && set.size() <= pinned_entries) {
+        return Status{ErrorCode::kBudgetExceeded, "template element budget exhausted with no evictable template"};
+    }
+    const int64_t freed = at_capacity ? kTemplateOverheadBytes +
+                                            static_cast<int64_t>(set[pinned_entries].fingerprint.thumbnail_gray.size())
+                                      : 0;
+    if (used_bytes_ - freed + insertion_bytes > options_.pool_budget_bytes) {
+        return Status{ErrorCode::kBudgetExceeded, "template does not fit the pool budget"};
+    }
+    if (at_capacity) {
+        set.erase(set.begin() + static_cast<std::ptrdiff_t>(pinned_entries));
+        ++evicted_counter;
+        used_bytes_ -= freed;
+    }
+    set.push_back(entry);
+    used_bytes_ += insertion_bytes;
+    return Status::success();
+}
+
+Result<void> ObjectTracker::add_template(uint64_t track_id, const TrackTemplate& entry) noexcept {
+    TargetTrack* track = find_track_mutable(track_id);
+    if (track == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "add_template: unknown track id"};
+    }
+    if (track->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "add_template: track already terminated"};
+    }
+    return store_template(track->templates, options_.max_templates, 1, entry, evicted_templates_);
+}
+
+Result<void> ObjectTracker::add_negative_template(uint64_t track_id, const TrackTemplate& entry) noexcept {
+    TargetTrack* track = find_track_mutable(track_id);
+    if (track == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "add_negative_template: unknown track id"};
+    }
+    if (track->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "add_negative_template: track already terminated"};
+    }
+    if (options_.max_negative_templates == 0) {
+        return Status{ErrorCode::kBudgetExceeded, "negative template capacity is 0"};
+    }
+    return store_template(track->negative_templates, options_.max_negative_templates, 0, entry,
+                          evicted_negative_templates_);
+}
+
+Result<uint32_t> ObjectTracker::advance_layout_generation() noexcept {
+    if (layout_generation_ == std::numeric_limits<uint32_t>::max()) {
+        return Status{ErrorCode::kBudgetExceeded, "layout generation counter exhausted"};
+    }
+    ++layout_generation_;
+    return layout_generation_;
+}
+
+std::vector<TrackObservation> ObjectTracker::observations_in_generation(uint64_t track_id,
+                                                                        uint32_t generation) const noexcept {
+    std::vector<TrackObservation> entries;
+    const TargetTrack* track = find_track(track_id);
+    if (track == nullptr) {
+        return entries;
+    }
+    for (const TrackObservation& observation : track->position_history) {
+        if (observation.layout_generation == generation) {
+            entries.push_back(observation);
+        }
+    }
+    return entries;
 }
 
 void ObjectTracker::reset() noexcept {
@@ -257,6 +369,9 @@ void ObjectTracker::reset() noexcept {
     layout_generation_ = 0;
     used_bytes_ = 0;
     evicted_count_ = 0;
+    evicted_observations_ = 0;
+    evicted_templates_ = 0;
+    evicted_negative_templates_ = 0;
 }
 
 std::vector<uint64_t> ObjectTracker::track_ids() const noexcept {
@@ -269,6 +384,15 @@ std::vector<uint64_t> ObjectTracker::track_ids() const noexcept {
 }
 
 const TargetTrack* ObjectTracker::find_track(uint64_t track_id) const noexcept {
+    const auto it = std::lower_bound(tracks_.begin(), tracks_.end(), track_id,
+                                     [](const TargetTrack& track, uint64_t id) { return track.track_id < id; });
+    if (it == tracks_.end() || it->track_id != track_id) {
+        return nullptr;
+    }
+    return &*it;
+}
+
+TargetTrack* ObjectTracker::find_track_mutable(uint64_t track_id) noexcept {
     const auto it = std::lower_bound(tracks_.begin(), tracks_.end(), track_id,
                                      [](const TargetTrack& track, uint64_t id) { return track.track_id < id; });
     if (it == tracks_.end() || it->track_id != track_id) {

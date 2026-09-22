@@ -21,6 +21,13 @@
   `ObjectTrackerOptions`，阈值初值随 M7-09 校准。帧级跟踪管线（门控短路/
   邻域验证/运动补偿/级联重检测）随 M7-03 起在同一 Experimental 头内扩展；
   契约经 M7-09/M7-10 go/no-go 判定后才计入兼容性承诺。
+- M7-02：`ObjectTracker` 新增池有界变更原语——`record_observation`（有界位置
+  历史追加，溢出显式淘汰最旧并计入 `evicted_observation_count`，纯簿记不触碰
+  身份/证据字段）、`add_template`（模板集存储，钉死初始模板、溢出淘汰最旧
+  非初始模板）、`add_negative_template`（负模板存储，容量 0 显式拒绝）、
+  `advance_layout_generation`（布局代际确定性递增）与代际分组查询
+  `observations_in_generation`。全部路径维持字节预算与显式淘汰/显式错误语义
+  （`RULE-06`：不静默增长、不静默丢弃）。
 
 ## [0.3.0] - 2026-09-20
 

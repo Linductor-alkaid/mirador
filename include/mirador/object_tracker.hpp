@@ -249,6 +249,72 @@ public:
     [[nodiscard]] Result<void> terminate(uint64_t track_id, uint64_t frame_sequence) noexcept;
     [[nodiscard]] Result<void> terminate(uint64_t track_id) noexcept;
 
+    /// Appends one position observation to the track's bounded history (M7-02
+    /// pool structure): the entry is stamped with this pool's current layout
+    /// generation, and when the history already holds `max_position_history`
+    /// entries the oldest one is evicted first (explicit, counted in
+    /// `evicted_observation_count()`). Bookkeeping only: the call does not
+    /// touch `state`, `last_bounds`, `predicted_center`, `confidence` or
+    /// `last_verified_sequence` — evidence-grade confirmation updates arrive
+    /// with the M7-06 state machine and decide when a history entry may count
+    /// as a verification.
+    ///
+    /// Errors: kInvalidArgument for an unknown or already-terminated track or
+    /// non-finite / non-positive bounds; kBudgetExceeded when the pool byte
+    /// budget cannot hold one more observation. On error the pool is
+    /// untouched. `confidence` is clamped to [0, 1]. Never throws.
+    [[nodiscard]] Result<void> record_observation(uint64_t track_id, const RectF& bounds, float confidence,
+                                                  uint64_t frame_sequence) noexcept;
+
+    /// Stores one appearance template in the track's bounded template set
+    /// (M7-02): entries are kept in insertion order after the pinned index 0
+    /// (the adoption template), and when the set already holds `max_templates`
+    /// entries the oldest non-initial template is evicted first (explicit,
+    /// counted in `evicted_template_count()`). The adoption template itself is
+    /// never evicted here; with `max_templates == 1` the call therefore
+    /// exhausts its element budget and fails. The caller builds the fingerprint
+    /// (for example with `make_visual_patch_fingerprint`, as `adopt_track`
+    /// does); the pool validates and stores it.
+    ///
+    /// Errors: kInvalidArgument for an unknown or already-terminated track or
+    /// a fingerprint whose `thumb_width`/`thumb_height`/byte size do not match
+    /// `options().template_thumb_side`; kBudgetExceeded when the element
+    /// capacity is exhausted with no evictable template, or when the pool byte
+    /// budget cannot hold the insertion. On error the pool is untouched.
+    /// Never throws.
+    [[nodiscard]] Result<void> add_template(uint64_t track_id, const TrackTemplate& entry) noexcept;
+
+    /// Stores one impostor (negative) template in the track's bounded set
+    /// (M7-02): entries are kept in insertion order and when the set already
+    /// holds `max_negative_templates` entries the oldest one is evicted first
+    /// (explicit, counted in `evicted_negative_template_count()`). Negative
+    /// templates feed the impostor veto of the verification pipeline (M7-05/
+    /// M7-06); the pool only stores them.
+    ///
+    /// Errors: kInvalidArgument for an unknown or already-terminated track or
+    /// a fingerprint size mismatch as in `add_template`; kBudgetExceeded when
+    /// `max_negative_templates` is 0 or the element capacity is exhausted, or
+    /// when the pool byte budget cannot hold the insertion. On error the pool
+    /// is untouched. Never throws.
+    [[nodiscard]] Result<void> add_negative_template(uint64_t track_id, const TrackTemplate& entry) noexcept;
+
+    /// Advances this pool's layout generation by one and returns the new
+    /// generation (M7-02 primitive). Later observations are stamped with it;
+    /// existing history entries keep the generation they were recorded under,
+    /// which is what makes `observations_in_generation` grouping meaningful.
+    /// The trigger decision (global change classification) belongs to the
+    /// M7-07 pipeline, and per-track degradation on a generation switch to the
+    /// M7-06 state machine — this call only moves the deterministic counter.
+    /// Errors: kBudgetExceeded when the uint32 counter is exhausted. Never
+    /// throws.
+    [[nodiscard]] Result<uint32_t> advance_layout_generation() noexcept;
+
+    /// Position observations of one track recorded under `generation`, oldest
+    /// first (design section 6.4 "history grouped by generation"). Empty when
+    /// the track is unknown or no entry matches. Never throws.
+    [[nodiscard]] std::vector<TrackObservation> observations_in_generation(uint64_t track_id,
+                                                                           uint32_t generation) const noexcept;
+
     /// Drops all pool state; the next adoption starts from scratch. Caller
     /// initiated — the tracker never clears itself silently.
     void reset() noexcept;
@@ -273,6 +339,17 @@ public:
     /// Cumulative number of tracks evicted by budget/count pressure since
     /// creation or `reset` (RULE-06 accounting).
     [[nodiscard]] uint64_t evicted_track_count() const noexcept { return evicted_count_; }
+    /// Cumulative number of position observations evicted from per-track
+    /// histories by `record_observation` overflow since creation or `reset`
+    /// (RULE-06 accounting; termination releases do not count — they are
+    /// caller actions, not budget evictions).
+    [[nodiscard]] uint64_t evicted_observation_count() const noexcept { return evicted_observations_; }
+    /// Cumulative number of appearance templates evicted by `add_template`
+    /// overflow since creation or `reset` (same accounting rule).
+    [[nodiscard]] uint64_t evicted_template_count() const noexcept { return evicted_templates_; }
+    /// Cumulative number of impostor templates evicted by
+    /// `add_negative_template` overflow since creation or `reset`.
+    [[nodiscard]] uint64_t evicted_negative_template_count() const noexcept { return evicted_negative_templates_; }
 
 private:
     /// Accounted bytes of one track (must track the `byte_size` contract).
@@ -280,6 +357,15 @@ private:
     /// Eviction priority: true when `candidate` should be evicted before
     /// `resident` (terminated first, then oldest verification, then lower id).
     [[nodiscard]] static bool evicts_before(const TargetTrack& candidate, const TargetTrack& resident) noexcept;
+    /// Mutable track lookup by id, or nullptr when absent.
+    [[nodiscard]] TargetTrack* find_track_mutable(uint64_t track_id) noexcept;
+    /// Shared bounded-template-store path of `add_template` and
+    /// `add_negative_template`: validates the fingerprint against the pinned
+    /// thumbnail side, applies the count-pressure drop-oldest rule over `set`
+    /// (skipping the first `pinned_entries` entries), enforces the pool byte
+    /// budget and commits both the eviction and the insertion atomically.
+    [[nodiscard]] Result<void> store_template(std::vector<TrackTemplate>& set, int32_t capacity, size_t pinned_entries,
+                                              const TrackTemplate& entry, uint64_t& evicted_counter) noexcept;
 
     ObjectTrackerOptions options_;
     /// Tracks sorted by ascending track_id (deterministic enumeration).
@@ -287,6 +373,9 @@ private:
     uint32_t layout_generation_ = 0;
     int64_t used_bytes_ = 0;
     uint64_t evicted_count_ = 0;
+    uint64_t evicted_observations_ = 0;
+    uint64_t evicted_templates_ = 0;
+    uint64_t evicted_negative_templates_ = 0;
 };
 
 }  // namespace mirador

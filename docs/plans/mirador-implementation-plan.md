@@ -1,11 +1,16 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.8
+> 版本：1.9
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-21
+> 更新日期：2026-09-22
+>
+> 1.9 修订（2026-09-22）：M7 工作项 `M7-02` 目标池有界结构交付——
+> `ObjectTracker` 池有界变更原语（`record_observation`/`add_template`/
+> `add_negative_template`/`advance_layout_generation`/代际分组查询与淘汰
+> trace 计数）随 PR 合入；`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.8 修订（2026-09-21）：M7 立项生效——负责人指示"依照设计与计划，继续
 > 下一阶段开发"，[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)
@@ -84,7 +89,7 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 口径限定）。M7「跨帧目标跟踪（低负载 SOT 与级联重检测）」已启动
 （2026-09-21，立项生效：`DEC-019`/`DEC-020` 经负责人批准转 Accepted，
 [里程碑文档](m7-cross-frame-object-tracking.md)转 In Progress；`M7-01`
-目标池契约冻结已交付）。
+目标池契约冻结与 `M7-02` 池有界变更原语已交付）。
 
 ## 交付边界
 
@@ -426,3 +431,20 @@ PR 合并待负责人授权。
   说明取自该段；里程碑文档与总计划发布点同步。
 - 验证：文档一致性核对由 Independent-Verification-Agent 执行；CI 门禁随
   收尾 PR 全绿后合并。
+
+2026-09-22：M7-02 目标池有界结构交付（实现于主循环；测试由
+Independent-Verification-Agent 独立编写与执行）：
+
+- `ObjectTracker` 新增池有界变更原语：`record_observation`（有界位置历史，
+  溢出显式淘汰最旧并计入 trace，纯簿记不触碰身份/证据字段）、
+  `add_template`（初始模板钉死、溢出淘汰最旧非初始模板）、
+  `add_negative_template`（容量 0 显式拒绝）、`advance_layout_generation`
+  与 `observations_in_generation` 代际分组查询、三个淘汰 trace 计数器。
+  全部路径维持字节预算与显式淘汰/显式错误语义（`RULE-06`）；`TargetTrack`
+  已冻结数据布局不变，分组以平铺存储 + 按代际过滤访问实现。
+- 验证：`mirador.fusion.object_tracker` 21 个新用例（二进制内 35 → 56），
+  六预设 ctest debug 45/45、其余各 44/44，asan/ubsan/tsan 直跑零报告；
+  clang-format 全仓归零、clang-tidy 92 文件 `--warnings-as-errors='*'`
+  退出码 0。限制：`kLost`/`kUncertain` 记录路径随 M7-06 状态机补测；
+  代际推进触发判定随 M7-07 交付。证据明细见
+  [M7 里程碑验证记录](m7-cross-frame-object-tracking.md)。
