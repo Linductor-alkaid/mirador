@@ -281,4 +281,9 @@ Independent-Verification-Agent 独立编写与执行，六预设门禁与 CI 证
 16 用例）通过、两改动文件 clang-format 归零、clang-tidy
 `--warnings-as-errors='*'` 对 `object_tracker.cpp` 退出码 0；门控基准复测
 gate-only p50 0.199–0.240 µs 仍落原 0.09–0.34 µs 区间（基准报告表已换为
-修复后 run）。
+修复后 run）。同日本地门禁另发现 tsan 预设 `ctest` 概率性失败（exit 8，
+35/44）：定位为高熵 ASLR 内核（`vm.mmap_rnd_bits = 32`）下 TSAN shadow
+gap 与随机化库映射冲突，与 M7-03 代码无关（`setarch -R` 包装下 44/44 稳
+定通过）——修复为 Linux/TSAN 构建的测试注册自动经 `setarch -R` 启动每个
+测试进程（`build(tests)` commit），裸 `ctest --preset tsan` 三连跑
+44/44，CI 的整体包装保留。

@@ -47,7 +47,26 @@ function(mirador_add_test)
     cmake_parse_arguments(ARG "" "NAME;LABELS" "SOURCES;LIBS" ${ARGN})
     add_executable(${ARG_NAME} ${ARG_SOURCES})
     target_link_libraries(${ARG_NAME} PRIVATE mirador::core ${ARG_LIBS} gtest gtest_main)
-    add_test(NAME ${ARG_NAME} COMMAND ${ARG_NAME})
+    # TSAN on high-entropy-ASLR kernels (vm.mmap_rnd_bits = 32, Ubuntu 24.04
+    # defaults) aborts probabilistically at startup with "unexpected memory
+    # mapping" when randomized library mappings land in the shadow gap. The
+    # mitigation is a no-ASLR personality (setarch -R, util-linux): CI wraps
+    # the whole ctest invocation with it (ci.yml), and it is applied per test
+    # here as well so a plain `ctest --preset tsan` is safe on any Linux box.
+    # Nested setarch is harmless (the personality is per process).
+    set(mirador_test_command $<TARGET_FILE:${ARG_NAME}>)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_FLAGS MATCHES "fsanitize=thread")
+        find_program(MIRADOR_SETARCH_EXECUTABLE setarch)
+        if(MIRADOR_SETARCH_EXECUTABLE)
+            set(mirador_test_command ${MIRADOR_SETARCH_EXECUTABLE} "${CMAKE_SYSTEM_PROCESSOR}" -R
+                                     $<TARGET_FILE:${ARG_NAME}>)
+        else()
+            message(WARNING
+                "TSAN tests without setarch: on high-entropy-ASLR kernels tests abort with "
+                "'unexpected memory mapping' (see docs/compatibility/compatibility.md).")
+        endif()
+    endif()
+    add_test(NAME ${ARG_NAME} COMMAND ${mirador_test_command})
     set_tests_properties(${ARG_NAME} PROPERTIES LABELS "${ARG_LABELS}")
 endfunction()
 

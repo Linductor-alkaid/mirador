@@ -66,7 +66,11 @@
   apt 源若迁至 old-releases 会自动改写兜底；裸 focal 容器无默认编译器，需显式
   安装 `gcc-10`/`g++-10`（GoogleTest 的 C 工程声明也要求 C 编译器）。focal 的
   OpenCV 4.2 与可选采集/integration 面未在 20.04 上验证。
-- TSAN 在高熵 ASLR 内核上需 `setarch -R` 运行测试进程（CI 已内置）。
+- TSAN 在高熵 ASLR 内核（`vm.mmap_rnd_bits = 32`，如 Ubuntu 24.04 的
+  Linux 6.9+ 内核）会概率性启动失败 `unexpected memory mapping`（随机化
+  库映射落入 shadow gap，与被测代码无关）：Linux/TSAN 构建下测试注册已
+  自动以 `setarch -R` 启动每个测试进程（缺失 util-linux `setarch` 时配置
+  期警告），CI 另对整个 ctest 调用做 `setarch` 包装（两者嵌套无害）。
 - XWayland 主机下 root 窗口捕获失败是文档化行为（`x11_capture.hpp` 契约注释），
   非缺陷；该分支由 CI xvfb job 的 Xorg 路径对偶覆盖。
 - JNI `GetStringUTFChars` 为 modified UTF-8，增补字符以代理对出现（

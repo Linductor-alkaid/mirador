@@ -41,6 +41,16 @@
   0.09–0.34 µs，相对 M1 `detect_change` 基线无可测回归
   （[基准报告](docs/benchmarks/linux-x64-change-gate-2026-09.md)）。
 
+### 修复
+
+- TSAN 测试在高熵 ASLR 内核（`vm.mmap_rnd_bits = 32`）概率性启动失败
+  `unexpected memory mapping`（随机化库映射落入 shadow gap，与被测代码无
+  关）：Linux/TSAN 构建下 `mirador_add_test` 注册的每个测试进程现自动经
+  `setarch -R`（util-linux）以固定地址布局启动，裸 `ctest --preset tsan`
+  在受影响内核上稳定通过；CI 对整体 ctest 的 `setarch` 包装保留（嵌套无
+  害），缺失 `setarch` 时配置期显式警告（[兼容性登记](docs/compatibility/compatibility.md)
+  已知行为差异节同步更新）。
+
 ## [0.3.0] - 2026-09-20
 
 M6「几何区域 Proposal 实验（实验轨道，`DEC-017`）」全部工作项落地与
