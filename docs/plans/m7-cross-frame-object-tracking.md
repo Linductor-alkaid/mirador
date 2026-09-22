@@ -6,7 +6,7 @@
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
 > 建议发布点：`v0.4.0`（暂定，随判定收尾确认）
-> 更新日期：2026-09-22
+> 更新日期：2026-09-23
 
 ## 目标
 
@@ -57,10 +57,9 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-02` 目标池有界结构：track 生命周期管理、LRU/最旧优先显式淘汰、
   按布局代际分组的位置历史、模板与负模板存储；预算超限为显式淘汰并计入
   trace（`RULE-06` 负向测试：超预算不静默增长、不静默丢弃）。
-- [ ] `M7-03` 变化检测门控三级短路：画面未变/变化 ROI 不相交的近零路径、
+- [x] `M7-03` 变化检测门控三级短路：画面未变/变化 ROI 不相交的近零路径、
   ROI 相交触发的验证入口；同帧多 track 独立短路；短路路径不引入相对 M1
-  变化检测基线的可测回归（基准对照）。（实现与基准已交付，测试与门禁证据
-  待落地后勾选，见验证记录 2026-09-22 M7-03 段）
+  变化检测基线的可测回归（基准对照）。
 - [ ] `M7-04` 全局位移估计原语（`mirador::image`）：低分辨率平移搜索、
   纯 CPU 确定性、预算保护；输出位移向量 + 置信度；坐标链经 `Transform2D`
   组合并通过方向/奇数尺寸/往返容差矩阵（`DOD-03`）。
@@ -287,3 +286,32 @@ gap 与随机化库映射冲突，与 M7-03 代码无关（`setarch -R` 包装�
 定通过）——修复为 Linux/TSAN 构建的测试注册自动经 `setarch -R` 启动每个
 测试进程（`build(tests)` commit），裸 `ctest --preset tsan` 三连跑
 44/44，CI 的整体包装保留。
+
+2026-09-23：`M7-03` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-03-change-gated-short-circuit`；验证套件由
+Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsan 门禁
+修复见上段）：
+
+- 验证覆盖：`mirador.fusion.object_tracker` 新增 16 个 M7-03 用例（二进制
+  56 → 72）——三级分类逐场景断言（kNone 全复用、kPartial 贴边 ROI 短路/
+  相交携带首条扫描序索引/同帧多 track 独立决策、kGlobal 全验证）、空池
+  回显分类、非 `kTracking` 态显式 `kInactive`、纯决策不改池且不推进代际、
+  双实例逐位确定性、DOD-03 坐标矩阵（0/90/180/270 × 奇数尺寸 × 非连续
+  stride × 贴边）、非法 `ChangeReport` 拒绝且池不变、取消/超时显式转化
+  （入口超时、取消优先且不发布半份 trace、kPartial 扫描中取消中止）、
+  trace 有界（池上限 × ROI 数）与端到端消费 `detect_change` 报告。
+- 门禁：debug 预设 ctest 45/45；tsan 预设经上段 `setarch -R` 注册修复后
+  裸 `ctest --preset tsan` 44/44；`mirador.fusion.object_tracker` 直跑
+  debug/release/asan/ubsan/tsan（tsan 经 setarch 包装）各 72/72 且
+  sanitizer 零报告；clang-format 全仓 dry-run 归零；clang-tidy
+  `--warnings-as-errors='*'` 对 `object_tracker.cpp` 与
+  `object_tracker_test.cpp` 退出码 0。门控基准复跑（1280x720、9 tracks、
+  300 迭代）：gate-only p50 0.198–0.244 µs 落已发布 0.09–0.34 µs 区间，
+  detect+gate 与 detect 单独计时差值在噪声内，四场景分类与 verify 计数
+  自断言通过——相对 M1 基线无可测回归结论维持。
+- 限制：`build(tests)` 修复仅改 TSAN 分支的测试注册命令（非 TSAN 预设
+  注册零差异），debug/tsan 完整 ctest 与五构建 object_tracker 直跑已在
+  修复后复验；release/asan/ubsan/warnings 预设的完整 ctest 未在该修复
+  commit 之上重跑，六预设完整门禁随编排脚本在本提交之上重跑确认。
+- CI 回填：待补（分支未推送；PR 与 CI run 链接随 CI 门禁落地回填，同
+  M7-01/M7-02 先例）。
