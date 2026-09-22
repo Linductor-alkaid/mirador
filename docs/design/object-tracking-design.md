@@ -161,6 +161,16 @@ M7-01 冻结落点：`include/mirador/object_tracker.hpp`（`ObjectTracker` 有�
 静止占空比高的 UI 场景使平均成本趋近于零路径，这是本能力区别于通用视频
 跟踪（每帧必跑）的成本结构基础。
 
+M7-03 冻结落点：门控入口为 `ObjectTracker::evaluate_change_gate`
+（Experimental，`object_tracker.hpp`）——消费调用方跑出的 `ChangeReport`
+（tracker 不自持上一帧、不重复实现变化检测），输出按 track_id 升序的逐
+track 决策（复用/待验证/非活跃）。门控是纯决策：不改池内任何状态，短路
+复用不推进 `last_verified_sequence`（位置先验非外观证据，设计第 3 节），
+证据级确认随 M7-06 状态机、历史簿记经 `record_observation` 留给调用方；
+非 `kTracking` 态显式返回决策值不静默跳过；`kGlobal` 触发的代际递增判定
+归 M7-07。运动补偿（6.3）落地前，滚动类变化与全部 track 相交、全员进入
+验证入口是本阶段的预期行为（`RISK-2026-17`）。
+
 ### 6.2 邻域验证
 
 在预测位置 ± 门控半径的验证 ROI 内执行双通道外观验证：

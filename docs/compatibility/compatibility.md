@@ -47,7 +47,7 @@
 
 | 头 / 符号 | 登记依据 | 状态说明 |
 | --- | --- | --- |
-| `include/mirador/object_tracker.hpp`（`TrackState`、`EvidenceGrade`、`TrackObservation`、`TrackTemplate`、`TrackSemantics`、`TargetTrack`、`ObjectTrackerOptions`、`TrackAdoption`、`ObjectTracker`） | M7-01 契约冻结（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) Accepted；[跟踪设计](../design/object-tracking-design.md)）；M7-02 扩展池有界变更原语（`record_observation`、`add_template`、`add_negative_template`、`advance_layout_generation`、`observations_in_generation`、淘汰 trace 计数） | **Experimental**：M7 内字段与签名可调整；`ObjectTracker` 随管线工作项（M7-03 起）在同一头内扩展，直至 M7-09/M7-10 go/no-go 判定后经决策冻结才计入兼容性承诺。阈值初值为开发默认值，M7-09 校准（`DEC-019` 第 5 条） |
+| `include/mirador/object_tracker.hpp`（`TrackState`、`EvidenceGrade`、`TrackObservation`、`TrackTemplate`、`TrackSemantics`、`TargetTrack`、`ObjectTrackerOptions`、`TrackAdoption`、`ObjectTracker`） | M7-01 契约冻结（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) Accepted；[跟踪设计](../design/object-tracking-design.md)）；M7-02 扩展池有界变更原语（`record_observation`、`add_template`、`add_negative_template`、`advance_layout_generation`、`observations_in_generation`、淘汰 trace 计数）；M7-03 扩展变化检测门控三级短路（`evaluate_change_gate`、`ChangeGateDecision`、`TrackGateDecision`、`ChangeGateTrace`，消费 `ChangeReport` 的纯决策入口） | **Experimental**：M7 内字段与签名可调整；`ObjectTracker` 随管线工作项在同一头内扩展，直至 M7-09/M7-10 go/no-go 判定后经决策冻结才计入兼容性承诺。阈值初值为开发默认值，M7-09 校准（`DEC-019` 第 5 条） |
 
 ## 平台功能可用性
 

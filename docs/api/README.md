@@ -54,6 +54,8 @@ SPI 的过滤/共线合并自由函数（`filter_segments`、`merge_collinear`�
 `ObjectTracker` 生命周期，设计 §24 M7、`DEC-019`；M7-02 起含池有界变更原语
 `record_observation`/`add_template`/`add_negative_template`/
 `advance_layout_generation` 与代际分组查询 `observations_in_generation`；
+M7-03 起含变化检测门控三级短路 `evaluate_change_gate`（`ChangeGateDecision`/
+`TrackGateDecision`/`ChangeGateTrace`，纯决策不改池状态，设计 §6.1）；
 **Experimental**：随 M7 go/no-go 判定冻结，冻结前不计兼容性承诺）、
 `perception_session.hpp`（感知入口：变化分析 → 按需 Backend → 坐标恢复 → 缓存 →
 融合发布，`DEC-013`）。
