@@ -311,10 +311,14 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   自断言通过——相对 M1 基线无可测回归结论维持。
 - 限制：`build(tests)` 修复仅改 TSAN 分支的测试注册命令（非 TSAN 预设
   注册零差异），debug/tsan 完整 ctest 与五构建 object_tracker 直跑已在
-  修复后复验；release/asan/ubsan/warnings 预设的完整 ctest 由 CI 在包含
-  该修复的分支 head 上重跑通过（见下方 CI 回填）。
-- CI 回填：PR #22（[run 35756793022](https://github.com/Linductor-alkaid/mirador/actions/runs/35756793022)）
-  14/14 job 全绿——msvc/ninja、ndk/arm64-v8a、gcc10（focal 容器）、clang
-  debug/fuzz、gcc 六预设（debug/asan/ubsan/tsan/warnings）、
-  integrations-ncnn、capture/opencv 适配与 clang-format/clang-tidy 双
-  口径；首轮通过，无修复往返。
+  修复后复验；asan/ubsan/warnings 预设的完整 ctest 由 CI 在包含该修复
+  的分支 head 上重跑通过（见下方 CI 回填；CI 矩阵无 release 预设，release
+  侧证据为本地 object_tracker 直跑与门控基准复跑）。
+- CI 回填：PR #22 两轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35756793022](https://github.com/Linductor-alkaid/mirador/actions/runs/35756793022)
+  （head b11b70d，覆盖验证套件、契约修正与 `setarch -R` 注册修复）先行
+  通过；分支 head [run 35759053505](https://github.com/Linductor-alkaid/mirador/actions/runs/35759053505)
+  （head 3a2cb3c，仅追加文档回填 commit，34m30s）复证全绿；首轮通过，
+  无修复往返。
