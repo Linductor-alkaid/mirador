@@ -193,6 +193,48 @@ bbox 与置信度，作为 E1 的形变鲁棒替代/复核信号——参与条�
 管线零变化，优雅退化为纯传统双通道。高置信模板更新仅取自双通道一致帧，
 防止深度 tracker 漂移污染模板池。
 
+M7-05 冻结落点：邻域验证器交付于 `ObjectTracker::verify_track`（Experimental，
+`object_tracker.hpp`）与配套类型 `TrackStructureDescriptors`/
+`AppearanceVerification`/`StructureVerification`/`TrackVerification`。验证器
+为纯逐 track 决策（`const`，任何路径不改池状态、不推进
+`last_verified_sequence`，分级→状态转移与代际判定归 M7-06，同 M7-03 门控
+先例）；接受任意非 `kTerminated` 态 track（M7-08 重检测身份复核复用同一
+入口）。四项契约裁决冻结于头注释：
+
+- **E1**：验证 ROI 内"平移窗口完全落在 ROI 内"的整数平移全集，逐候选以
+  `adopt_track` 同款管线（`crop` + M3-09 `make_visual_patch_fingerprint`，
+  `template_thumb_side`）提取 patch，与池内全部正模板做与 VisualIndex 模板
+  层（M3-10）同一归一化的 NCC；逐模板响应面取峰（总序：峰值 → 切比雪夫
+  半径 → dy → dx），PSR = (峰 − 旁瓣均值)/(旁瓣总体标准差 + 1e-12)（平坦
+  响应面得 0，单候选搜索集得峰/1e-12）；胜者模板取总序（峰值 → PSR →
+  模板序）。kStrong 要求峰值 ≥ `ncc_strong_threshold` 且 PSR ≥
+  `peak_sidelobe_ratio_min` 同时达标；PSR 不达标时峰高一律不采信（kNone）。
+  贴边 track 的 ROI 钳制后小于窗口时退化为仅评估 (0, 0) 偏移（"还在原位
+  吗"检查，`best_offset_* == 0` 可见）。负模板只读边界：验证器不读
+  `negative_templates`，impostor 采集与 `kVetoed` 否决归 M7-06。
+- **E2**：消费裸描述量 `TrackStructureDescriptors`
+  （closure_score/rectangularity/edge_support，[0, 1] 校验）而非
+  `GeometricRegionProposal` 类型——保持 `mirador_fusion` 链接接口恰为
+  core/image/cache，零新依赖（`DEC-019` 第 1 条阶段 A 口径，架构测试与
+  链接闭包探针不变）；调用方经 `ObjectTracker::verification_roi`（与验证器
+  同一 ROI 规则的纯查询）在验证 ROI 内运行线段检测 + `propose_regions`
+  后传入。基线经显式簿记方法 `record_structure_baseline` 入池：每 track
+  单槽、后写覆盖（漂移控制留调用方/M7-06 策略），占
+  `kStructureBaselineOverheadBytes` 计入 `byte_size` 与 `pool_budget_bytes`
+  （放不下显式 `kBudgetExceeded`），`terminate`/track 淘汰/`reset` 释放；
+  无基线时 E2 显式报 `kNoBaseline` 不伪造结论。偏差口径：
+  |q − 基线_q| / max(|基线_q|, 1e-6) 取三量最大值 ≤
+  `structure_deviation_tolerance` 为一致（偏差不截断上报，供 M7-09 校准）。
+- **验证 ROI**：`last_bounds` 以 `verification_roi_diagonal_ratio × 对角/2`
+  每侧围绕 `predicted_center` 扩展（M7-07 前 `predicted_center` 恒为
+  `last_bounds` 中心），按 adopt_track 覆盖规则取整并钳制到视图。
+- **预算与取消**：E1 扫描规划工作量（逐候选 2×窗口字节 + 缩略图字节 +
+  2×模板数×缩略图字节 + 响应面存储，饱和算术）先于任何像素读取对比
+  `verification_work_budget_bytes`（初值 256 MiB 开发冒烟值），超限显式
+  `kBudgetExceeded`；取消/超时经 `ExecutionContext`（入口 + 逐行检查，
+  校验先于取消，不返回半份结果）。同一输入逐位确定（固定扫描序 + 上述
+  总序 + 精确整数和上的 double 单次除法）。
+
 ### 6.3 全局运动补偿
 
 `mirador::image` 新增全局位移估计原语：基于既有分块差分的低分辨率平移搜索

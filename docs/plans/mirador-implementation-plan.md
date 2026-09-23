@@ -1,11 +1,41 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.13
+> 版本：1.15
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-23
+>
+> 1.15 修订（2026-09-23）：M7 工作项 `M7-05` 邻域验证器测试与门禁证据
+> 落地，工作项勾选——Independent-Verification-Agent 验证套件 30 用例
+> （`verification_roi` 冻结扩展/贴边钳制、E1 峰值与 PSR 阈值边界及平坦
+> 拒绝、`DOD-04` 模板集变化使验证失效、E2 基线簿记字节记账与容差含边界
+> 比较、冻结工作量公式边界、校验与预算先于取消、DOD-03 坐标矩阵、
+> stride/格式不变性、逐位确定性与纯 const 决策）随验证轮处置 commit 落
+> 地：`verify_track` 校验/取消优先级注释的 M7-02 出处更正为本项冻结决策
+> 并注明与 `adopt_track` 入口的刻意对照（注释级修改，行为与冻结契约不
+> 变）。本地门禁：debug ctest 47/47、验证套件 30 用例与既有
+> `mirador.fusion.object_tracker` 72 用例直跑通过、asan/ubsan 验证套件
+> 直跑零 sanitizer 报告、clang-format/clang-tidy 归零；release/tsan 等
+> 其余预设与六预设完整复跑随编排脚本收口。CI 证据随 PR #25 回填（run
+> 35821784682，14/14 job 全绿，PR 待合入）；`SCOPE-13` 维持未勾选（M7
+> 进行中）。
+>
+> 1.14 修订（2026-09-23）：M7 工作项 `M7-05` 邻域验证器实现交付于工作分支
+> `feat/m7-05-neighborhood-verifier`——`ObjectTracker::verify_track`（纯逐
+> track 双通道证据决策：E1 验证 ROI 内多模板 NCC 峰值 + 峰旁瓣质量 PSR，
+> E2 闭合结构描述量与池内基线偏差容差）、验证 ROI 查询
+> `verification_roi` 与基线簿记 `record_structure_baseline`（每 track 单槽、
+> 字节记账）。四项契约裁决（裸描述量消费保持 fusion 零新依赖、单槽基线、
+> 负模板边界归 M7-06、ROI 扩展语义）冻结于头注释并同步设计 §6.2 落点
+> 注记。本地 debug 构建零告警、ctest 46/46、clang-format/clang-tidy 自查
+> 归零；测试由 Independent-Verification-Agent 独立编写与执行，工作项勾选、
+> 六预设门禁与 CI 证据随验证套件落地回填。同日验证员首轮处置：验证套件
+> 30 用例随验证员 commit 落地（debug ctest 47/47），实现侧更正
+> `verify_track` 校验/取消优先级注释的 M7-02 出处引用为本项冻结决策
+> （行为不变），并就不可达防御分支、工作量与 ROI 计量精度补头注释注记。
+> `SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.13 修订（2026-09-23）：M7 工作项 `M7-04` 全局位移估计原语测试与门禁
 > 证据落地，工作项勾选——Independent-Verification-Agent 验证套件 23 用例
@@ -145,7 +175,11 @@ run 35759053505 14/14 job 全绿，待合入）；`M7-04` 全局位移估计原�
 并勾选（实现、23 用例验证套件、签名重载尺寸一致性修复与门禁证据落地于
 分支 `feat/m7-04-global-shift-estimation`；CI 证据已回填：
 [PR #24](https://github.com/Linductor-alkaid/mirador/pull/24)
-run 35808507168 14/14 job 全绿，待合入）。
+run 35808507168 14/14 job 全绿，待合入）；`M7-05` 邻域验证器已交付并勾选
+（实现、30 用例验证套件、验证员首轮出处/精度处置与门禁证据落地于
+分支 `feat/m7-05-neighborhood-verifier`；CI 证据已回填：
+[PR #25](https://github.com/Linductor-alkaid/mirador/pull/25)
+run 35821784682 14/14 job 全绿，待合入）。
 
 ## 交付边界
 
