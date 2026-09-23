@@ -904,3 +904,53 @@ Independent-Verification-Agent 独立编写与执行，实现交付见上段）�
   clang-tidy 双口径。[run 35896974845](https://github.com/Linductor-alkaid/mirador/actions/runs/35896974845)
   （head c52a200，覆盖实现、契约注册、验证套件与文档交付/勾选 commit，
   38m1s）；首轮通过，无修复往返。
+
+2026-09-24：`M7-08` 实现交付（分支 `feat/m7-08-cascade-redetection-identity-review`
+自 master 3b517a9 切出；测试由 Independent-Verification-Agent 独立编写与
+执行，随验证套件落地后另行勾选）：
+
+- 契约冻结（object_tracker.hpp）：级联重检测四原语——`evaluate_redetection_gate`
+  （纯 `const` 退避门查询：kNone 静止画面一律 kHoldStaticFrame 零触发、
+  退避窗口内 kHoldBackoff、其余 kTrigger、非 kLost 显式 kInactive；变化
+  ROI 刻意不消费——kLost 位置先验失效不得门控复捕获，同 M7-06 冻结）、
+  `record_redetection_failure`（失败尝试记账 + 冻结倍增退避
+  `min(base × 2^(n-1), max)` 帧序列计 + 连续失败达 `redetect_max_attempts`
+  由该入口自身执行 kLost → kTerminated 归档转移）、
+  `record_redetection_recapture`（复捕获确认后有界中断事件写入 +
+  回合槽关闭；要求 track 已 kTracking——确认提交先行）与
+  `record_redetection_association`（新 ID 分支身份交接关联，前置 kLost
+  前驱；诊断性记录不改状态）。const/状态变更边界、回合槽陈旧键（回合
+  kLost 进入时刻）、有界日志表示（`RedetectionRecord` 仅 id 与序列，
+  `RULE-10`）、`max_redetection_records` 选项与
+  `kRedetectSlotOverheadBytes`/`kRedetectionRecordOverheadBytes` 记账
+  冻结于头注释；`TargetTrack` 布局不动。身份复核本体零新验证代码：复用
+  `verify_track`（M7-05）+ `commit_track_evidence`（M7-06 kLost →
+  kTracking 复捕获语义不重写）；新 ID 分支走常规融合采纳（`adopt_track`，
+  `DEC-010`）。随项移除 M7-07 验证记录指出的无定义单参
+  `terminate(uint64_t)` 死声明（独立 refactor commit，先于实现落地）。
+- 实现要点（src/fusion/object_tracker.cpp）：`terminate` 归档语义重构为
+  共享 `archive_track` 助手（调用方驱动边与预算耗尽边同一语义，行为
+  不变）；入口单次取消轮询（M7-07 先例，O(1) 入口校验后无失败路径者
+  cancel-first——门查询同 `evaluate_change_gate`，记账同
+  `compensate_global_motion`）；回合槽/日志插入、淘汰与字节记账沿用
+  `record_observation`/M7-05/06 槽位先例；淘汰计划计入回合槽字节
+  （`plan_eviction`）；`reset` 清理全部新状态。设计 §7 第 2 条"按语义
+  标签过滤候选的通用组件"不在本工作项文本内，落点注记显式声明随后续
+  工作项或上层集成交付。
+- 本地验证（实现交付时点）：debug 构建零告警；全量 ctest 49/49（既有
+  4 个 object_tracker 套件零回归；首次全量出现 1 例未复现失败，未捕获
+  用例名，连续 4 轮全量复跑全绿——按抖动处理，若验证轮再现按
+  Independent-Verification-Agent 流程上报）；开发冒烟 118 断言通过
+  （门判定矩阵含静止画面零触发、倍增序列 1→2→4 与封顶、预算耗尽
+  kTerminated 归档、回合陈旧键重置、中断事件/关联校验矩阵、有界日志
+  溢出淘汰计数、字节记账逐项、双实例逐位确定性、取消/超时显式转化）；
+  clang-format/clang-tidy 双口径在两份实现文件归零（CI 口径复跑随编排
+  脚本）。PSR 平坦门冒烟注记：默认 `peak_sidelobe_ratio_min` 5.0 下
+  同帧精确匹配峰值 PSR≈4.6 被拒（平坦门按设计工作），冒烟以 2.0 验证
+  复核通路——阈值初值随 M7-09 校准（`DEC-019` 第 5 条）。
+- 移交验证员：静止画面零触发负向（计划退出条件、设计 §8 强制）、退避
+  序列符合配置（1→2→…→60 封顶，确定性、无墙钟）、预算耗尽显式失败
+  （kTerminated 可见、错误路径池不变）、复核通过延续/新分配两分支、
+  中断事件与关联记录的有界性（RULE-06 负向）、取消/超时转化、字节
+  记账与回合槽生命周期（terminate/淘汰/reset 释放）、DOD-03/04/06
+  负向、双实例逐位确定性；六预设门禁与 CI 证据随验证套件落地回填。
