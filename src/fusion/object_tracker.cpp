@@ -881,9 +881,10 @@ Result<TrackVerification> ObjectTracker::verify_track(
     uint64_t track_id, const ImageView& presented_view,
     const std::optional<TrackStructureDescriptors>& structure_descriptors,
     const ExecutionContext& context) const noexcept {
-    // Validation precedes cancellation (M7-02 semantics): every error below
-    // leaves the pool untouched — this method is const, so it cannot mutate
-    // it in the first place.
+    // Validation precedes cancellation (frozen M7-05 decision — the
+    // deliberate contrast to adopt_track, whose M7-02 entry checks
+    // cancellation first): every error below leaves the pool untouched —
+    // this method is const, so it cannot mutate it in the first place.
     if (auto validated = validate(presented_view); !validated.ok()) {
         return validated.status();
     }

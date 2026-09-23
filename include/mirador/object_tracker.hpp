@@ -554,10 +554,14 @@ public:
     /// (until the motion pipeline lands, `predicted_center` is exactly the
     /// `last_bounds` center), converted with the `adopt_track` covering rule
     /// (floor on the leading edge, ceil on the trailing edge) and clamped
-    /// into the view. Frozen ROI semantics — `verify_track` searches exactly
-    /// this region for E1, and callers run their E2 evidence production
-    /// (line detection + `propose_regions`) inside it so both channels see
-    /// the same neighborhood.
+    /// into the view. Precision note: the expansion is computed in double
+    /// and narrowed to float per component before the covering conversion,
+    /// so ROI edges can sit one pixel off a full-double computation — equal
+    /// inputs stay bit-identical, and M7-09 calibration treats this as the
+    /// frozen ROI metering. Frozen ROI semantics — `verify_track` searches
+    /// exactly this region for E1, and callers run their E2 evidence
+    /// production (line detection + `propose_regions`) inside it so both
+    /// channels see the same neighborhood.
     ///
     /// Pure read (`const`). Errors: kInvalidArgument for an invalid view, an
     /// unknown or already-terminated track, or an expanded ROI that does not
@@ -620,9 +624,16 @@ public:
     /// response-surface storage — is checked against
     /// `options().verification_work_budget_bytes` before the scan starts;
     /// exceeding it fails with kBudgetExceeded before any pixel is read.
-    /// The scan polls `context` once per offset row; kCancelled/kTimeout
-    /// return only the Status, never a partial verification. Validation
-    /// errors take precedence over cancellation (M7-02 semantics).
+    /// Metering precision: the plan sizes the window with the ceil of the
+    /// bounds extents, while the per-offset crop follows the covering rule,
+    /// so fractional bounds can read up to one pixel row/column more per
+    /// offset than the meter counts — the formula is the frozen accounting
+    /// meter and that margin is M7-09 calibration's to own. The scan polls
+    /// `context` once per offset row; kCancelled/kTimeout return only the
+    /// Status, never a partial verification. Validation errors take
+    /// precedence over cancellation — a frozen decision of this work item
+    /// (M7-05), the deliberate contrast to `adopt_track`, whose M7-02 entry
+    /// checks cancellation first.
     ///
     /// Coordinates: `presented_view` must be presented in this tracker's
     /// single coordinate space, and the descriptors must come from the same
@@ -637,11 +648,13 @@ public:
     /// single divisions.
     ///
     /// Errors: kInvalidArgument for an invalid view, an unknown or
-    /// already-terminated track, a track with no appearance templates, a
-    /// verification ROI that does not intersect the view, a fallback window
-    /// covering no pixel of the view, or descriptors that are non-finite or
-    /// outside [0, 1]; kBudgetExceeded as above; kCancelled/kTimeout from
-    /// `context`. Never throws.
+    /// already-terminated track, a track with no appearance templates (a
+    /// defensive branch — unreachable through the public API: terminated
+    /// tracks are rejected above and adoption always stores exactly one
+    /// template), a verification ROI that does not intersect the view, a
+    /// fallback window covering no pixel of the view, or descriptors that
+    /// are non-finite or outside [0, 1]; kBudgetExceeded as above;
+    /// kCancelled/kTimeout from `context`. Never throws.
     [[nodiscard]] Result<TrackVerification> verify_track(
         uint64_t track_id, const ImageView& presented_view,
         const std::optional<TrackStructureDescriptors>& structure_descriptors,
