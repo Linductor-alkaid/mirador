@@ -110,9 +110,14 @@ public:
     /// — to the tracked region carrying its `stable_id` when that id is
     /// still tracked and neither side is already paired; every other region
     /// matches exactly as before. An association naming an untracked id is
-    /// ignored (the track may have been terminated between frames; the
-    /// region falls through to the normal gate). Pre-matched regions count
-    /// as retained for the tallies and the generation decision.
+    /// ignored for the matching (the track may have been terminated between
+    /// frames; the region falls through to the normal gate) — but the
+    /// structural checks (non-zero id, in-range region index, duplicate
+    /// region indexes and duplicate stable ids) are evaluated for every
+    /// association before that fallback, so duplicates stay explicit errors
+    /// even when the duplicated association names an untracked id.
+    /// Pre-matched regions count as retained for the tallies and the
+    /// generation decision.
     ///
     /// Errors: kInvalidArgument (invalid options, a `region_index` outside
     /// `current_regions`, a zero `stable_id`, or duplicate region indexes

@@ -276,11 +276,19 @@ Result<StableIdReport> StableIdTracker::advance(std::span<const VisualRegion> cu
 
         // M7-06 DEC-010 gate passthrough (design section 6.5): validate the
         // tracking-confirmed associations, then pre-match each one to its
-        // tracked region. Validation errors leave the state untouched; an
-        // association naming an untracked id is ignored (the region falls
-        // through to the normal gate).
+        // tracked region. Validation errors leave the state untouched. The
+        // structural checks (non-zero id, in-range index, duplicate region
+        // indexes and duplicate stable ids) are evaluated for every
+        // association before the tracked lookup, so duplicates stay explicit
+        // errors even when the duplicated association names an untracked id;
+        // an association that passes validation but names an untracked id is
+        // ignored for the matching (the region falls through to the normal
+        // gate).
         std::vector<size_t> pre_match_of_cur(cur_count, prev_count);  // prev_count = "unmatched"
         std::vector<bool> prev_taken(prev_count, false);
+        std::vector<char> region_claimed(cur_count, 0);
+        std::vector<uint64_t> claimed_ids;
+        claimed_ids.reserve(confirmed_associations.size());
         for (const ConfirmedAssociation& association : confirmed_associations) {
             if (association.stable_id == 0) {
                 return Status(ErrorCode::kInvalidArgument, "confirmed association stable_id must be non-zero");
@@ -288,9 +296,14 @@ Result<StableIdReport> StableIdTracker::advance(std::span<const VisualRegion> cu
             if (association.region_index >= cur_count) {
                 return Status(ErrorCode::kInvalidArgument, "confirmed association region index out of range");
             }
-            if (pre_match_of_cur[association.region_index] != prev_count) {
+            if (region_claimed[association.region_index] != 0) {
                 return Status(ErrorCode::kInvalidArgument, "confirmed association repeats a region index");
             }
+            if (std::find(claimed_ids.begin(), claimed_ids.end(), association.stable_id) != claimed_ids.end()) {
+                return Status(ErrorCode::kInvalidArgument, "confirmed association repeats a stable_id");
+            }
+            region_claimed[association.region_index] = 1;
+            claimed_ids.push_back(association.stable_id);
             const auto prev_it = std::find_if(
                 previous_.begin(), previous_.end(),
                 [&association](const TrackedRegion& region) { return region.stable_id == association.stable_id; });
@@ -298,9 +311,6 @@ Result<StableIdReport> StableIdTracker::advance(std::span<const VisualRegion> cu
                 continue;
             }
             const auto prev_index = static_cast<size_t>(prev_it - previous_.begin());
-            if (prev_taken[prev_index]) {
-                return Status(ErrorCode::kInvalidArgument, "confirmed association repeats a stable_id");
-            }
             pre_match_of_cur[association.region_index] = prev_index;
             prev_taken[prev_index] = true;
         }
