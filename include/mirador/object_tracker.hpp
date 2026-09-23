@@ -591,7 +591,6 @@ public:
     /// decides to call it is M7-08's (RULE-12). Errors:
     /// kInvalidArgument for an unknown or already-terminated id. Never throws.
     [[nodiscard]] Result<void> terminate(uint64_t track_id, uint64_t frame_sequence) noexcept;
-    [[nodiscard]] Result<void> terminate(uint64_t track_id) noexcept;
 
     /// Appends one position observation to the track's bounded history (M7-02
     /// pool structure): the entry is stamped with this pool's current layout
