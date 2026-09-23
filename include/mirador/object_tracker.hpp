@@ -100,8 +100,10 @@ struct TargetTrack {
     uint32_t layout_generation = 0;
     /// Bounded appearance templates; index 0 is the adoption template.
     std::vector<TrackTemplate> templates;
-    /// Bounded impostor templates confirmed against this track (populated by
-    /// the verification pipeline from M7-05/M7-06 on).
+    /// Bounded impostor (negative) templates confirmed against this track.
+    /// Frozen M7-05 boundary: the neighborhood verifier reads positive
+    /// templates only — collecting impostor templates and the veto they back
+    /// (`EvidenceGrade::kVetoed`) is the M7-06 state machine's contract.
     std::vector<TrackTemplate> negative_templates;
     TrackSemantics semantics;
     float confidence = 0.0F;
@@ -161,6 +163,14 @@ struct ObjectTrackerOptions {
     /// Verification ROI expansion around the predicted position, in multiples
     /// of the track's bounds diagonal. (0, 8].
     double verification_roi_diagonal_ratio = 1.0;
+    /// Work meter of one `verify_track` call (M7-05): the planned E1 scan
+    /// work (frozen formula in the `verify_track` contract) is checked
+    /// against this budget before the scan runs, and exceeding it fails the
+    /// call with kBudgetExceeded (RULE-06) — shrink
+    /// `verification_roi_diagonal_ratio` to bound the offset count for large
+    /// tracks. > 0. Development smoke default, calibrated by M7-09 (DEC-019
+    /// section 5).
+    int64_t verification_work_budget_bytes = int64_t{256} * 1024 * 1024;
 
     // ---- Cascade redetection primitives (design section 7): the upper layer
     // drives every call (RULE-12); these values only parameterize the backoff
@@ -223,6 +233,123 @@ struct ChangeGateTrace {
     std::vector<TrackGateDecision> tracks;
 };
 
+// ---- Neighborhood verification (M7-05, object-tracking design section 6.2;
+// frozen contract decisions recorded here and on `verify_track`) ----
+
+/// The three closure-structure description quantities of a
+/// `GeometricRegionProposal` (`geometric_proposal.hpp`, DEC-018 stage 1),
+/// carried bare by the M7-05 verification contract. Frozen shape decision:
+/// the verifier consumes these numbers instead of the proposal type, so the
+/// fusion link interface stays exactly core/image/cache — zero new module
+/// dependencies (DEC-019 phase A; no DEC-013 allowed-set evolution needed).
+/// The remaining proposal fields (bounds, oriented bounds, segments) carry
+/// nothing the deviation comparison consumes. The caller obtains the
+/// descriptors by running `propose_regions` inside
+/// `ObjectTracker::verification_roi` (or from any equivalent structure
+/// evidence source), from the same frame as the view passed to
+/// `verify_track`. All values live in [0, 1] per the frozen proposal
+/// contract; anything else is rejected as kInvalidArgument.
+struct TrackStructureDescriptors {
+    /// Degree of closure in [0, 1] (see
+    /// `GeometricRegionProposal::closure_score`).
+    float closure_score = 0.0F;
+    /// Principal-direction alignment fraction in [0, 1].
+    float rectangularity = 0.0F;
+    /// Junction-sharing segment fraction in [0, 1].
+    float edge_support = 0.0F;
+
+    /// Component equality (test convenience).
+    [[nodiscard]] friend bool operator==(const TrackStructureDescriptors& lhs,
+                                         const TrackStructureDescriptors& rhs) noexcept {
+        return lhs.closure_score == rhs.closure_score && lhs.rectangularity == rhs.rectangularity &&
+               lhs.edge_support == rhs.edge_support;
+    }
+};
+
+/// Evidence level of the E1 (template NCC) channel of one verification
+/// (object-tracking design sections 3 and 6.2). Channel evidence only — this
+/// is deliberately not an `EvidenceGrade`: mapping grades to state
+/// transitions is the M7-06 state machine's decision (DEC-010 gating
+/// semantics).
+enum class AppearanceChannelOutcome : uint8_t {
+    /// Below the weak threshold, or a peak the sidelobe gate rejects: a flat
+    /// response surface is never trusted at any peak height.
+    kNone,
+    /// Peak at or above `ncc_weak_threshold` with trusted peak quality.
+    kWeak,
+    /// Peak at or above `ncc_strong_threshold` with trusted peak quality.
+    kStrong,
+};
+
+/// Outcome of the E2 (closure-structure consistency) channel of one
+/// verification (design section 6.2). Evidence only; the M7-06 state machine
+/// decides what it means for the track. Missing inputs are reported
+/// explicitly instead of fabricating a verdict.
+enum class StructureChannelOutcome : uint8_t {
+    /// The caller passed no descriptors for this call.
+    kNotSupplied,
+    /// Descriptors supplied, but the track holds no recorded baseline (one
+    /// is stored per track by `record_structure_baseline`).
+    kNoBaseline,
+    /// Every descriptor deviation is within
+    /// `structure_deviation_tolerance`.
+    kConsistent,
+    /// At least one descriptor deviates beyond the tolerance.
+    kDeviated,
+};
+
+/// E1 channel evidence of one `verify_track` call (M7-05).
+struct AppearanceVerification {
+    AppearanceChannelOutcome outcome = AppearanceChannelOutcome::kNone;
+    /// Winning peak of the NCC response surface in [-1, 1] (1.0 = identical
+    /// thumbnails under the M3-10 normalization, including its flat-vs-flat
+    /// rule).
+    double peak_ncc = 0.0;
+    /// Peak-to-sidelobe quality of the winning template's response surface
+    /// (frozen formula in the `verify_track` contract); >= 0.
+    double peak_sidelobe_ratio = 0.0;
+    /// Index into `TargetTrack::templates` of the winning template
+    /// (0 = the adoption template).
+    uint32_t best_template_index = 0;
+    /// Integer translation in presented pixels of the track bounds at which
+    /// the winning peak was found, relative to the predicted position
+    /// (`bounds.x + dx`, `bounds.y + dy`). (0, 0) on the edge-clamped
+    /// fallback (see `verify_track`).
+    int32_t best_offset_dx = 0;
+    int32_t best_offset_dy = 0;
+};
+
+/// E2 channel evidence of one `verify_track` call (M7-05).
+struct StructureVerification {
+    StructureChannelOutcome outcome = StructureChannelOutcome::kNotSupplied;
+    /// Per-quantity relative deviations from the recorded baseline (frozen
+    /// formula in the `verify_track` contract); 0 when not comparable.
+    /// Unclamped — values can exceed 1 for near-zero baselines and are
+    /// reported as computed for M7-09 calibration visibility.
+    double closure_deviation = 0.0;
+    double rectangularity_deviation = 0.0;
+    double edge_support_deviation = 0.0;
+    /// Maximum of the three deviations; the channel is kConsistent when this
+    /// is <= `structure_deviation_tolerance`.
+    double max_deviation = 0.0;
+};
+
+/// Whole result of one `verify_track` call: both channel evidences for one
+/// track plus the context they were computed against (M7-05).
+struct TrackVerification {
+    uint64_t track_id = 0;
+    /// Track state at verification time (echo; the verifier never changes
+    /// it).
+    TrackState state = TrackState::kTracking;
+    /// The clamped pixel verification ROI the E1 search ran in — the same
+    /// region the caller is expected to have run the E2 detection and
+    /// `propose_regions` in (`ObjectTracker::verification_roi` computes it
+    /// with the identical rule).
+    RectI verification_roi;
+    AppearanceVerification appearance;
+    StructureVerification structure;
+};
+
 /// Bounded cross-frame target pool over fused regions (object-tracking design
 /// section 5, SCOPE-13). The pool is the structural core of the M7 tracker:
 /// adoption captures the initial appearance template from the frame, every
@@ -238,6 +365,8 @@ public:
     static constexpr int64_t kObservationOverheadBytes = 32;
     /// Fixed byte overhead of one track (identity, state, semantics bookkeeping).
     static constexpr int64_t kTrackOverheadBytes = 128;
+    /// Byte overhead of one track's E2 structure baseline slot (M7-05).
+    static constexpr int64_t kStructureBaselineOverheadBytes = 32;
 
     ObjectTracker() noexcept = default;
     ObjectTracker(const ObjectTracker&) = delete;
@@ -418,6 +547,128 @@ public:
     [[nodiscard]] Result<ChangeGateTrace> evaluate_change_gate(const ChangeReport& report,
                                                                const ExecutionContext& context = {}) const noexcept;
 
+    /// Verification ROI of one track in the presented view (M7-05;
+    /// object-tracking design section 6.2): the track bounds expanded around
+    /// `predicted_center` by
+    /// `verification_roi_diagonal_ratio * bounds_diagonal / 2` per side
+    /// (until the motion pipeline lands, `predicted_center` is exactly the
+    /// `last_bounds` center), converted with the `adopt_track` covering rule
+    /// (floor on the leading edge, ceil on the trailing edge) and clamped
+    /// into the view. Frozen ROI semantics — `verify_track` searches exactly
+    /// this region for E1, and callers run their E2 evidence production
+    /// (line detection + `propose_regions`) inside it so both channels see
+    /// the same neighborhood.
+    ///
+    /// Pure read (`const`). Errors: kInvalidArgument for an invalid view, an
+    /// unknown or already-terminated track, or an expanded ROI that does not
+    /// intersect the view at all. Never throws.
+    [[nodiscard]] Result<RectI> verification_roi(uint64_t track_id, const ImageView& presented_view) const noexcept;
+
+    /// Neighborhood verification of one track (M7-05; object-tracking design
+    /// section 6.2): a pure per-track decision — `const`, no pool state
+    /// changes on any path, `last_verified_sequence` and every other evidence
+    /// field stay untouched, and no grade-to-state mapping or layout-
+    /// generation decision happens here (all of that is the M7-06 state
+    /// machine's contract, the same boundary the M7-03 gate froze). This
+    /// entry accepts tracks in any non-terminated state (the M7-08
+    /// redetection identity review reuses it for kLost candidates);
+    /// kTerminated is rejected because its identity is closed. Two channels:
+    ///
+    /// E1 template NCC (multi-template best with peak-sidelobe quality):
+    /// every integer translation of the track bounds window that stays fully
+    /// inside the verification ROI is extracted with the adoption pipeline
+    /// (`crop` + `make_visual_patch_fingerprint` at
+    /// `options().template_thumb_side`) and NCC-scored against every stored
+    /// positive template with the M3-10 normalization (the `VisualIndex`
+    /// template layer formula; negative templates are never read — the
+    /// impostor veto is frozen for M7-06). Each template yields one response
+    /// surface over the offsets. Per template, the peak is the maximum under
+    /// the total order (peak NCC, then offset Chebyshev radius, then dy,
+    /// then dx — the M7-04 winner style), and the peak-to-sidelobe quality
+    /// is `PSR = (peak - mean_sidelobe) / (stddev_sidelobe + 1e-12)` with
+    /// the population stddev over that surface's remaining responses: a
+    /// flat surface (stddev 0, peak equal to the sidelobe mean) scores 0, a
+    /// single-candidate surface scores peak/1e-12 (trivially distinctive).
+    /// The winning template is the maximum under (peak NCC, then PSR, then
+    /// template index). `outcome` is kStrong when peak >=
+    /// `ncc_strong_threshold` and PSR >= `peak_sidelobe_ratio_min`, else
+    /// kWeak when peak >= `ncc_weak_threshold` and PSR >=
+    /// `peak_sidelobe_ratio_min`, else kNone: a peak on a flat response
+    /// surface is never trusted, at any height.
+    ///
+    /// E2 closure-structure consistency: the caller-supplied descriptors are
+    /// compared against the track's recorded baseline
+    /// (`record_structure_baseline`). Per quantity the relative deviation is
+    /// `|current - baseline| / max(|baseline|, 1e-6)`, evaluated in double
+    /// from the float values; the channel is kConsistent when the maximum of
+    /// the three is <= `structure_deviation_tolerance`. kNotSupplied (no
+    /// descriptors passed) and kNoBaseline (no baseline recorded yet — a
+    /// fresh track starts without one; record the adoption frame's proposal
+    /// to bootstrap the channel) report the missing-input states explicitly
+    /// instead of fabricating a verdict.
+    ///
+    /// Search-set fallback: when the clamped ROI is smaller than the track
+    /// window (edge-clamped tracks) the strict "window inside ROI" offset
+    /// set is empty and exactly the offset (0, 0) is evaluated on the
+    /// clamped window instead — the "is it still where we think it is"
+    /// check; the fallback is visible through `best_offset_* == 0`.
+    ///
+    /// Bounded work (RULE-06): the planned work — offsets x (2 x
+    /// ceil(bounds width) x ceil(bounds height) x bytes-per-pixel +
+    /// `template_thumb_side^2` + 2 x template_count x
+    /// `template_thumb_side^2`) plus offsets x template_count x 8 bytes of
+    /// response-surface storage — is checked against
+    /// `options().verification_work_budget_bytes` before the scan starts;
+    /// exceeding it fails with kBudgetExceeded before any pixel is read.
+    /// The scan polls `context` once per offset row; kCancelled/kTimeout
+    /// return only the Status, never a partial verification. Validation
+    /// errors take precedence over cancellation (M7-02 semantics).
+    ///
+    /// Coordinates: `presented_view` must be presented in this tracker's
+    /// single coordinate space, and the descriptors must come from the same
+    /// frame as `presented_view`; mixing spaces or frames is the caller's
+    /// error (the verifier cannot detect either, as everywhere in this
+    /// header). Presented dimensions may differ from the adoption frame —
+    /// the ROI clamps.
+    ///
+    /// Determinism: identical inputs produce bit-identical results — fixed
+    /// scan order (dy rows ascending, dx columns ascending), the total
+    /// orders above, and double arithmetic only on exact integer sums or
+    /// single divisions.
+    ///
+    /// Errors: kInvalidArgument for an invalid view, an unknown or
+    /// already-terminated track, a track with no appearance templates, a
+    /// verification ROI that does not intersect the view, a fallback window
+    /// covering no pixel of the view, or descriptors that are non-finite or
+    /// outside [0, 1]; kBudgetExceeded as above; kCancelled/kTimeout from
+    /// `context`. Never throws.
+    [[nodiscard]] Result<TrackVerification> verify_track(
+        uint64_t track_id, const ImageView& presented_view,
+        const std::optional<TrackStructureDescriptors>& structure_descriptors,
+        const ExecutionContext& context = {}) const noexcept;
+
+    /// Records the E2 baseline of one track (M7-05 bookkeeping; the design
+    /// section 6.2 "pooled baseline"): the descriptors become the track's
+    /// comparison baseline for subsequent `verify_track` calls, stamped with
+    /// `frame_sequence` and this pool's current layout generation. Each
+    /// track holds exactly one baseline slot — recording again overwrites it
+    /// (frozen shape decision: a bounded history would add eviction policy
+    /// without a consumer; M7-06/M7-09 can extend within Experimental if
+    /// calibration needs one). The caller's policy decides when to record —
+    /// typically on identity-confirmed frames only, which bounds baseline
+    /// drift; the verifier itself never records (pure decision). The slot
+    /// costs `kStructureBaselineOverheadBytes`, is accounted in
+    /// `byte_size()` and `pool_budget_bytes`, and is released by
+    /// `terminate`, by track eviction and by `reset`.
+    ///
+    /// Errors: kInvalidArgument for descriptors that are non-finite or
+    /// outside [0, 1], an unknown or already-terminated track;
+    /// kBudgetExceeded when the pool byte budget cannot hold one more
+    /// baseline slot. On error the pool is untouched. Never throws.
+    [[nodiscard]] Result<void> record_structure_baseline(uint64_t track_id,
+                                                         const TrackStructureDescriptors& descriptors,
+                                                         uint64_t frame_sequence) noexcept;
+
     /// Drops all pool state; the next adoption starts from scratch. Caller
     /// initiated — the tracker never clears itself silently.
     void reset() noexcept;
@@ -436,8 +687,9 @@ public:
     /// Total bytes the pool currently accounts for, summed over tracks as:
     /// `kTrackOverheadBytes` + templates and negative templates
     /// (`kTemplateOverheadBytes` + thumbnail bytes each) + observations
-    /// (`kObservationOverheadBytes` each) + semantics text/label byte lengths.
-    /// Always <= `options().pool_budget_bytes`.
+    /// (`kObservationOverheadBytes` each) + semantics text/label byte lengths,
+    /// plus one `kStructureBaselineOverheadBytes` slot per track that holds an
+    /// E2 structure baseline (M7-05). Always <= `options().pool_budget_bytes`.
     [[nodiscard]] int64_t byte_size() const noexcept { return used_bytes_; }
     /// Cumulative number of tracks evicted by budget/count pressure since
     /// creation or `reset` (RULE-06 accounting).
@@ -470,9 +722,38 @@ private:
     [[nodiscard]] Result<void> store_template(std::vector<TrackTemplate>& set, int32_t capacity, size_t pinned_entries,
                                               const TrackTemplate& entry, uint64_t& evicted_counter) noexcept;
 
+    /// Pool-side E2 baseline slot of one track (M7-05). Kept outside the
+    /// frozen `TargetTrack` layout; at most one slot per track, sorted by
+    /// track_id like `tracks_` (ids always a subset of the live tracks).
+    struct StructureBaselineSlot {
+        TrackStructureDescriptors descriptors;
+        uint64_t frame_sequence = 0;
+        uint32_t layout_generation = 0;
+    };
+    using BaselineSlots = std::vector<std::pair<uint64_t, StructureBaselineSlot>>;
+    /// Iterator to the track's baseline slot, or `end()` when absent.
+    [[nodiscard]] BaselineSlots::iterator find_baseline_slot(uint64_t track_id) noexcept;
+    [[nodiscard]] BaselineSlots::const_iterator find_baseline_slot(uint64_t track_id) const noexcept;
+    /// Removes the track's baseline slot if present; returns the bytes freed
+    /// (informational — adopt_track's commit path folds them into its planned
+    /// eviction account and deliberately ignores the return).
+    int64_t erase_structure_baseline(uint64_t track_id) noexcept;
+    /// Bytes of the track's baseline slot (0 when the track holds none).
+    [[nodiscard]] int64_t baseline_slot_bytes(uint64_t track_id) const noexcept;
+    /// Planned (not yet applied) eviction of an `adopt_track` insertion:
+    /// terminated tracks first, then oldest by (`last_verified_sequence`,
+    /// `track_id`), until the insertion fits both the count and byte bounds.
+    struct EvictionPlan {
+        std::vector<uint64_t> victim_ids;
+        int64_t freed_bytes = 0;
+    };
+    [[nodiscard]] EvictionPlan plan_eviction(int64_t insertion_bytes) const noexcept;
+
     ObjectTrackerOptions options_;
     /// Tracks sorted by ascending track_id (deterministic enumeration).
     std::vector<TargetTrack> tracks_;
+    /// E2 baselines keyed by track_id, ascending (M7-05).
+    BaselineSlots structure_baselines_;
     uint32_t layout_generation_ = 0;
     int64_t used_bytes_ = 0;
     uint64_t evicted_count_ = 0;
