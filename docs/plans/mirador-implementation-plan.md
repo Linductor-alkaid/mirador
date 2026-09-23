@@ -22,8 +22,10 @@
 > 契约未放宽）。本地门禁（文档同步时点于分支 head a578628 复验）：debug
 > 全量 ctest 50/50、新套件直跑 debug/asan/ubsan 各 23/23 且 sanitizer
 > 零报告、clang-format/clang-tidy 归零；release/tsan/warnings 预设与六
-> 预设完整复跑随编排脚本收口。CI 推送与 14/14 证据回填待编排脚本收口
-> （分支未推送）；调用方证据错键时诊断字段失真由调用方证据负责（头注
+> 预设完整复跑随编排脚本收口（tsan/warnings 侧已由 CI 在分支 head 覆盖，
+> CI 矩阵无 release 预设）。CI 证据随 PR #28 回填（run 35917953109，
+> 14/14 job 全绿，PR 待合入）；调用方证据错键时诊断字段失真由调用方
+> 证据负责（头注
 > 释冻结）、相同 kLost 进入序列陈旧性按设计不可分辨；退避/预算初值随
 > M7-09 校准；`SCOPE-13` 维持未勾选（M7 进行中）。
 >
@@ -307,8 +309,9 @@ run 35896974845 14/14 job 全绿，待合入）；`M7-08` 级联重检测原语�
 复核已交付并勾选（实现、验证员 scratch 复核发现的 recapture attempts
 陈旧键缺陷修复、23 用例验证套件——含静止画面零触发负向、预算耗尽
 显式归档、修复回归三分支与身份复核两分支——与门禁证据落地于分支
-`feat/m7-08-cascade-redetection-identity-review`；分支未推送，CI 证据
-待编排脚本推送后回填）。
+`feat/m7-08-cascade-redetection-identity-review`；CI 证据已回填：
+[PR #28](https://github.com/Linductor-alkaid/mirador/pull/28)
+run 35917953109 14/14 job 全绿，待合入）。
 
 ## 交付边界
 

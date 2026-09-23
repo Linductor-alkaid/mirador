@@ -1038,6 +1038,12 @@ Independent-Verification-Agent 独立编写与执行，实现交付与验证轮�
   序列相同（调用方帧序列不前进）时陈旧性按设计不可分辨（验证员附注
   口径维持，不另立缺陷）；修复仅触诊断字段——退避调度、门判定与耗尽
   转移走既有键校验路径，行为零变化；release/tsan/warnings 预设与六预设
-  完整复跑随编排脚本收口（同 M7-03~07 先例，CI 矩阵无 release 预设）；
+  完整复跑随编排脚本收口——tsan/warnings 侧已由 CI 在分支 head 覆盖
+  （见下方 CI 回填；CI 矩阵无 release 预设，同 M7-03~07 先例）；
   退避/预算初值为开发冒烟值，M7-09 校准（`DEC-019` 第 5 条）。
-- CI 回填：待补（分支未推送，推送与 14/14 证据回填随编排脚本收口）。
+- CI 回填：PR #28 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35917953109](https://github.com/Linductor-alkaid/mirador/actions/runs/35917953109)
+  （head 86c6433，覆盖实现、契约注册、验证套件与文档交付/勾选 commit，
+  37m18s）；首轮通过，无修复往返。
