@@ -43,11 +43,18 @@ struct ShiftEstimationParams {
     /// quarter of the frame extent per step, far above per-frame terminal
     /// scroll/pan, at roughly 10^6 pixel operations per call.
     int32_t max_shift = 16;
-    /// Byte budget that every internal allocation request must fit (RULE-06):
-    /// the resampled intermediate and the grayscale thumbnail of each frame
-    /// are checked against it before allocation, and nothing else is
-    /// allocated. Must be > 0. The default accommodates a 256 x 256 thumbnail
-    /// from any single-plane format (worst-case request 256^2 * 4 bytes).
+    /// Byte budget that every internal image allocation request of this
+    /// primitive must fit (RULE-06): the resampled intermediate and the
+    /// grayscale thumbnail of each frame are checked against it before
+    /// allocation, and the search itself allocates nothing. Must be > 0. The
+    /// default accommodates a 256 x 256 thumbnail from any single-plane format
+    /// (worst-case request 256^2 * 4 bytes). Accounting note: the underlying
+    /// deterministic area resample additionally allocates its fixed
+    /// box-weight tables sized by the source dimensions (at most two int64
+    /// entries per source row/column, bounded by kMaxImageDimension, M1
+    /// behavior shared with `detect_change`); those tables are not counted
+    /// against this budget — only allocation failure surfaces as
+    /// kBudgetExceeded there.
     int64_t work_budget_bytes = int64_t{512} * 1024;
 };
 
@@ -82,9 +89,15 @@ struct ShiftEstimate {
     /// (`max_shift == 0`) or when every candidate ties (featureless frames —
     /// the denominator vanishes only there), and it is exactly 1 when the
     /// winner needs no comparison to stand out (SAD_best == 0, e.g.
-    /// pixel-identical frames at thumbnail resolution). It measures
-    /// distinctiveness of the alignment, not scene quality; consumers gate
-    /// compensation on it (M7-07) and calibrate thresholds in M7-09.
+    /// pixel-identical frames at thumbnail resolution). Tied-zero caveat:
+    /// candidates that also score SAD 0 count into mean_SAD_others without
+    /// lowering the value, so periodic content displaced by an exact period
+    /// (many zero-SAD alignments) still reports confidence == 1.0 — do not
+    /// read confidence == 1.0 as an unambiguous peak; the winner's total
+    /// order (smallest Chebyshev radius, then dy, then dx) is what keeps the
+    /// reported shift deterministic there. It measures distinctiveness of
+    /// the alignment, not scene quality; consumers gate compensation on it
+    /// (M7-07) and calibrate thresholds in M7-09.
     float confidence = 0.0F;
 };
 
