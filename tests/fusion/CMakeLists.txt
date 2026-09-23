@@ -40,6 +40,15 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-05 neighborhood verifier: verification ROI, template NCC with the
+# peak-sidelobe gate, structure-baseline bookkeeping, budget/cancel paths,
+# coordinate matrix and determinism.
+mirador_add_test(
+    NAME mirador.fusion.object_tracker_verification
+    SOURCES object_tracker_verification_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp
