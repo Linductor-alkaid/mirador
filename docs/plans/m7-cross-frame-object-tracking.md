@@ -6,7 +6,7 @@
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
 > 建议发布点：`v0.4.0`（暂定，随判定收尾确认）
-> 更新日期：2026-09-23
+> 更新日期：2026-09-24
 
 ## 目标
 
@@ -70,7 +70,7 @@ A/B/C/D 基准发布；go/no-go 判定。
   E1/E2/位置/语义四级证据分级（确认/临时延续/占位/否决，含 impostor 负
   模板排除）；`kTracking/kUncertain/kLost/kTerminated` 转移与 `DEC-010`
   tracker 对接（已确认 track 门控直通）。
-- [ ] `M7-07` 全局运动补偿与布局代际集成：全局变化分类 → 代际递增 → 位置
+- [x] `M7-07` 全局运动补偿与布局代际集成：全局变化分类 → 代际递增 → 位置
   先验条件化（清零/降权）、track 降级与超阈值转 `kLost`；补偿后位置恢复
   验证（滚动场景往返）。
 - [ ] `M7-08` 级联重检测原语与身份复核：退避序列、最大重试、变化门控联动
@@ -828,3 +828,73 @@ Independent-Verification-Agent 独立编写与执行，实现交付与验证员�
   落地，本项未触碰）；DOD-03 方向/奇数尺寸/非连续 stride/贴边往返矩阵、
   DOD-04 模板失效负向与隐私负向由 Independent-Verification-Agent 验证
   套件覆盖后回填本记录。
+
+2026-09-24：`M7-07` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-07-global-motion-compensation`；验证套件由
+Independent-Verification-Agent 独立编写与执行，实现交付见上段）：
+
+- 交付摘要：三个池侧原语（冻结触发判定/池级位移校正/`max_generation_lag`
+  耗尽清扫，语义冻结见本日实现交付段）的验证套件 19 用例
+  `tests/fusion/object_tracker_motion_generation_test.cpp` 随 test(fusion)
+  commit e231d12 落地（注册 ctest 项
+  `mirador.fusion.object_tracker_motion_generation`，LABELS unit）。验证轮
+  零实现改动：实现审查对照冻结契约逐条核对未发现缺陷，非缺陷事实经测试
+  钉住——compensate/sweep 为「入口先轮询取消、后校验」顺序（与
+  `commit_track_evidence` 冻结的校验先于取消刻意不同，与其自身头注释
+  一致，`CompensationCancellationAndTimeout` 钉住）；置信门为闭区间
+  （confidence == 阈值应予应用）。M7-06 交付段移交的五项预留义务全部有
+  构造性测试覆盖：触发判定（义务1）、kGenerationSwitch 降级链（义务2）、
+  耗尽清扫（义务3）、补偿消费（义务4）与滚动往返（义务5）。
+- 验证覆盖：`mirador.fusion.object_tracker_motion_generation` 19 用例——
+  触发判定 4 例（选项域校验、kGlobal 恰 +1 与 `evaluate_change_gate`
+  const 纯决策不递增（M7-03 延迟注记兑现验证）、未知枚举显式
+  kInvalidArgument 池不变、代际递增不改任何 track 字段与字节账）；补偿
+  8 例（全池逐字段精确平移 + kTerminated 归档不动 + 中心不变量 + 历史/
+  模板/代际/状态/字节账不动；置信门闭区间显式 `applied=false` 拒绝与
+  默认 0.0 不过滤；NaN/越界置信度/float 溢出显式失败与双轨兄弟原子性
+  （先规划后变异）；入口取消/超时冻结顺序；空池/零位移/同一估计重复喂入
+  的管线纪律；双实例逐位确定性）；耗尽清扫 5 例（严格大于边界两侧、
+  kUncertain 单条件 + kLost 粘滞不重报 + kTracking 保持确认态、清扫后
+  kLost 占位不复活直至确认提交复捕获并戳当前代际、取消/超时显式转化、
+  空清扫显式空集）；kGenerationSwitch 级联降级与恢复 1 例；估计器在环
+  滚动往返 1 例——补偿前同一 kPartial 报告 kReuse 短路且验证 kNone
+  （8px 轨道滚动 (8,4) 超出冻结验证 ROI 扩展半径 ≈ 半对角 5.7px/侧，
+  验证器完全够不到目标——`RISK-2026-17` 结构性失效与补偿存在理由的
+  实证，供 M7-09 校准参考）、补偿后同一报告 kVerify + 同帧
+  kStrong@offset(0,0) 峰值 NCC > 0.999 + `kCompensatedScroll` 提交
+  kConfirmed、bounds 恰落真位；DOD-03 坐标矩阵 1 例（0/90/180/270 旋转
+  元数据 × 奇数 21×15 × +7 非连续 stride × 贴边 × 正负两方向：平移逐位
+  与元数据无关、往返 kStrong@(0,0) 成立）。隐私（`RULE-10`/`DOD-06`）
+  按 M7-03/05/06 套件先例结构性交底：结果类型只携带 id/枚举/状态/坐标
+  矩形，无模板字节、缩略图或帧内容可泄，tracker 无日志/文件系统/网络
+  面；fusion 管线二进制由共享隐私套件覆盖（`tests/privacy`，M5-07 注册
+  口径）。DOD-04 模板失效负向无 M7-07 专属面——补偿只动坐标不触碰模板/
+  基线，失效翻转已由 M7-05/M7-06 验证套件在验证/提交缝覆盖
+  （`object_tracker_verification_test.cpp`、
+  `object_tracker_evidence_fusion_test.cpp`）。
+- 门禁（文档同步时点于分支 head e231d12 复验）：debug 预设全量 ctest
+  49/49（7 项架构/链接闭包测试随全量通过，`mirador_fusion` 链接接口恰
+  为 core/image/cache 不变，新增 `shift_estimation.hpp` 头依赖仍在既有
+  链接面内）；新套件 debug 直跑 19/19，asan/ubsan 预设直跑各 19/19 且
+  sanitizer 零报告；clang-format `--dry-run --Werror` 对三改动文件
+  （hpp/cpp/测试）归零；clang-tidy `--warnings-as-errors='*'`
+  （`-p build/debug`）对 `object_tracker.cpp` 与新测试文件退出码 0。
+  首轮 lint 往返（测试文件 10 处 format 违规与 8 处 tidy 告警：未用
+  using、补 `<mirador/pixel_format.hpp>` 与 `<optional>`、
+  EnumCastOutOfRange NOLINT（tests/core 先例）、认知复杂度 NOLINT、
+  optional 未检查访问改守卫式解引用）已随 e231d12 修复，用例语义不变。
+- 限制：uint32 代际耗尽的 `kBudgetExceeded` 透传仅经代码审查验证
+  （`src/fusion/object_tracker.cpp:1073` 守卫、`:1270` 透传；公共 API
+  需 2^32 次调用，单测不可行，同 M7-02 冻结套件先例）；sweep 防御性状态
+  槽分配的 `kBudgetExceeded` 分支经公共 API 不可达（kUncertain 轨迹必已
+  持降级提交分配的槽），套件改为验证可达行为（清扫后 `byte_size` 不
+  变）；release/tsan/warnings 预设与六预设完整复跑随编排脚本收口（CI 矩
+  阵无 release 预设，同 M7-03~06 先例）；滚动往返为合成口径（`DOD-05`
+  不宣称真实场景效果），`min_compensation_confidence` 0.0 与
+  `max_generation_lag` 1 为开发冒烟初值（`DEC-019` 第 5 条，M7-09 校准
+  收口，`RISK-2026-17` 随 A/B/C/D 矩阵 B/C 差值与 `*-scroll` 延续率门
+  控）；重检测原语与身份复核归 M7-08；既有遗留（非本项引入）：头文件
+  声明的单参 `ObjectTracker::terminate(uint64_t)` 重载在 src 中无定义
+  （object_tracker.hpp:594，冒烟曾触发链接错误），建议 M7-08 或后续
+  refactor 清理。
+- CI 回填：待补（分支未推送，推送与 14/14 证据回填随编排脚本收口）。
