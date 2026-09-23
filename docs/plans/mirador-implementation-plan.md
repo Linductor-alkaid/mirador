@@ -1,11 +1,23 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.12
+> 版本：1.13
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-23
+>
+> 1.13 修订（2026-09-23）：M7 工作项 `M7-04` 全局位移估计原语测试与门禁
+> 证据落地，工作项勾选——Independent-Verification-Agent 验证套件 23 用例
+> （已知位移恢复与冻结置信度/精度规则、胜者总序、DOD-03 坐标矩阵、预算/
+> 取消/超时显式转化、格式路径逐位一致、签名重载坏状态拒绝、隐私零落盘）
+> 随验证轮处置 commit 落地：签名重载缩略图尺寸一致性校验修复（契约未
+> 放宽，前缩略图更大方向的 ASAN 实证越界读以回归用例锁定）与头注释精度
+> 同步。本地门禁：debug ctest 46/46、asan/ubsan/tsan 全量 ctest 各 45/45
+> 且 sanitizer 零报告（tsan 经 `setarch -R` 注册包装）、clang-format 全仓
+> 归零、clang-tidy `--warnings-as-errors='*'` 退出码 0；release/warnings
+> 预设与六预设完整复跑随编排脚本收口。CI 证据与 PR 回填待补；`SCOPE-13`
+> 维持未勾选（M7 进行中）。
 >
 > 1.12 修订（2026-09-23）：M7 工作项 `M7-04` 全局位移估计原语实现交付于
 > 工作分支 `feat/m7-04-global-shift-estimation`——`mirador::image` 公共契约
@@ -128,9 +140,9 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 目标池契约冻结、`M7-02` 池有界变更原语已交付，`M7-03` 变化检测门控三级
 短路已交付并勾选（实现、16 用例验证套件、门控基准与门禁证据落地；CI
 证据已回填：[PR #22](https://github.com/Linductor-alkaid/mirador/pull/22)
-run 35759053505 14/14 job 全绿，待合入）；`M7-04` 全局位移估计原语实现已
-交付于工作分支 `feat/m7-04-global-shift-estimation`（测试与门禁证据待
-回填）。
+run 35759053505 14/14 job 全绿，待合入）；`M7-04` 全局位移估计原语已交付
+并勾选（实现、23 用例验证套件、签名重载尺寸一致性修复与本地门禁证据
+落地于分支 `feat/m7-04-global-shift-estimation`；CI 证据待回填）。
 
 ## 交付边界
 

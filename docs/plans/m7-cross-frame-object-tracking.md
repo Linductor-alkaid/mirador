@@ -60,7 +60,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-03` 变化检测门控三级短路：画面未变/变化 ROI 不相交的近零路径、
   ROI 相交触发的验证入口；同帧多 track 独立短路；短路路径不引入相对 M1
   变化检测基线的可测回归（基准对照）。
-- [ ] `M7-04` 全局位移估计原语（`mirador::image`）：低分辨率平移搜索、
+- [x] `M7-04` 全局位移估计原语（`mirador::image`）：低分辨率平移搜索、
   纯 CPU 确定性、预算保护；输出位移向量 + 置信度；坐标链经 `Transform2D`
   组合并通过方向/奇数尺寸/往返容差矩阵（`DOD-03`）。
 - [ ] `M7-05` 邻域验证器：验证 ROI 内模板 NCC（多模板最优 + 峰旁瓣质量）
@@ -396,3 +396,37 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   文件归零；clang-tidy `--warnings-as-errors='*'` 对 `shift_estimation.cpp`
   退出码 0；首轮开发冒烟复跑全过。六预设 ctest 与 CI 证据仍随验证套件
   门禁落地回填。
+
+2026-09-23：`M7-04` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-04-global-shift-estimation`；验证套件由 Independent-Verification-Agent
+独立编写与执行，实现交付与同日验证员三项发现的处置见上两段）：
+
+- 交付摘要：`estimate_global_shift` 双入口公共契约
+  `include/mirador/shift_estimation.hpp`（Experimental）与
+  `src/image/shift_estimation.cpp`（语义冻结见本日交付段）；本轮补齐签名
+  重载缩略图尺寸一致性校验（d7bc29e，契约未放宽）并同步头注释精度
+  （3d12763）；尺寸一致性负向用例随套件补齐
+  （`SignatureOverloadRejectsMismatchedThumbnailSizes`，commit 01642e8，
+  前缩略图更大方向即 ASAN 实证越界读的回归锁定）。
+- 验证覆盖：`mirador.image.shift_estimation` 23 用例（commit 8862182 的
+  22 个 + 回归 1 个）——已知整数位移恢复与冻结的置信度/精度规则（逐轴
+  映射与精确有理数 float 收窄）、胜者总序（切比雪夫半径与周期并列）、
+  重复调用/独立帧拷贝/签名重载逐位确定性、DOD-03 坐标矩阵（旋转元数据
+  × 奇数 33x21 × 非连续 stride × max_shift 贴缩略图边）、极窗边界位移、
+  预算边界显式 `kBudgetExceeded`、错误模型矩阵、入口/搜索中途 kCancelled
+  与 kTimeout 显式转化、gray/RGBA/NV12 格式路径逐位一致、签名重载坏状态
+  拒绝（含尺寸不一致双向）与隐私默认零落盘（`DOD-06`）。
+- 门禁：debug 预设 ctest 46/46、`mirador.image.shift_estimation` 直跑
+  23/23；asan/ubsan/tsan 预设全量 ctest 各 45/45（debug 多 1 条为
+  `mirador.adapters.opencv` 既有条目差异），sanitizer 零报告，tsan 经
+  `setarch -R` 注册包装裸 `ctest --preset tsan` 通过；clang-format 全仓
+  dry-run 归零；clang-tidy `--warnings-as-errors='*'` 对
+  `shift_estimation.cpp` 与 `shift_estimation_test.cpp` 退出码 0。修复前
+  ASAN 探针复现与修复后双向 `kInvalidArgument` 复验见上段（探针为会话内
+  复验工具未入仓，场景已由回归用例永久化）。
+- 限制：release/warnings 预设完整 ctest 未在本轮执行，六预设完整门禁随
+  编排脚本在分支 head 重跑确认（同 M7-03 先例）；位移估计质量仅合成口径
+  （`DOD-05`），置信度与默认参数先验随 M7-09 校准；`resize_area` 权重表
+  预算口径是否单独立项收口留待负责人决策（见上段处置记录）。
+- CI 回填：待补（分支未推送；PR 与 CI run 链接随 CI 门禁落地回填，同
+  M7-01/M7-02/M7-03 先例）。
