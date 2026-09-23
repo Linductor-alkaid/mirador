@@ -322,3 +322,44 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   通过；分支 head [run 35759053505](https://github.com/Linductor-alkaid/mirador/actions/runs/35759053505)
   （head 3a2cb3c，仅追加文档回填 commit，34m30s）复证全绿；首轮通过，
   无修复往返。
+
+2026-09-23：`M7-04` 全局位移估计原语实现交付（分支
+`feat/m7-04-global-shift-estimation`，自 master d96f1af 切出；实现于主
+循环，测试按分工由 Independent-Verification-Agent 独立编写与执行，工作项
+勾选随验证套件与门禁证据落地后回填）：
+
+- 交付：公共契约 `include/mirador/shift_estimation.hpp`（Experimental，
+  随 M7 go/no-go 冻结）与 `src/image/shift_estimation.cpp`，源文件注册进
+  根 CMakeLists.txt 的 image 目标。`estimate_global_shift` 双入口：
+  `ImageView` 双帧与 M1 `ChangeSignature` 双签名（直接检索存储缩略图，
+  与视图版在同尺寸下逐位一致，零分配）；变化检测的确定性灰度缩略图管线
+  （整数 area 重采样 + BT.601 luma）抽取为内部头 `src/image/gray_thumbnail.h`
+  供两处共享（行为不变重构）。语义决策冻结于头注释：搜索 =
+  `[-max_shift, max_shift]²` 整数平移全集 × 固定中心比较窗（每候选等像素
+  数，工作量与帧尺寸无关，`RULE-06`）；胜者取总序 (SAD, 切比雪夫半径,
+  dy, dx)；置信度 = 峰显著度 `(μ_others − best)/(μ_others + best)`
+  （单候选/全平手为 0，缩略图分辨率逐像素相同为 1；整数和 + 单次 double
+  除法，无随机/浮点平台差异路径）；位移精度 = 精确有理数
+  `thumbnail_shift × frame_dim / thumbnail_size`（double 求值收窄
+  float），方向 p_curr = p_prev + (dx, dy)，经 `make_translation` 进
+  `Transform2D` 组合链（`RULE-05`，DOD-03 矩阵适用）；两帧须同呈现尺寸，
+  比较恒在呈现像素上进行（同 `detect_change` 约定）；预算字段
+  `work_budget_bytes` 逐内部分配请求检查，超限显式 `kBudgetExceeded`；
+  搜索为有界非平凡循环，经 `ExecutionContext` 入口 + 逐行检查显式转化
+  kCancelled/kTimeout（校验先于取消），不返回半份结果。纯函数：不触碰
+  `ObjectTracker` 池状态、不做变化分类与代际判定（M7-07 边界维持，
+  `RISK-2026-17` 的补偿效果随 M7-09 A/B/C/D 矩阵门控，本项不发布性能
+  承诺）。默认参数（thumbnail 64 / max_shift 16 / 512 KiB）为开发冒烟
+  值，M7-09 校准（`DEC-019` 第 5 条）。
+- 本地验证（交付时点）：debug 预设构建零告警；debug ctest 45/45（缩略图
+  管线重构后既有套件行为不变）；开发冒烟自检（临时脚本，不入仓）覆盖
+  同帧零位移 + 置信度 1、已知整数位移恢复（+8, −4 帧像素 → 缩略图
+  (+4, −2)、帧 (8.0, −4.0)）、签名版与视图版逐位一致、双实例逐位确定、
+  参数校验矩阵、1 字节预算显式 `kBudgetExceeded`、呈现尺寸不匹配拒绝、
+  取消/超时显式转化与 NV12 luma 路径；clang-format 全仓 dry-run 零违规；
+  clang-tidy `--warnings-as-errors='*'` 对 `shift_estimation.cpp` 与
+  `change_detection.cpp` 退出码 0。六预设 ctest、DOD-03 坐标矩阵
+  （0/90/180/270 × 奇数尺寸 × 非连续 stride × 贴边/往返容差）、确定性/
+  预算/隐私负向测试与 CI 证据待验证套件落地后回填。
+- 限制：位移估计质量仅声明合成口径（`DOD-05`：真实场景不宣称，M7-09
+  基准与真实数据评估收口）；置信度与默认参数无真实数据先验。

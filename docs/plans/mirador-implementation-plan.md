@@ -1,11 +1,22 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.11
+> 版本：1.12
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-23
+>
+> 1.12 修订（2026-09-23）：M7 工作项 `M7-04` 全局位移估计原语实现交付于
+> 工作分支 `feat/m7-04-global-shift-estimation`——`mirador::image` 公共契约
+> `shift_estimation.hpp`（Experimental；`estimate_global_shift` 双入口：
+> `ImageView` 双帧 / M1 `ChangeSignature` 双签名；灰度缩略图
+> `[-max_shift, max_shift]²` 整数平移全搜索，置信度/位移精度/默认参数口径
+> 冻结于头注释，M7-09 校准；显式字节预算与 kCancelled/kTimeout 错误模型；
+> 纯函数，不触碰 `ObjectTracker` 状态，消费侧归 M7-07）。本地 debug 构建
+> 与 ctest 45/45、clang-format/clang-tidy 自查归零；测试由
+> Independent-Verification-Agent 独立编写与执行，工作项勾选、六预设门禁与
+> CI 证据随验证套件落地回填。`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.11 修订（2026-09-23）：M7 工作项 `M7-03` 变化检测门控三级短路测试与
 > 门禁证据落地，工作项勾选——Independent-Verification-Agent 验证套件
@@ -112,7 +123,9 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 目标池契约冻结、`M7-02` 池有界变更原语已交付，`M7-03` 变化检测门控三级
 短路已交付并勾选（实现、16 用例验证套件、门控基准与门禁证据落地；CI
 证据已回填：[PR #22](https://github.com/Linductor-alkaid/mirador/pull/22)
-run 35759053505 14/14 job 全绿，待合入）。
+run 35759053505 14/14 job 全绿，待合入）；`M7-04` 全局位移估计原语实现已
+交付于工作分支 `feat/m7-04-global-shift-estimation`（测试与门禁证据待
+回填）。
 
 ## 交付边界
 

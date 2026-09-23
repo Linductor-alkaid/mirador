@@ -88,6 +88,7 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
                 src/image/text_normalize.cpp
                 src/image/crop_refine.cpp
                 src/image/patch_fingerprint.cpp
+                src/image/shift_estimation.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
             target_link_libraries(mirador_${mirador_module} PUBLIC mirador::core)

@@ -26,6 +26,8 @@ Mirador 的公共 API 即 [`include/mirador/`](../../include/mirador/) 下的头
 `color_convert.hpp`、`resize.hpp`、`letterbox.hpp`、`crop.hpp`、`crop_refine.hpp`、
 `transform.hpp`（图像级重采样入口）、`fingerprint.hpp`、`patch_fingerprint.hpp`、
 `visual_fingerprint.hpp`、`change_detection.hpp`（分层变化检测与忽略区域，设计 §11）、
+`shift_estimation.hpp`（全局位移估计原语：灰度缩略图低分辨率平移搜索 → 位移向量 +
+置信度，跟踪设计 §6.3、`DEC-019`；**Experimental**：随 M7 go/no-go 判定冻结）、
 `detection_postprocess.hpp`（NMS/类别过滤）、`text_postprocess.hpp`（DB 后处理、
 轮廓框恢复）、`text_normalize.hpp`、`grid_partition.hpp`、`frame_cache.hpp`（有界帧级缓存）。
 
