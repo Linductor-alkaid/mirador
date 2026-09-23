@@ -1625,9 +1625,16 @@ Result<TrackInterruptionEvent> ObjectTracker::record_redetection_recapture(uint6
                       "record_redetection_recapture lost_sequence exceeds the recapture sequence"};
     }
 
+    // Episode view — the same staleness rule as the gate and the failure
+    // accounting, keyed by the caller's `lost_sequence` evidence: the state
+    // slot's entry sequence was already zeroed by the confirming commit, so
+    // the supplied evidence is the only episode key available here. A slot
+    // keyed by an older episode (a loss episode that ended without
+    // recapture bookkeeping) reads as the fresh episode it is: attempts 0.
     const auto slot = find_redetect_slot(track_id);
-    const uint32_t attempts =
-        (slot != redetect_slots_.end() && slot->first == track_id) ? slot->second.consecutive_failures : 0;
+    const bool slot_valid =
+        slot != redetect_slots_.end() && slot->first == track_id && slot->second.episode_lost_sequence == lost_sequence;
+    const uint32_t attempts = slot_valid ? slot->second.consecutive_failures : 0;
 
     // Plan the log append before any mutation (RULE-06): on error neither
     // the log nor the episode slot changes.

@@ -1408,7 +1408,14 @@ public:
     /// the sweep trace and carries it; the same evidence-trust boundary as
     /// every input of this header). It must not exceed the recapture
     /// sequence. Zero accounted failures (first-attempt recapture) record
-    /// `attempts == 0` legitimately.
+    /// `attempts == 0` legitimately. The recorded count applies the
+    /// section's stale-reads-fresh rule with the caller's evidence as the
+    /// episode key (the only key available here — the confirming commit has
+    /// already zeroed the state slot's entry sequence): the slot's count is
+    /// read only when the slot's key matches the supplied `lost_sequence`;
+    /// a slot keyed by an older episode — a loss episode that ended without
+    /// recapture bookkeeping, then a re-loss — reads as the fresh episode it
+    /// is and reports 0, never the dead episode's count.
     ///
     /// Entry-only cancellation poll (as `record_redetection_failure`).
     /// Determinism: identical inputs produce bit-identical events and log
