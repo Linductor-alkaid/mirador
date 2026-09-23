@@ -68,7 +68,9 @@ struct TrackTemplate {
     uint64_t frame_sequence = 0;  ///< frame the patch was captured from
     uint32_t layout_generation = 0;
     /// Evidence grade that justified the capture. High-confidence template
-    /// updates only ever capture kConfirmed patches once verification exists.
+    /// updates capture kConfirmed patches and negative-template collection
+    /// stores kVetoed patches, both only through `commit_track_evidence`
+    /// (M7-06, the frozen collection policies on that method).
     EvidenceGrade capture_grade = EvidenceGrade::kConfirmed;
 };
 
@@ -103,7 +105,8 @@ struct TargetTrack {
     /// Bounded impostor (negative) templates confirmed against this track.
     /// Frozen M7-05 boundary: the neighborhood verifier reads positive
     /// templates only — collecting impostor templates and the veto they back
-    /// (`EvidenceGrade::kVetoed`) is the M7-06 state machine's contract.
+    /// (`EvidenceGrade::kVetoed`) is the evidence-fusion state machine's
+    /// contract, delivered as `commit_track_evidence` (M7-06).
     std::vector<TrackTemplate> negative_templates;
     TrackSemantics semantics;
     float confidence = 0.0F;
@@ -172,6 +175,13 @@ struct ObjectTrackerOptions {
     /// section 5).
     int64_t verification_work_budget_bytes = int64_t{256} * 1024 * 1024;
 
+    // ---- Evidence fusion (M7-06; object-tracking design sections 3 and 5;
+    // initial value, calibrated by M7-09 per DEC-019 section 5). ----
+    /// Minimum NCC between the frame's candidate patch and a stored negative
+    /// template for the impostor veto to fire in `commit_track_evidence`.
+    /// [0, 1].
+    double impostor_match_threshold = 0.8;
+
     // ---- Cascade redetection primitives (design section 7): the upper layer
     // drives every call (RULE-12); these values only parameterize the backoff
     // and budget the tracker reports on. ----
@@ -207,7 +217,8 @@ enum class ChangeGateDecision : uint8_t {
     kVerify,
     /// The track is not kTracking (kUncertain/kLost/kTerminated): the gate
     /// makes no short-circuit decision for it and reports the state explicitly
-    /// instead of skipping it silently (state transitions belong to M7-06).
+    /// instead of skipping it silently (state transitions are the evidence-
+    /// fusion state machine's contract, `commit_track_evidence`, M7-06).
     kInactive,
 };
 
@@ -350,6 +361,88 @@ struct TrackVerification {
     StructureVerification structure;
 };
 
+// ---- Evidence fusion and the tracking state machine (M7-06;
+// object-tracking design sections 3, 4 and 6.4 — frozen contract decisions
+// recorded here and on `commit_track_evidence`) ----
+
+/// Motion-state scenario of one frame, declared by the caller and
+/// conditioning the position-channel weight per the frozen design section 3
+/// table (static: full weight; compensated scroll: full weight —
+/// compensation restores the static-period validity; generation switch:
+/// zeroed). Declaring the scenario is the caller's evidence: the tracker
+/// never classifies motion itself, and this contract never consumes
+/// `estimate_global_shift` results — applying the compensation and deriving
+/// the scenario from the global change classification are the M7-07
+/// pipeline's decisions.
+enum class PositionScenario : uint8_t {
+    /// Static period: the position gate carries full weight (design section
+    /// 3, row 1).
+    kStationary,
+    /// Scroll / window drag with the caller-applied global motion
+    /// compensation: stationary-period validity restored (design section 3,
+    /// row 2 / section 6.3), so the position gate carries full weight again.
+    /// Declaring this scenario asserts the caller already compensated the
+    /// coordinates; the behavioral weight equals `kStationary` — the
+    /// distinction exists for trace visibility and M7-09 per-scenario
+    /// calibration.
+    kCompensatedScroll,
+    /// Layout generation switched this frame: the position prior is zeroed
+    /// (design section 3, row 3 / section 6.4) — gate membership is not
+    /// required for confirmation, position-only evidence claims nothing, and
+    /// a kTracking track without confirming appearance evidence degrades to
+    /// kUncertain. Appearance templates and semantics evidence survive the
+    /// switch (design section 6.4).
+    kGenerationSwitch,
+};
+
+/// Position-channel evidence of one frame for one track (M7-06). The
+/// position prior is gating and placeholder input only — it never confirms
+/// an identity by itself (DEC-019 section 2, design section 3).
+struct TrackPositionEvidence {
+    PositionScenario scenario = PositionScenario::kStationary;
+    /// True when the frame's candidate position lies inside the position
+    /// gate around `predicted_center`. For verification-derived candidates
+    /// this is inherent (the frozen `verification_roi` neighborhood is the
+    /// gate, and `verify_track` searches only inside it); the flag carries
+    /// the caller's own candidate-association verdict. It is ignored where
+    /// the gate is void: a `kGenerationSwitch` scenario, or a kLost track
+    /// whose stale prior must not gate a recapture (see
+    /// `commit_track_evidence`).
+    bool inside_gate = false;
+};
+
+/// Deterministic outcome of one `commit_track_evidence` call (M7-06): the
+/// computed grade, the state transition it drove and the side effects that
+/// actually committed. Evidence fields and template stores change only as
+/// described by the flags; on any error nothing is published and the pool
+/// is untouched.
+struct TrackEvidenceCommit {
+    uint64_t track_id = 0;
+    /// State before the commit (echo).
+    TrackState previous_state = TrackState::kTracking;
+    /// State after the commit (echo; `find_track` holds the full record).
+    TrackState state = TrackState::kTracking;
+    /// The grade the frozen decision table computed for this frame.
+    EvidenceGrade grade = EvidenceGrade::kPlaceholder;
+    /// Scenario echo of the position evidence.
+    PositionScenario scenario = PositionScenario::kStationary;
+    /// The candidate patch matched a stored negative template at or above
+    /// `options().impostor_match_threshold` (the impostor veto fired).
+    bool impostor_hit = false;
+    /// The candidate semantics conflict with the track semantics under the
+    /// DEC-010 gate predicate (the semantic veto fired).
+    bool semantics_conflict = false;
+    /// A positive appearance template was captured from the candidate patch
+    /// (kConfirmed commits only; bounded store, eviction counted in
+    /// `evicted_template_count()`).
+    bool template_captured = false;
+    /// A negative template was captured from the candidate patch
+    /// (semantic-conflict vetoes only, and only when the patch did not
+    /// already hit a stored negative template; bounded store, eviction
+    /// counted in `evicted_negative_template_count()`).
+    bool negative_template_captured = false;
+};
+
 /// Bounded cross-frame target pool over fused regions (object-tracking design
 /// section 5, SCOPE-13). The pool is the structural core of the M7 tracker:
 /// adoption captures the initial appearance template from the frame, every
@@ -367,6 +460,13 @@ public:
     static constexpr int64_t kTrackOverheadBytes = 128;
     /// Byte overhead of one track's E2 structure baseline slot (M7-05).
     static constexpr int64_t kStructureBaselineOverheadBytes = 32;
+    /// Byte overhead of one track's state-machine slot (M7-06): the
+    /// consecutive-insufficient counter and the kLost entry sequence. At
+    /// most one slot per track, allocated on the first insufficient/kLost
+    /// transition, released by `terminate`, track eviction and `reset`
+    /// (the same pool-side parallel storage pattern as the M7-05 baseline
+    /// slots; the `TargetTrack` layout stays frozen).
+    static constexpr int64_t kStateSlotOverheadBytes = 16;
 
     ObjectTracker() noexcept = default;
     ObjectTracker(const ObjectTracker&) = delete;
@@ -415,7 +515,11 @@ public:
     /// policy): the track becomes kTerminated at `frame_sequence` and its
     /// templates, negative templates and position history are released so
     /// archives stay cheap; the identity record (bounds, semantics, state)
-    /// stays visible ("failure is visible", design section 4). Errors:
+    /// stays visible ("failure is visible", design section 4). The pool-side
+    /// E2 baseline (M7-05) and state-machine (M7-06) slots are released with
+    /// it. This is the caller-driven kLost/kTracking → kTerminated edge of
+    /// the state machine (M7-06); the redetect-budget-exhausted policy that
+    /// decides to call it is M7-08's (RULE-12). Errors:
     /// kInvalidArgument for an unknown or already-terminated id. Never throws.
     [[nodiscard]] Result<void> terminate(uint64_t track_id, uint64_t frame_sequence) noexcept;
     [[nodiscard]] Result<void> terminate(uint64_t track_id) noexcept;
@@ -474,8 +578,9 @@ public:
     /// existing history entries keep the generation they were recorded under,
     /// which is what makes `observations_in_generation` grouping meaningful.
     /// The trigger decision (global change classification) belongs to the
-    /// M7-07 pipeline, and per-track degradation on a generation switch to the
-    /// M7-06 state machine — this call only moves the deterministic counter.
+    /// M7-07 pipeline, and per-track degradation on a generation switch to
+    /// the evidence-fusion state machine (`commit_track_evidence`, M7-06) —
+    /// this call only moves the deterministic counter.
     /// Errors: kBudgetExceeded when the uint32 counter is exhausted. Never
     /// throws.
     [[nodiscard]] Result<uint32_t> advance_layout_generation() noexcept;
@@ -572,8 +677,9 @@ public:
     /// section 6.2): a pure per-track decision — `const`, no pool state
     /// changes on any path, `last_verified_sequence` and every other evidence
     /// field stay untouched, and no grade-to-state mapping or layout-
-    /// generation decision happens here (all of that is the M7-06 state
-    /// machine's contract, the same boundary the M7-03 gate froze). This
+    /// generation decision happens here (all of that is the evidence-fusion
+    /// state machine's contract, delivered as `commit_track_evidence` in
+    /// M7-06 — the same boundary the M7-03 gate froze). This
     /// entry accepts tracks in any non-terminated state (the M7-08
     /// redetection identity review reuses it for kLost candidates);
     /// kTerminated is rejected because its identity is closed. Two channels:
@@ -682,6 +788,138 @@ public:
                                                          const TrackStructureDescriptors& descriptors,
                                                          uint64_t frame_sequence) noexcept;
 
+    /// Evidence fusion and state commit of one verified frame for one track
+    /// (M7-06; object-tracking design sections 3, 4 and 6.4). This is the
+    /// frame pipeline's single state-mutating evidence stage: the M7-03
+    /// gate and the M7-05 verifier are pure `const` decisions by frozen
+    /// contract, and the grade-to-state mapping they deliberately deferred
+    /// happens here and nowhere else. Inputs are the caller's frame
+    /// evidence: the `TrackVerification` produced by `verify_track` (the
+    /// commit does not re-run the scan and trusts the channel outcomes it is
+    /// handed — the same evidence-trust boundary as every method of this
+    /// header), the caller-declared `TrackPositionEvidence`, the candidate
+    /// semantics of the caller's region association, and the presented view
+    /// (the candidate patch is re-extracted from it for the impostor check
+    /// and the template captures).
+    ///
+    /// Candidate window: the track bounds translated by the E1
+    /// `best_offset_*` when the E1 channel has an outcome (kWeak/kStrong),
+    /// else the unchanged bounds — an E2-only confirmation has no position
+    /// of its own. The patch is extracted with the adoption pipeline
+    /// (`crop` covering rule + `make_visual_patch_fingerprint` at
+    /// `options().template_thumb_side`); one extraction serves the impostor
+    /// check and both captures.
+    ///
+    /// Grade decision table (frozen; evaluated top to bottom, first hit
+    /// wins, design section 3):
+    ///   1. Impostor evidence — the candidate patch matches any stored
+    ///      negative template with NCC >=
+    ///      `options().impostor_match_threshold` (checked only when the E1
+    ///      channel found a candidate) → `EvidenceGrade::kVetoed`
+    ///      (`impostor_hit`).
+    ///   2. Semantic conflict — the candidate semantics conflict with the
+    ///      track semantics under the DEC-010 gate predicate (both labels
+    ///      non-empty and different; no candidate supplied is vacuously
+    ///      compatible) → kVetoed (`semantics_conflict`).
+    ///   3. Strong appearance — E1 kStrong, or E2 kConsistent — with the
+    ///      position gate admitted → `EvidenceGrade::kConfirmed`.
+    ///   4. Weak appearance — E1 kWeak — with the position gate admitted →
+    ///      `EvidenceGrade::kTentative`.
+    ///   5. Everything else → `EvidenceGrade::kPlaceholder` (position prior
+    ///      only, or appearance present but the gate refused it: under
+    ///      DEC-019 section 2 the position gate is a necessary condition,
+    ///      so an out-of-gate candidate is not admitted as identity
+    ///      evidence).
+    /// The gate is admitted when `position.inside_gate` is true, or when it
+    /// is void: a `kGenerationSwitch` scenario (position prior zeroed, so
+    /// appearance + semantics confirm without it — design section 6.4), or
+    /// a kLost track (the stale prior must not gate a recapture; the M7-08
+    /// identity review is appearance evidence by design section 7).
+    ///
+    /// State transitions (frozen; deterministic, no wall-clock — RULE-03):
+    ///   - kConfirmed / kTentative: the track becomes kTracking from every
+    ///     accepted state. The kLost → kTracking entry is the recapture
+    ///     semantic of design section 4, defined here as a state-machine
+    ///     rule only — the redetection primitives and the identity-review
+    ///     entry that produce such commits are M7-08 work (`verify_track`
+    ///     already accepts non-terminated tracks for that reuse), and the
+    ///     interruption-event log stays with M7-08 too.
+    ///   - kPlaceholder / kVetoed: kTracking and kUncertain degrade to
+    ///     kUncertain — a vetoed commit is excluded-candidate evidence, so
+    ///     the appearance channel has nothing to confirm with this frame —
+    ///     while kLost tracks stay kLost (loss is sticky until a confirming
+    ///     grade, caller `terminate`, or M7-07 generation exhaustion). The
+    ///     consecutive-insufficient counter (placeholder and vetoed commits
+    ///     since the last confirming one) increments per commit, and
+    ///     reaching `options().uncertain_frame_limit` transitions the track
+    ///     to kLost: the L-th consecutive insufficient commit is the
+    ///     transition, the (L-1)-th leaves the track kUncertain (both sides
+    ///     of the boundary are observable). The limit counts commits, not
+    ///     wall-clock frames — the tracker has no timer and frame stepping
+    ///     stays with the M7-07 pipeline.
+    ///   - kTerminated tracks are rejected (identity closed, M7-01).
+    ///
+    /// Committed fields on a confirming grade: `last_bounds` moves to the
+    /// candidate window, `predicted_center` stays exactly the new
+    /// `last_bounds` center (frozen invariant until the M7-07 motion model),
+    /// `confidence` becomes the clamped E1 peak NCC (the prior value is
+    /// kept on an E2-only confirmation — the structure channel has no
+    /// confidence scalar), `last_verified_sequence` receives
+    /// `frame_sequence`, and `layout_generation` advances to the pool's
+    /// current generation (every commit — the track has lived through it).
+    /// A kConfirmed commit also captures the candidate patch as a positive
+    /// appearance template; kTentative never writes templates. Placeholder
+    /// and vetoed commits change no evidence field: the vetoed candidate
+    /// must not move the track, and the position prior is not appearance
+    /// evidence (the M7-03 freeze).
+    ///
+    /// Frozen template-collection policies: a kConfirmed commit captures
+    /// the candidate patch as a positive template when
+    /// `options().max_templates >= 2` (an evictable slot beyond the pinned
+    /// adoption template must exist; with `max_templates == 1` the update
+    /// policy is off and the commit succeeds without a capture). A
+    /// semantic-conflict veto captures the candidate patch as a negative
+    /// template when `options().max_negative_templates >= 1` AND the patch
+    /// did not already hit a stored negative template — an impostor is
+    /// collected exactly once, at its first rejected confirmation attempt,
+    /// and impostor-hit vetoes store nothing (the template is already
+    /// pooled). Both captures go through the bounded stores (oldest
+    /// evicted first, explicitly counted in the eviction counters).
+    ///
+    /// State bookkeeping (RULE-06): the consecutive-insufficient counter
+    /// and the kLost entry sequence live in one pool-side slot per track
+    /// (`kStateSlotOverheadBytes`), allocated on first need, released by
+    /// `terminate`, track eviction and `reset`, accounted in `byte_size()`
+    /// and `pool_budget_bytes` exactly like the M7-05 baseline slots. The
+    /// whole commit is atomic: the patch is extracted before any mutation,
+    /// the planned template insertions and slot allocation are
+    /// budget-checked together, and any failure — including a capture that
+    /// cannot fit — leaves the pool completely untouched.
+    ///
+    /// Validation precedes cancellation (frozen M7-06 decision — the same
+    /// order as the M7-05 verifier and the deliberate contrast to
+    /// `adopt_track`'s M7-02 cancel-first entry): cancellation is polled
+    /// exactly once, at the entry — after validation and immediately before
+    /// the patch extraction, the commit's only pixel work.
+    ///
+    /// Coordinates: `presented_view` must be the same frame, in the same
+    /// space, that produced `verification` — mixing frames or spaces is the
+    /// caller's error, as everywhere in this header. Determinism: identical
+    /// inputs produce bit-identical commits and traces (fixed evaluation
+    /// order, the total orders above, exact integer sums with single
+    /// divisions only).
+    ///
+    /// Errors: kInvalidArgument for an invalid view, an unknown or already-
+    /// terminated track, a verification carrying another track's id,
+    /// non-finite or empty track bounds, or a candidate window that covers
+    /// no pixel of the view; kBudgetExceeded when the planned slot or
+    /// template stores cannot fit the pool budget; kCancelled/kTimeout from
+    /// `context`. Never throws.
+    [[nodiscard]] Result<TrackEvidenceCommit> commit_track_evidence(
+        uint64_t track_id, const TrackVerification& verification, const TrackPositionEvidence& position,
+        const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view,
+        uint64_t frame_sequence, const ExecutionContext& context = {}) noexcept;
+
     /// Drops all pool state; the next adoption starts from scratch. Caller
     /// initiated — the tracker never clears itself silently.
     void reset() noexcept;
@@ -702,7 +940,9 @@ public:
     /// (`kTemplateOverheadBytes` + thumbnail bytes each) + observations
     /// (`kObservationOverheadBytes` each) + semantics text/label byte lengths,
     /// plus one `kStructureBaselineOverheadBytes` slot per track that holds an
-    /// E2 structure baseline (M7-05). Always <= `options().pool_budget_bytes`.
+    /// E2 structure baseline (M7-05) and one `kStateSlotOverheadBytes` slot
+    /// per track that holds a state-machine slot (M7-06). Always <=
+    /// `options().pool_budget_bytes`.
     [[nodiscard]] int64_t byte_size() const noexcept { return used_bytes_; }
     /// Cumulative number of tracks evicted by budget/count pressure since
     /// creation or `reset` (RULE-06 accounting).
@@ -753,6 +993,23 @@ private:
     int64_t erase_structure_baseline(uint64_t track_id) noexcept;
     /// Bytes of the track's baseline slot (0 when the track holds none).
     [[nodiscard]] int64_t baseline_slot_bytes(uint64_t track_id) const noexcept;
+    /// Pool-side state-machine slot of one track (M7-06), parallel storage
+    /// like the baseline slots above and sorted by track_id the same way.
+    /// Holds the consecutive-insufficient counter driving the
+    /// `uncertain_frame_limit` transition and the sequence at which the
+    /// track entered kLost; absent means both zero.
+    struct StateSlot {
+        uint32_t insufficient_streak = 0;
+        uint64_t lost_sequence = 0;
+    };
+    using StateSlots = std::vector<std::pair<uint64_t, StateSlot>>;
+    /// Iterator to the track's state slot, or `end()` when absent.
+    [[nodiscard]] StateSlots::iterator find_state_slot(uint64_t track_id) noexcept;
+    [[nodiscard]] StateSlots::const_iterator find_state_slot(uint64_t track_id) const noexcept;
+    /// Bytes of the track's state slot (0 when the track holds none).
+    [[nodiscard]] int64_t state_slot_bytes(uint64_t track_id) const noexcept;
+    /// Removes the track's state slot if present; returns the bytes freed.
+    int64_t erase_state_slot(uint64_t track_id) noexcept;
     /// Planned (not yet applied) eviction of an `adopt_track` insertion:
     /// terminated tracks first, then oldest by (`last_verified_sequence`,
     /// `track_id`), until the insertion fits both the count and byte bounds.
@@ -767,6 +1024,8 @@ private:
     std::vector<TargetTrack> tracks_;
     /// E2 baselines keyed by track_id, ascending (M7-05).
     BaselineSlots structure_baselines_;
+    /// State-machine slots keyed by track_id, ascending (M7-06).
+    StateSlots state_slots_;
     uint32_t layout_generation_ = 0;
     int64_t used_bytes_ = 0;
     uint64_t evicted_count_ = 0;

@@ -66,7 +66,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-05` 邻域验证器：验证 ROI 内模板 NCC（多模板最优 + 峰旁瓣质量）
   与 `GeometricRegionProposal` 闭合结构一致性（描述量与池内基线偏差容差）
   双通道；模板版本/参数变化使验证结果失效（`DOD-04` 负向）。
-- [ ] `M7-06` 证据融合与状态机：静止/补偿后滚动/代际切换的条件化权重，
+- [x] `M7-06` 证据融合与状态机：静止/补偿后滚动/代际切换的条件化权重，
   E1/E2/位置/语义四级证据分级（确认/临时延续/占位/否决，含 impostor 负
   模板排除）；`kTracking/kUncertain/kLost/kTerminated` 转移与 `DEC-010`
   tracker 对接（已确认 track 门控直通）。
@@ -571,3 +571,178 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   clang-tidy 双口径。[run 35821784682](https://github.com/Linductor-alkaid/mirador/actions/runs/35821784682)
   （head 89f210c，覆盖实现、验证套件、出处/精度注释处置与文档回填
   commit，39m0s）；首轮通过，无修复往返。
+
+2026-09-23：`M7-06` 证据融合与状态机实现交付（分支
+`feat/m7-06-evidence-fusion-state-machine`，自 master 5653040 切出；实现于
+主循环，测试按分工由 Independent-Verification-Agent 独立编写与执行，工作项
+勾选随验证套件与门禁证据落地后回填）：
+
+- 交付：`ObjectTracker::commit_track_evidence`（Experimental，帧级管线唯一
+  的状态变更证据入口——M7-03 门控与 M7-05 验证器保持纯决策，分级→状态映射
+  只发生在此，兑现两处冻结注记）与配套类型 `PositionScenario`/
+  `TrackPositionEvidence`/`TrackEvidenceCommit`，新选项
+  `impostor_match_threshold`（默认 0.8 开发冒烟值，M7-09 校准）与
+  `kStateSlotOverheadBytes = 16` 状态簿记槽。消费调用方证据：`verify_track`
+  的 `TrackVerification`（不重跑扫描，证据信任边界同全头）、调用方声明
+  `TrackPositionEvidence`（三场景条件化 + 门控内声明）与候选语义、呈现视图
+  （候选 patch 一次提取，负模板检查与模板采集共用）。冻结判定表（顶到底
+  首中即停）：impostor 命中（候选 patch 对任一负模板 NCC ≥ 阈值，仅 E1 有
+  候选时检查）或 DEC-010 语义冲突（双 label 非空且不等；无候选真空兼容）→
+  `kVetoed`；强外观（E1 kStrong 或 E2 kConsistent）+ 门控准入 →
+  `kConfirmed`；弱外观（E1 kWeak）+ 门控准入 → `kTentative`；其余 →
+  `kPlaceholder`（含门控拒绝外观候选——位置门控是确认的必要条件，
+  `DEC-019` 第 2 条）。条件化权重按设计 §3 表实现为显式输入面：静止/
+  补偿后滚动全权重（后者由调用方声明已补偿，行为同权重、区别供 trace 与
+  M7-09 分场景校准），代际切换清零位置先验（门控不作为确认必要条件、
+  仅位置先验不再构成占位依据，模板/语义证据跨代保留）；补偿量计算与全局
+  变化分类消费归 M7-07，本项不触碰 `estimate_global_shift` 结果流。四态
+  转移冻结：确认级提交（kConfirmed/kTentative）自任意受理态恢复 kTracking
+  ——kLost→kTracking 只定义状态机语义，重检测原语与身份复核入口归 M7-08
+  （kLost 态位置先验失效、不再门控复捕获）；占位/否决提交将 kTracking/
+  kUncertain 降级 kUncertain（否决 = 排除候选证据，外观通道无确认可用），
+  连续不足计数（占位与否决均计，确认即清零）达 `uncertain_frame_limit`
+  转 kLost（第 L 次连续不足提交即转移、第 L−1 次保持 kUncertain，边界
+  两侧可观测）；kLost 粘滞（直至确认提交、调用方 `terminate` 或 M7-07
+  代际耗尽）；kTerminated 显式 kInvalidArgument。限额按"连续不足提交数"计
+  而非墙钟帧（tracker 无内部时钟，`RULE-03`；帧步进归 M7-07 管线）。
+  三项契约裁决冻结于头注释：(1) 纯决策/状态变更边界；(2) 负模板采集策略
+  ——语义冲突否决且未命中既有负模板时采集（impostor 恰在其首次被拒的
+  确认尝试时采集一次，命中不重复入库）；kConfirmed 采集正模板
+  （`max_templates >= 2` 时，kTentative 不写模板）；(3) kLost→kTracking
+  归属（见上）。确认提交簿记：`last_bounds` 移至候选窗口（E1 有产出取
+  best_offset，E2-only 确认位置不变）、`predicted_center` 恒为新 bounds
+  中心（M7-07 前冻结不变量）、`confidence` 取钳制 E1 峰值 NCC（E2-only
+  保留原值）、`last_verified_sequence` 收 `frame_sequence`、
+  `layout_generation` 推进至池当前代际（每次提交）；占位/否决不改任何
+  证据字段（被否决候选不得移动 track，位置先验非外观证据——M7-03 冻结）。
+  状态簿记（连续不足计数 + kLost 进入时刻）为池侧单槽（`StateSlots`，同
+  M7-05 基线槽先例并行存储，`TargetTrack` 冻结布局不动；`terminate`/
+  track 淘汰/`reset` 释放，`byte_size`/`pool_budget_bytes` 计账，放不下
+  显式 `kBudgetExceeded`）。提交原子：patch 提取先于任何变更，模板插入
+  与槽分配统一预算检查（满集交换字节中性，同 `record_observation` 口径），
+  任何失败池完全不变；校验先于取消（M7-06 冻结决策，同 M7-05 验证器、
+  与 `adopt_track` M7-02 取消优先入口刻意对照）。`terminate` 头注释补记
+  状态槽释放与"调用方驱动的 kLost/kTracking→kTerminated 边"定位（预算
+  耗尽策略归 M7-08，`RULE-12`）。
+- DEC-010 对接：`StableIdTracker::advance` 新增第 4 个默认参数
+  `confirmed_associations`（`ConfirmedAssociation` = region_index +
+  stable_id）——跟踪确认配对在门控阶段直接 kRetained（成本置优，绕过
+  IoU/中心门控与成本排序），空关联列表下既有静态语义逐位不变（M4 冻结
+  契约不破坏，`DEC-010` 第 4 节预留演进通道，设计 §6.5）；指向已不存在
+  tracked region 的关联被忽略（区域回落常规门控）；region 索引越界、零
+  id、重复索引/重复 id 显式 kInvalidArgument 且状态不变；"跟踪确认"判定
+  权在调用方会话管线（消费 `ObjectTracker` 状态），本层只接受显式声明。
+- 本地验证（交付时点）：debug 预设构建零告警；debug 全量 ctest 47/47
+  （既有 `mirador.fusion.object_tracker` 72 用例、验证套件 30 用例、
+  `stable_id_tracker` 19 用例、`perception_session` 26 用例直跑通过——
+  池侧槽仅在状态转移后分配、advance 默认参数逐位保旧，既有记账/行为
+  测试零回归）；开发冒烟自检（临时脚本，不入仓）10 组断言通过——
+  kConfirmed + 正模板采集、`uncertain_frame_limit` 边界两侧（第 4 次保持
+  kUncertain、第 5 次转 kLost）、kLost 复捕获、语义冲突否决 + 负模板采集
+  （同 patch 复现时 impostor 命中且不重复采集）、代际切换场景（门控失效
+  仍可外观确认、无外观降级）、kTerminated 拒绝、字节精确满池下槽分配
+  拒绝且池完全不变、校验先于取消（证据不匹配在取消上下文下仍返回
+  kInvalidArgument）、kCancelled/kTimeout 显式转化、DEC-010 直通（零 IoU
+  远位移配对 retained + 校验矩阵 + 未跟踪 id 忽略回落）；clang-format
+  全仓 dry-run 对四改动文件归零；clang-tidy `--warnings-as-errors='*'`
+  对 `object_tracker.cpp` 与 `stable_id_tracker.cpp` 退出码 0（首轮 3
+  处：impostor 循环改 `std::ranges::any_of`、gate 布尔返回化简、
+  commit 方法认知复杂度 44>25/31>25 两轮拆分
+  `validate_commit_inputs`/`extract_candidate_patch`/`apply_template_capture`/
+  `plan_track_commit`/`planned_store_delta`/`apply_commit_stores` 辅助后
+  归零，行为不变）。六预设 ctest、sanitizer、DOD-03 坐标矩阵、`DOD-04`
+  负向、`DOD-06` 隐私负向与 CI 证据待验证套件落地后回填。
+- 限制与衔接：M7-02/M7-03 限制段的 kUncertain/kLost 构造级补测（两态经
+  本状态机可构造：`record_observation`/`evaluate_change_gate` 的非活跃态
+  路径、`verify_track` 对两态的验证）随验证套件交付；`max_generation_lag`
+  的"代际落后超阈值且证据枯竭 → kLost"判定与 `advance_layout_generation`
+  触发（全局变化分类）归 M7-07，本项未实现；重检测预算耗尽策略（退避/
+  最大尝试）归 M7-08，kLost→kTerminated 现经调用方 `terminate` 驱动；
+  阈值初值（`impostor_match_threshold` 0.8）无真实先验（`DEC-019` 第 5
+  条，M7-09 校准，`DOD-05` 不宣称滚动/swap 场景效果——`RISK-2026-16`/
+  `RISK-2026-17` 随 A/B/C/D 矩阵门控，负模板机制不达标的回退为相似外观
+  候选一律降级 kUncertain）；深度增强通道（M7-11~13）不在本项，未注入
+  `TrackerBackend` 是默认态。
+
+2026-09-23：验证员首轮发现 `M7-06` 两项问题，实现侧处置（处置前以分支 head
+c5a7c82 的验证套件复现；不放宽公共契约，实现向已冻结契约文字对齐）：
+
+- minor（契约缺口）：`StableIdTracker::advance` 的 `confirmed_associations`
+  结构校验缺口——关联指向未跟踪 stable_id 时，重复 region_index 或重复
+  stable_id 不再报错而被静默忽略（src/fusion/stable_id_tracker.cpp 原
+  :297-299 未跟踪 id 在任何重复记账前 `continue`，原 :291 的重复索引检查
+  只在先前关联已 pre-match 时触发），与设计 §6.5 及 advance 头注释 Errors
+  列表（"duplicate region indexes or stable ids across associations"）的
+  冻结文字冲突；由
+  `StableIdConfirmedAssociationTest.DuplicateUntrackedAssociationsAreExplicitErrors`
+  按契约文字断言暴露。修复：重复检测改为纯结构校验——`region_claimed`
+  位图与 `claimed_ids` 线性扫描在 tracked 查找之前对每条关联执行，未跟踪
+  id 的重复同样显式 `kInvalidArgument`（状态不变）；通过校验但指向未跟踪
+  id 的关联维持既有"忽略回落常规门控"语义；原 `prev_taken` 重复分支被
+  结构校验覆盖后移除（stable_id 重复已在查找前报错），错误消息文字保持
+  原冻结措辞。头注释同步补记"结构校验先于未跟踪回落"的精确语义（同
+  M7-05 注释精度处置先例）。处置前复现：命名用例 FAILED；修复后该用例及
+  `StableIdConfirmedAssociationTest` 全部 8 用例、
+  `mirador.fusion.object_tracker_evidence_fusion` 47 用例通过。
+- low（注释措辞）：`commit_track_evidence` 头注释写明取消"polled at the
+  entry after validation and again before the patch extraction"（两次
+  轮询），实现为校验后单次轮询即进入 patch 提取（当前两者间无任何工作，
+  行为不可区分）。裁决为注释向代码对齐：改为"polled exactly once, at the
+  entry — after validation and immediately before the patch extraction,
+  the commit's only pixel work"，不补死代码二次轮询；冻结的"校验先于
+  取消"决策与单次轮询语义均不变。
+- 复验（实现侧本地证据）：debug 预设构建零告警；debug 全量 ctest 48/48
+  （含验证套件 `mirador.fusion.object_tracker_evidence_fusion` 47 用例、
+  `stable_id_tracker` 19、`object_tracker` 72、验证器套件 30、
+  `perception_session` 26 直跑全通过）；clang-format 对三改动文件归零；
+  clang-tidy `--warnings-as-errors='*'` 对 `stable_id_tracker.cpp` 退出码
+  0。六预设门禁与 CI 证据随编排脚本在分支 head 收口回填。
+
+2026-09-23：`M7-06` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-06-evidence-fusion-state-machine`；验证套件由
+Independent-Verification-Agent 独立编写与执行，实现交付与验证员首轮两项
+发现的处置见上两段）：
+
+- 交付摘要：`ObjectTracker::commit_track_evidence` 证据融合与状态机（冻结
+  判定表/四态转移/采集策略/三场景条件化输入面见本日交付段）与
+  `StableIdTracker::advance` 的 `confirmed_associations` 门控直通；验证
+  套件 47 用例 `tests/fusion/object_tracker_evidence_fusion_test.cpp` 随
+  test(fusion) commit c5a7c82 落地。验证员首轮两项处置：340f03e 将
+  advance 的重复检测升级为纯结构校验前置（`region_claimed` 位图 +
+  `claimed_ids` 线性扫描先于 tracked 查找，未跟踪 id 的重复同样显式
+  `kInvalidArgument`，被覆盖的不可达 `prev_taken` 分支移除，头注释冻结
+  "结构校验先于未跟踪回落"——实现向已冻结契约文字对齐，契约零改动）；
+  01fbc66 将 `commit_track_evidence` 取消注释向实现对齐（校验后单次入口
+  轮询，不补死代码二次轮询）。本轮零测试改动（`git diff c5a7c82..HEAD --
+  tests/` 为空），首轮缺陷探针按冻结契约文字断言、修复后原样通过。
+- 验证覆盖：`mirador.fusion.object_tracker_evidence_fusion` 47 用例——
+  `ObjectTrackerEvidenceFusionTest` 39 例（四级分级判定表 12、三场景
+  条件化 2、四态转移 9、`RULE-06` 簿记 7、`DOD-04` 失效负向 2、取消/
+  错误路径 2、逐位确定性 1、`DOD-03` 坐标矩阵 2、M7-02/03 两态构造级
+  补测 3）与 `StableIdConfirmedAssociationTest` 8 例（DEC-010 直通/未
+  跟踪回落/校验矩阵与静态语义逐位不变，含首轮缺陷探针
+  `DuplicateUntrackedAssociationsAreExplicitErrors`）。
+- 门禁（文档同步时点于分支 head dc21c35 复验）：六预设 ctest 全绿——
+  debug 48/48（debug 多 1 条为 `mirador.adapters.opencv` 既有条目差异）、
+  release/asan/ubsan/tsan/warnings 各 47/47；五个 fusion 套件直跑——
+  `mirador.fusion.object_tracker_evidence_fusion` 47/47、
+  `stable_id_tracker` 19/19、`object_tracker` 72/72、验证器套件
+  `object_tracker_verification` 30/30、`perception_session` 26/26；
+  evidence_fusion 套件 asan/ubsan 直跑 47/47 且 sanitizer 零报告，tsan
+  经 `setarch -R` 直跑 47/47 零报告（均含修复后的关联校验新路径）；
+  clang-format `--dry-run --Werror` 三改动文件归零；clang-tidy
+  `--warnings-as-errors='*'`（`-p build/debug`）对 `stable_id_tracker.cpp`
+  退出码 0。
+- 限制：CI 推送与 14/14 证据回填已随 PR #26 在分支 head 收口（见下方
+  CI 回填）；结构校验的 `claimed_ids` 为关联数线性扫描（最坏
+  O(k²)，k 为调用方传入关联数），与既有 per-association 查找同阶，关联数
+  无显式上限选项——当前调用方为会话管线自产配对（量级为 track 数），如
+  M7-07 会话管线接入后出现大规模关联再议上限；`max_generation_lag` 耗尽
+  判定与代际触发归 M7-07、重检测原语归 M7-08（见交付段限制与衔接）；
+  阈值初值无真实先验随 M7-09 校准。
+- CI 回填：PR #26 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35842711760](https://github.com/Linductor-alkaid/mirador/actions/runs/35842711760)
+  （head 4c905d2，覆盖实现、验证套件、验证员首轮两项处置与文档回填
+  commit，33m2s）；首轮通过，无修复往返。

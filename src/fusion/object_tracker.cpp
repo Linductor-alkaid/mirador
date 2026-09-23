@@ -439,6 +439,278 @@ struct SurfacePeak {
     return structure;
 }
 
+// ---- M7-06 evidence-fusion helpers ----
+
+/// Appearance strength of one verification under the frozen M7-06 lift rule:
+/// E2 consistency is strong evidence on its own (design section 3 "强" —
+/// NCC peak+PSR dual pass OR closure structure consistent); the E2 channel
+/// has no weak level of its own.
+enum class AppearanceLevel : uint8_t { kNone, kWeak, kStrong };
+
+[[nodiscard]] AppearanceLevel appearance_level(const AppearanceVerification& appearance,
+                                               const StructureVerification& structure) noexcept {
+    if (appearance.outcome == AppearanceChannelOutcome::kStrong ||
+        structure.outcome == StructureChannelOutcome::kConsistent) {
+        return AppearanceLevel::kStrong;
+    }
+    return appearance.outcome == AppearanceChannelOutcome::kWeak ? AppearanceLevel::kWeak : AppearanceLevel::kNone;
+}
+
+/// DEC-010 semantic gate predicate (category compatibility): a conflict
+/// exists only when both labels are non-empty and different; an empty label
+/// on either side is vacuously compatible.
+[[nodiscard]] bool semantics_conflict(const TrackSemantics& track_semantics, const TrackSemantics& candidate) noexcept {
+    return !track_semantics.label.empty() && !candidate.label.empty() && track_semantics.label != candidate.label;
+}
+
+/// Impostor veto evidence: the candidate patch matches any stored negative
+/// template at or above the configured threshold (multi-template best;
+/// first hit wins, the answer is boolean).
+[[nodiscard]] bool impostor_match(const VisualPatchFingerprint& patch, const std::vector<TrackTemplate>& negatives,
+                                  double threshold) noexcept {
+    const auto hits_threshold = [&patch, threshold](const TrackTemplate& entry) {
+        return thumbnail_ncc(patch, entry.fingerprint) >= threshold;
+    };
+    return std::ranges::any_of(negatives, hits_threshold);
+}
+
+/// Position-gate admission (frozen M7-06 rule): the gate binds unless it is
+/// void — a kGenerationSwitch scenario zeroes the position prior, and a
+/// kLost track's stale prior must not gate a recapture.
+[[nodiscard]] bool gate_admitted(TrackState state, PositionScenario scenario, bool inside_gate) noexcept {
+    return inside_gate || scenario == PositionScenario::kGenerationSwitch || state == TrackState::kLost;
+}
+
+/// Frozen grade table (first hit wins): vetoes first, then appearance
+/// strength with the gate, else the position-only placeholder.
+[[nodiscard]] EvidenceGrade fusion_grade(AppearanceLevel level, bool gate_ok, bool impostor, bool conflict) noexcept {
+    if (impostor || conflict) {
+        return EvidenceGrade::kVetoed;
+    }
+    if (level == AppearanceLevel::kStrong) {
+        return gate_ok ? EvidenceGrade::kConfirmed : EvidenceGrade::kPlaceholder;
+    }
+    if (level == AppearanceLevel::kWeak) {
+        return gate_ok ? EvidenceGrade::kTentative : EvidenceGrade::kPlaceholder;
+    }
+    return EvidenceGrade::kPlaceholder;
+}
+
+/// Frozen state transition of one commit (see `commit_track_evidence`):
+/// confirming grades recapture and reset the streak, insufficient grades
+/// degrade toward kLost at the limit, kLost is sticky.
+struct TrackTransition {
+    TrackState state = TrackState::kTracking;
+    uint32_t insufficient_streak = 0;
+    uint64_t lost_sequence = 0;
+};
+
+[[nodiscard]] TrackTransition track_transition(TrackState state, EvidenceGrade grade, uint32_t current_streak,
+                                               uint64_t current_lost_sequence, int32_t uncertain_limit,
+                                               uint64_t frame_sequence) noexcept {
+    TrackTransition next;
+    next.insufficient_streak = current_streak;
+    next.lost_sequence = current_lost_sequence;
+    if (grade == EvidenceGrade::kConfirmed || grade == EvidenceGrade::kTentative) {
+        next.state = TrackState::kTracking;
+        next.insufficient_streak = 0;
+        next.lost_sequence = 0;
+        return next;
+    }
+    next.state = state;
+    if (state == TrackState::kLost) {
+        return next;
+    }
+    next.state = TrackState::kUncertain;
+    next.insufficient_streak = current_streak + 1U;
+    if (next.insufficient_streak >= static_cast<uint32_t>(uncertain_limit)) {
+        next.state = TrackState::kLost;
+        next.lost_sequence = frame_sequence;
+    }
+    return next;
+}
+
+/// Planned (not yet applied) template capture of one commit. Both template
+/// stores hold same-size thumbnails (the store paths pin
+/// `template_thumb_side`), so an eviction under count pressure always frees
+/// exactly the bytes the insertion needs — the capture is byte-neutral on a
+/// full set, exactly like a `record_observation` swap.
+struct TemplateCapturePlan {
+    bool capture = false;
+    bool evict_oldest = false;
+};
+
+[[nodiscard]] TemplateCapturePlan positive_capture_plan(size_t template_count, int32_t max_templates) noexcept {
+    TemplateCapturePlan plan;
+    // The update policy needs an evictable slot beyond the pinned adoption
+    // template (index 0); with max_templates == 1 it is off.
+    plan.capture = max_templates >= 2;
+    plan.evict_oldest = plan.capture && template_count >= static_cast<size_t>(max_templates);
+    return plan;
+}
+
+[[nodiscard]] TemplateCapturePlan negative_capture_plan(size_t negative_count, int32_t max_negatives) noexcept {
+    TemplateCapturePlan plan;
+    plan.capture = max_negatives >= 1;
+    plan.evict_oldest = plan.capture && negative_count >= static_cast<size_t>(max_negatives);
+    return plan;
+}
+
+/// Validation gate of one `commit_track_evidence` call (frozen M7-06 order:
+/// validation precedes cancellation, the deliberate contrast to
+/// `adopt_track`'s M7-02 cancel-first entry). `track` may be null.
+[[nodiscard]] Status validate_commit_inputs(const ImageView& presented_view, const TargetTrack* track,
+                                            const TrackVerification& verification) noexcept {
+    if (auto validated = validate(presented_view); !validated.ok()) {
+        return validated.status();
+    }
+    if (track == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "commit_track_evidence: unknown track id"};
+    }
+    if (track->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "commit_track_evidence: track already terminated"};
+    }
+    if (verification.track_id != track->track_id) {
+        return Status{ErrorCode::kInvalidArgument, "commit_track_evidence: verification carries another track's id"};
+    }
+    if (!all_finite(track->last_bounds) || track->last_bounds.width <= 0.0F || track->last_bounds.height <= 0.0F) {
+        return Status{ErrorCode::kInvalidArgument, "commit_track_evidence: track bounds must be finite and non-empty"};
+    }
+    return Status::success();
+}
+
+/// Candidate window and its patch (frozen rule): the E1 best offset when the
+/// appearance channel has an outcome, else the unchanged bounds — an E2-only
+/// confirmation has no position of its own. One extraction with the adoption
+/// pipeline serves the impostor check and both captures.
+[[nodiscard]] Result<VisualPatchFingerprint> extract_candidate_patch(const TargetTrack& track, bool has_candidate,
+                                                                     const TrackVerification& verification,
+                                                                     const ImageView& presented_view,
+                                                                     const ObjectTrackerOptions& options) noexcept {
+    const float offset_x = has_candidate ? static_cast<float>(verification.appearance.best_offset_dx) : 0.0F;
+    const float offset_y = has_candidate ? static_cast<float>(verification.appearance.best_offset_dy) : 0.0F;
+    const RectF candidate_window{track.last_bounds.x + offset_x, track.last_bounds.y + offset_y,
+                                 track.last_bounds.width, track.last_bounds.height};
+    const auto candidate_roi = covering_roi(candidate_window, presented_view);
+    if (!candidate_roi.has_value()) {
+        return Status{ErrorCode::kInvalidArgument,
+                      "commit_track_evidence: candidate window covers no pixel of the view"};
+    }
+    auto cropped = crop(presented_view, *candidate_roi, options.verification_work_budget_bytes);
+    if (!cropped.ok()) {
+        return cropped.status();
+    }
+    return make_visual_patch_fingerprint(cropped.value().view(), PatchFingerprintParams{options.template_thumb_side},
+                                         options.verification_work_budget_bytes);
+}
+
+/// Applies one planned template capture: under count pressure the
+/// drop-oldest entry goes first (the `add_template` rule — index 0 of the
+/// appearance set is the pinned adoption template), then the entry is
+/// appended and the pool byte account updated. A full set swaps
+/// byte-neutrally (uniform pinned thumbnail size).
+void apply_template_capture(std::vector<TrackTemplate>& set, size_t evict_index, bool evict_oldest,
+                            const TrackTemplate& entry, int64_t template_bytes, uint64_t& evicted_counter,
+                            int64_t& used_bytes) noexcept {
+    if (evict_oldest) {
+        set.erase(set.begin() + static_cast<std::ptrdiff_t>(evict_index));
+        ++evicted_counter;
+        used_bytes -= template_bytes;
+    }
+    set.push_back(entry);
+    used_bytes += template_bytes;
+}
+
+/// Everything one commit computes before any mutation (frozen table and
+/// capture policies; see the `commit_track_evidence` class contract).
+struct CommitPlan {
+    EvidenceGrade grade = EvidenceGrade::kPlaceholder;
+    bool impostor = false;
+    bool conflict = false;
+    bool has_candidate = false;
+    TrackTransition transition;
+    bool slot_exists = false;
+    bool slot_allocation_needed = false;
+    TemplateCapturePlan positive_plan;
+    TemplateCapturePlan negative_plan;
+    bool want_positive = false;
+    bool want_negative = false;
+};
+
+[[nodiscard]] CommitPlan plan_track_commit(const TargetTrack& track, const TrackVerification& verification,
+                                           const TrackPositionEvidence& position,
+                                           const std::optional<TrackSemantics>& candidate_semantics,
+                                           const VisualPatchFingerprint& patch, bool slot_exists,
+                                           uint32_t current_streak, uint64_t current_lost_sequence,
+                                           uint64_t frame_sequence, const ObjectTrackerOptions& options) noexcept {
+    CommitPlan plan;
+    plan.has_candidate = verification.appearance.outcome != AppearanceChannelOutcome::kNone;
+    const AppearanceLevel level = appearance_level(verification.appearance, verification.structure);
+    plan.conflict = candidate_semantics.has_value() && semantics_conflict(track.semantics, *candidate_semantics);
+    plan.impostor = plan.has_candidate && !track.negative_templates.empty() &&
+                    impostor_match(patch, track.negative_templates, options.impostor_match_threshold);
+    const bool gate_ok = gate_admitted(track.state, position.scenario, position.inside_gate);
+    plan.grade = fusion_grade(level, gate_ok, plan.impostor, plan.conflict);
+    plan.transition = track_transition(track.state, plan.grade, current_streak, current_lost_sequence,
+                                       options.uncertain_frame_limit, frame_sequence);
+    plan.slot_exists = slot_exists;
+    plan.slot_allocation_needed =
+        !slot_exists && (plan.transition.insufficient_streak != 0 || plan.transition.lost_sequence != 0);
+    plan.positive_plan = positive_capture_plan(track.templates.size(), options.max_templates);
+    plan.want_positive = plan.grade == EvidenceGrade::kConfirmed && plan.positive_plan.capture;
+    plan.negative_plan = negative_capture_plan(track.negative_templates.size(), options.max_negative_templates);
+    plan.want_negative =
+        plan.grade == EvidenceGrade::kVetoed && plan.conflict && !plan.impostor && plan.negative_plan.capture;
+    return plan;
+}
+
+/// Planned byte growth of the commit's stores (0 when every store swaps
+/// byte-neutrally or is skipped by its policy).
+[[nodiscard]] int64_t planned_store_delta(const CommitPlan& plan, int64_t template_bytes) noexcept {
+    int64_t delta = plan.slot_allocation_needed ? ObjectTracker::kStateSlotOverheadBytes : 0;
+    if (plan.want_positive && !plan.positive_plan.evict_oldest) {
+        delta += template_bytes;
+    }
+    if (plan.want_negative && !plan.negative_plan.evict_oldest) {
+        delta += template_bytes;
+    }
+    return delta;
+}
+
+/// Mutation phase of one commit over the public record type: the planned
+/// template captures and the confirming-grade evidence-field updates (the
+/// vetoed candidate must never move the track; the position prior is not
+/// appearance evidence — the M7-03 freeze). Slot bookkeeping stays with the
+/// caller (pool-private storage). Runs only after budget clearance.
+void apply_commit_stores(TargetTrack& track, const CommitPlan& plan, const TrackVerification& verification,
+                         const VisualPatchFingerprint& patch, uint64_t frame_sequence, uint32_t pool_layout_generation,
+                         int64_t template_bytes, uint64_t& evicted_templates, uint64_t& evicted_negative_templates,
+                         int64_t& used_bytes) noexcept {
+    if (plan.want_positive) {
+        apply_template_capture(track.templates, 1, plan.positive_plan.evict_oldest,
+                               TrackTemplate{patch, frame_sequence, pool_layout_generation, EvidenceGrade::kConfirmed},
+                               template_bytes, evicted_templates, used_bytes);
+    }
+    if (plan.want_negative) {
+        apply_template_capture(track.negative_templates, 0, plan.negative_plan.evict_oldest,
+                               TrackTemplate{patch, frame_sequence, pool_layout_generation, EvidenceGrade::kVetoed},
+                               template_bytes, evicted_negative_templates, used_bytes);
+    }
+    if (plan.grade == EvidenceGrade::kConfirmed || plan.grade == EvidenceGrade::kTentative) {
+        const float offset_x = plan.has_candidate ? static_cast<float>(verification.appearance.best_offset_dx) : 0.0F;
+        const float offset_y = plan.has_candidate ? static_cast<float>(verification.appearance.best_offset_dy) : 0.0F;
+        const RectF candidate_window{track.last_bounds.x + offset_x, track.last_bounds.y + offset_y,
+                                     track.last_bounds.width, track.last_bounds.height};
+        track.last_bounds = candidate_window;
+        track.predicted_center = PointF{candidate_window.x + candidate_window.width / 2.0F,
+                                        candidate_window.y + candidate_window.height / 2.0F};
+        if (plan.has_candidate) {
+            track.confidence = std::clamp(static_cast<float>(verification.appearance.peak_ncc), 0.0F, 1.0F);
+        }
+        track.last_verified_sequence = frame_sequence;
+    }
+}
+
 }  // namespace
 
 int64_t ObjectTracker::track_bytes(const TargetTrack& track) noexcept {
@@ -474,6 +746,29 @@ int64_t ObjectTracker::baseline_slot_bytes(uint64_t track_id) const noexcept {
     return find_baseline_slot(track_id) != structure_baselines_.cend() ? kStructureBaselineOverheadBytes : 0;
 }
 
+ObjectTracker::StateSlots::iterator ObjectTracker::find_state_slot(uint64_t track_id) noexcept {
+    return std::lower_bound(state_slots_.begin(), state_slots_.end(), track_id,
+                            [](const std::pair<uint64_t, StateSlot>& slot, uint64_t id) { return slot.first < id; });
+}
+
+ObjectTracker::StateSlots::const_iterator ObjectTracker::find_state_slot(uint64_t track_id) const noexcept {
+    return std::lower_bound(state_slots_.cbegin(), state_slots_.cend(), track_id,
+                            [](const std::pair<uint64_t, StateSlot>& slot, uint64_t id) { return slot.first < id; });
+}
+
+int64_t ObjectTracker::state_slot_bytes(uint64_t track_id) const noexcept {
+    return find_state_slot(track_id) != state_slots_.cend() ? kStateSlotOverheadBytes : 0;
+}
+
+int64_t ObjectTracker::erase_state_slot(uint64_t track_id) noexcept {
+    const auto slot = find_state_slot(track_id);
+    if (slot == state_slots_.end() || slot->first != track_id) {
+        return 0;
+    }
+    state_slots_.erase(slot);
+    return kStateSlotOverheadBytes;
+}
+
 ObjectTracker::EvictionPlan ObjectTracker::plan_eviction(int64_t insertion_bytes) const noexcept {
     EvictionPlan plan;
     const auto already_victim = [&plan](uint64_t id) {
@@ -492,7 +787,8 @@ ObjectTracker::EvictionPlan ObjectTracker::plan_eviction(int64_t insertion_bytes
             }
         }
         plan.victim_ids.push_back(victim->track_id);
-        plan.freed_bytes += track_bytes(*victim) + baseline_slot_bytes(victim->track_id);
+        plan.freed_bytes +=
+            track_bytes(*victim) + baseline_slot_bytes(victim->track_id) + state_slot_bytes(victim->track_id);
     }
     return plan;
 }
@@ -516,6 +812,9 @@ Result<ObjectTracker> ObjectTracker::create(const ObjectTrackerOptions& options)
         options.structure_deviation_tolerance > 1.0 || options.verification_roi_diagonal_ratio <= 0.0 ||
         options.verification_roi_diagonal_ratio > 8.0 || options.verification_work_budget_bytes <= 0) {
         return Status{ErrorCode::kInvalidArgument, "verification threshold outside its documented range"};
+    }
+    if (options.impostor_match_threshold < 0.0 || options.impostor_match_threshold > 1.0) {
+        return Status{ErrorCode::kInvalidArgument, "impostor_match_threshold must be in [0, 1]"};
     }
     if (options.redetect_backoff_base_frames < 1 ||
         options.redetect_backoff_max_frames < options.redetect_backoff_base_frames ||
@@ -592,13 +891,14 @@ Result<TrackAdoption> ObjectTracker::adopt_track(const VisualRegion& region, con
         return fingerprint.status();
     }
 
-    // Commit: evict the planned victims (with their baseline slots), then
+    // Commit: evict the planned victims (with their pool-side slots), then
     // insert the new track.
     TrackAdoption adoption;
     adoption.track_id = region.stable_id;
     adoption.evicted_track_ids = plan.victim_ids;
     for (const uint64_t victim_id : adoption.evicted_track_ids) {
         erase_structure_baseline(victim_id);
+        erase_state_slot(victim_id);
         const auto it = std::find_if(tracks_.begin(), tracks_.end(),
                                      [victim_id](const TargetTrack& track) { return track.track_id == victim_id; });
         tracks_.erase(it);
@@ -650,8 +950,10 @@ Result<void> ObjectTracker::terminate(uint64_t track_id, uint64_t frame_sequence
     track->position_history.shrink_to_fit();
     used_bytes_ -= before - track_bytes(*track);
     // The pool-side E2 baseline slot is released with the track's evidence
-    // data (archives stay cheap, M7-01 freeze semantics).
+    // data (archives stay cheap, M7-01 freeze semantics), and so is the
+    // M7-06 state-machine slot.
     used_bytes_ -= erase_structure_baseline(track_id);
+    used_bytes_ -= erase_state_slot(track_id);
     return Status::success();
 }
 
@@ -862,6 +1164,72 @@ Result<void> ObjectTracker::record_structure_baseline(uint64_t track_id, const T
     return Status::success();
 }
 
+Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
+    uint64_t track_id, const TrackVerification& verification, const TrackPositionEvidence& position,
+    const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view, uint64_t frame_sequence,
+    const ExecutionContext& context) noexcept {
+    // Validation precedes cancellation (frozen M7-06 decision, see the
+    // class contract); every error below leaves the pool untouched.
+    TargetTrack* track = find_track_mutable(track_id);
+    if (const Status valid = validate_commit_inputs(presented_view, track, verification); !valid.ok()) {
+        return valid;
+    }
+    if (is_cancelled(context)) {
+        return Status{ErrorCode::kCancelled, "commit_track_evidence cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return Status{ErrorCode::kTimeout, "commit_track_evidence deadline reached"};
+    }
+
+    const bool has_candidate = verification.appearance.outcome != AppearanceChannelOutcome::kNone;
+    auto patch = extract_candidate_patch(*track, has_candidate, verification, presented_view, options_);
+    if (!patch.ok()) {
+        return patch.status();
+    }
+
+    // Evidence evaluation, transition and store planning (frozen; nothing
+    // mutated yet).
+    const auto slot = find_state_slot(track_id);
+    const bool slot_exists = slot != state_slots_.end() && slot->first == track_id;
+    const CommitPlan plan = plan_track_commit(*track, verification, position, candidate_semantics, patch.value(),
+                                              slot_exists, slot_exists ? slot->second.insufficient_streak : 0,
+                                              slot_exists ? slot->second.lost_sequence : 0, frame_sequence, options_);
+
+    // Atomicity: the whole store plan is budget-checked together before any
+    // mutation; full template sets swap byte-neutrally (uniform pinned
+    // thumbnail size).
+    const auto side = static_cast<int64_t>(options_.template_thumb_side);
+    const int64_t template_bytes = kTemplateOverheadBytes + side * side;
+    if (used_bytes_ + planned_store_delta(plan, template_bytes) > options_.pool_budget_bytes) {
+        return Status{ErrorCode::kBudgetExceeded, "commit_track_evidence planned stores do not fit the pool budget"};
+    }
+
+    // Commit — no failure is possible past this point (the plan above is
+    // exact for the fixed-size stores).
+    TrackEvidenceCommit commit;
+    commit.track_id = track_id;
+    commit.previous_state = track->state;
+    commit.state = plan.transition.state;
+    commit.grade = plan.grade;
+    commit.scenario = position.scenario;
+    commit.impostor_hit = plan.impostor;
+    commit.semantics_conflict = plan.conflict;
+    commit.template_captured = plan.want_positive;
+    commit.negative_template_captured = plan.want_negative;
+    apply_commit_stores(*track, plan, verification, patch.value(), frame_sequence, layout_generation_, template_bytes,
+                        evicted_templates_, evicted_negative_templates_, used_bytes_);
+    if (plan.slot_allocation_needed) {
+        state_slots_.insert(find_state_slot(track_id),
+                            {track_id, StateSlot{plan.transition.insufficient_streak, plan.transition.lost_sequence}});
+        used_bytes_ += kStateSlotOverheadBytes;
+    } else if (slot_exists) {
+        slot->second = StateSlot{plan.transition.insufficient_streak, plan.transition.lost_sequence};
+    }
+    track->state = plan.transition.state;
+    track->layout_generation = std::max(track->layout_generation, layout_generation_);
+    return commit;
+}
+
 Result<RectI> ObjectTracker::verification_roi(uint64_t track_id, const ImageView& presented_view) const noexcept {
     if (auto validated = validate(presented_view); !validated.ok()) {
         return validated.status();
@@ -954,6 +1322,7 @@ Result<TrackVerification> ObjectTracker::verify_track(
 void ObjectTracker::reset() noexcept {
     tracks_.clear();
     structure_baselines_.clear();
+    state_slots_.clear();
     layout_generation_ = 0;
     used_bytes_ = 0;
     evicted_count_ = 0;

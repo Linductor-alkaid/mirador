@@ -49,6 +49,19 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-06 evidence fusion state machine: the frozen grade table (impostor/
+# semantic vetoes, strong/weak appearance with the position gate,
+# placeholder), the four-state transitions with the commit-counted
+# uncertain_frame_limit boundary, the negative-template collection policies,
+# state-slot byte accounting, atomic commits with validation-before-
+# cancellation, the DEC-010 confirmed-association gate passthrough, the
+# coordinate matrix and determinism.
+mirador_add_test(
+    NAME mirador.fusion.object_tracker_evidence_fusion
+    SOURCES object_tracker_evidence_fusion_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp

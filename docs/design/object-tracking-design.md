@@ -119,6 +119,35 @@ distractor-aware 机制。`RISK-2026-16` 记录该风险。
 状态转移全程确定性：同输入序列产生同状态序列，无墙钟依赖（同 `DEC-010`
 generation 规则口径）。
 
+M7-06 冻结落点：分级→转移的证据融合入口交付于
+`ObjectTracker::commit_track_evidence`（Experimental，`object_tracker.hpp`）。
+消费调用方证据——`verify_track` 的 `TrackVerification`（E1/E2 通道）、调用方
+声明的 `TrackPositionEvidence`（`PositionScenario` 三场景条件化 + 门控内声明
++ 候选语义）与呈现视图（候选 patch 提取，负模板检查与模板采集共用一次
+提取）——按冻结判定表输出四级分级并提交状态转移。三项契约裁决冻结于头注释：
+
+1. **纯决策/状态变更边界**：门控（M7-03）与验证器（M7-05）保持 `const` 纯
+   决策，分级→状态映射只发生在本入口（同一边界的实现侧兑现）。
+2. **负模板采集策略**：语义冲突否决且候选 patch 未命中既有负模板时采集入
+   库（impostor 恰在其首次被拒的确认尝试时采集一次；impostor 命中否决不
+   重复入库）；`kConfirmed` 提交采集正模板（`max_templates >= 2` 时），
+   `kTentative` 不写模板。
+3. **kLost→kTracking 归属**：本项只定义状态机语义（kConfirmed/kTentative
+   提交即复捕获；kLost 态位置先验失效、不再门控复捕获），重检测原语与身份
+   复核入口归 M7-08（`verify_track` 接受任意非 kTerminated 态供其复用）。
+
+条件化权重按第 3 节表实现为显式输入面：静止/补偿后滚动均全权重（滚动场景
+由调用方声明已补偿——补偿量计算与全局变化分类消费归 M7-07，本项不触碰
+`estimate_global_shift` 结果流），代际切换清零位置先验（门控不作为确认的
+必要条件，仅位置先验不再构成占位依据，`kTracking` 无确认证据即降级
+`kUncertain`）。`uncertain_frame_limit` 按"连续不足提交数"计（占位与否决
+提交均计入，tracker 无内部时钟，`RULE-03`；帧步进归 M7-07 管线）。状态
+簿记（连续不足计数、kLost 进入时刻）为池侧单槽（`kStateSlotOverheadBytes`，
+同 M7-05 基线槽先例，`TargetTrack` 冻结布局不动），终止/淘汰/`reset` 释放。
+提交原子：patch 提取先于任何变更，模板插入与槽分配统一预算检查，任何失败
+池完全不变；校验先于取消（同 M7-05 冻结决策，与 `adopt_track` M7-02 取消
+优先入口刻意对照）。
+
 ## 5. 目标池数据模型
 
 ```cpp
@@ -283,6 +312,16 @@ IoU/包含门控。该扩展属于 `DEC-010` 第 4 节预留的"阈值配置演�
 推广，不破坏已冻结契约；`DEC-010` 当时将中心距离降为 trace 观测量是静态
 融合场景的正确取舍，跨帧场景的时间连续性赋予了空间邻近身份含义，两者的
 统计前提不同，以本决策记录为界。
+
+M7-06 冻结落点：门控直通交付于 `StableIdTracker::advance` 的
+`confirmed_associations` 参数（默认空，既有静态语义逐位不变，冻结契约不
+破坏）——调用方把跟踪确认（`commit_track_evidence` 确认后 kTracking 态）
+的 track↔区域配对显式注入，配对绕过 IoU/中心门控与成本排序直接 kRetained
+（计入 retained 计数与 generation 判定）；指向已不存在 tracked region 的
+关联被忽略（该区域回落常规门控——track 可能已在帧间终止）；region 索引
+越界、零 id、重复索引/重复 id 为显式 `kInvalidArgument`（状态不变）。
+"跟踪确认"的判定权在调用方会话管线（消费 `ObjectTracker` 状态），本层只
+接受显式关联声明，不反向读取 tracker。
 
 ## 7. 级联重检测（丢失后高负载路径)
 

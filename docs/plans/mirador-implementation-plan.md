@@ -1,11 +1,42 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.15
+> 版本：1.17
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-23
+>
+> 1.17 修订（2026-09-23）：M7 工作项 `M7-06` 证据融合与状态机测试与门禁
+> 证据落地，工作项勾选——Independent-Verification-Agent 验证套件 47 用例
+> （四级分级判定表、三场景条件化、四态转移与 `uncertain_frame_limit`
+> 边界、`RULE-06` 簿记、`DOD-03`/`DOD-04` 负向、取消/错误路径、逐位
+> 确定性、M7-02/03 两态构造级补测与 DEC-010 直通/回落/校验矩阵）随验证
+> 轮处置 commit 落地：`StableIdTracker::advance` 的 `confirmed_associations`
+> 重复检测升级为纯结构校验前置（未跟踪 id 的重复同样显式
+> `kInvalidArgument`，实现向已冻结契约文字对齐，契约零改动）与
+> `commit_track_evidence` 取消注释单次轮询措辞对齐（注释级，行为不变）。
+> 本地门禁（文档同步时点于分支 head dc21c35 复验）：六预设 ctest debug
+> 48/48、其余各 47/47，五个 fusion 套件直跑通过，evidence_fusion 套件
+> asan/ubsan/tsan 直跑零 sanitizer 报告（tsan 经 `setarch -R`），
+> clang-format/clang-tidy 归零。CI 证据随 PR #26 回填（run 35842711760，
+> 14/14 job 全绿，PR 待合入）；`SCOPE-13` 维持未勾选（M7 进行中）。
+>
+> 1.16 修订（2026-09-23）：M7 工作项 `M7-06` 证据融合与状态机实现交付于
+> 工作分支 `feat/m7-06-evidence-fusion-state-machine`——
+> `ObjectTracker::commit_track_evidence`（帧级管线唯一的状态变更证据入口：
+> 静止/补偿后滚动/代际切换三场景条件化输入面、E1/E2/位置/语义四级分级
+> 判定表、`kTracking/kUncertain/kLost/kTerminated` 转移与
+> `uncertain_frame_limit` 连续不足计数、impostor 负模板排除与采集策略、
+> `kStateSlotOverheadBytes` 池侧状态簿记槽）与 `StableIdTracker::advance`
+> 的 `confirmed_associations` 门控直通参数（`DEC-010` 第 4 节预留通道，
+> 空关联下冻结静态语义逐位不变）。三项契约裁决（纯决策/状态变更边界、
+> 负模板采集策略、kLost→kTracking 归属 M7-08）冻结于头注释并同步设计
+> §4/§6.5 落点注记。本地 debug 构建零告警、全量 ctest 47/47、开发冒烟
+> 自检 10 组断言、clang-format/clang-tidy 双口径归零；测试由
+> Independent-Verification-Agent 独立编写与执行，工作项勾选、六预设门禁
+> 与 CI 证据随验证套件落地回填。`max_generation_lag` 耗尽判定与代际触发
+> 归 M7-07，重检测原语归 M7-08。`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.15 修订（2026-09-23）：M7 工作项 `M7-05` 邻域验证器测试与门禁证据
 > 落地，工作项勾选——Independent-Verification-Agent 验证套件 30 用例
@@ -179,7 +210,11 @@ run 35808507168 14/14 job 全绿，待合入）；`M7-05` 邻域验证器已交�
 （实现、30 用例验证套件、验证员首轮出处/精度处置与门禁证据落地于
 分支 `feat/m7-05-neighborhood-verifier`；CI 证据已回填：
 [PR #25](https://github.com/Linductor-alkaid/mirador/pull/25)
-run 35821784682 14/14 job 全绿，待合入）。
+run 35821784682 14/14 job 全绿，待合入）；`M7-06` 证据融合与状态机已交付
+并勾选（实现、验证员首轮两项发现处置、47 用例验证套件与六预设门禁证据
+落地于分支 `feat/m7-06-evidence-fusion-state-machine`；CI 证据已回填：
+[PR #26](https://github.com/Linductor-alkaid/mirador/pull/26)
+run 35842711760 14/14 job 全绿，待合入）。
 
 ## 交付边界
 
