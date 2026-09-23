@@ -130,6 +130,8 @@ struct Transform2D {
 
 坐标变换需要覆盖缩放、letterbox、裁剪、旋转和镜像，并提供点、矩形、多边形和线段的统一转换。测试必须验证 0/90/180/270 度方向、非连续 stride、奇数尺寸、不同宽高比和多次往返变换。上层点击安全依赖坐标正确性，因此坐标恢复应被视为核心正确性能力，而不是 Backend 的私有实现细节。
 
+区域边界与中心点语义随之固定：`RectF`/`RectI` 为半开像素面积坐标 `[x, x+width) × [y, y+height)`，区域覆盖所有中心落在半开框内的像素；几何中心保持连续坐标（`x + width/2.0`），奇数尺寸产生半像素中心是有意行为。管线内部不做取整，取整只允许发生在调用方的动作分发层（契约模式取自 cua，见[调研报告](../research/trycua-cua-vision-survey.md) §3.2）。
+
 ## 8. 统一输出模型
 
 Mirador 应将视觉输出分成“原始能力结果”和“融合语义快照”。原始结果保留 OCR、检测器、几何算法各自有意义的字段，便于独立使用和调试；融合层再把可交互或可描述的区域转换为统一的 `VisualRegion`。这样道路视觉可以只使用线段结果，Mira 则可以继续使用语义区域，而不会被迫经过同一条 Agent 管线。
@@ -199,6 +201,7 @@ struct BackendInfo {
     std::string model_revision;
     std::vector<PixelFormat> accepted_formats;
     bool thread_safe;  // M2 冻结:并发能力必须显式声明（同步 API 边界第 3 条）
+    std::vector<std::string> known_limitations;  // DEC-021：声明式输出局限，默认空，不参与缓存键与门控
 };
 
 class OcrBackend {
@@ -225,6 +228,8 @@ public:
 核心接口优先保持同步，因为同步接口最容易嵌入任意调度环境，也不会把某个 future、协程 ABI 或线程池实现传播给使用者。需要异步的应用可以把调用提交给 executor、`std::jthread`、Kotlin coroutine 或自己的任务系统。Backend 内部也可以使用 runtime 自带异步能力，但必须在同步边界前完成，或者在未来通过单独且不破坏核心 ABI 的异步扩展接口提供。
 
 M2 冻结的契约要点（详见 `DEC-012`）：请求类型同时服务会话层与 SPI 层，字段消费方固定——管线消费 ROI/`max_side`/`output_space`/缓存策略，Backend 消费 `min_confidence`、语言提示与不透明 `backend_params`；Backend 输出一律落在 `prepared_image` 像素空间，坐标恢复由 Mirador 依据预处理链逆变换完成；执行方法以 `const ExecutionContext&` 接收取消与 deadline，实现必须显式报 `kCancelled`/`kTimeout`；相同输入必须产出相同结果，以支撑能力结果缓存语义。Embedder SPI 按 `POST-04` 触发条件延后，复用同一模板。
+
+输出信任边界与限制自述（`DEC-021`，模式取自 [cua 调研](../research/trycua-cua-vision-survey.md) §3.2/§3.5）：Backend 返回的区域按不可信输入处理——有限性与非负尺寸校验固定在证据采纳点（`EvidenceSet::add_*`），不合法结果显式报 `kInvalidArgument`，不钳位、不部分采纳；`known_limitations` 允许实现声明已知输出局限（如"旋转文本仅返回轴对齐外接框"），为纯声明式元数据，不参与缓存键与 `validate` 门控，由诊断、文档与上层结果解释消费。
 
 Mirador 不提供一个看似通用但实际泄漏 runtime 概念的 `Tensor` 公共 API。各模型输入输出差异大，强制统一张量反而会把预处理、量化和设备内存细节推给 Mirador。稳定边界应当是图像和领域结果；具体 Backend 可以在自身实现中自由使用张量。
 
@@ -301,6 +306,8 @@ ELSED 代表 Mirador 与普通“AI 推理封装库”的差异：低负载终�
 
 稳定 ID 通过上一快照与当前区域的匹配产生。匹配成本可综合 IoU、中心位移、文字相似度、类别和来源，使用门控后的贪心或二分图匹配。区域内容或位置在合理范围内变化时沿用 ID，发生分裂、合并或大幅变化时分配新 ID并增加快照 generation。SoM 和 Agent 动作必须携带 generation，上层在执行旧动作前可以拒绝已经过期的区域，避免界面变化后的误点。
 
+观测绑定动作协议（`DEC-021`，协议模式取自 cua 的 capture 绑定动作授权，见[调研报告](../research/trycua-cua-vision-survey.md) §3.1）：每个已发布快照至多派生一个动作；动作执行、超时或结果未知后必须重新提交帧并依据新快照决策；管线失败后的部分结果不得作为动作依据；`generation` 未递增的缓存快照按同一观测计。Mirador 只提供 `generation` 与稳定 ID 原语，动作执行、重观测调度与该协议的执行都属于调用方。
+
 M4 冻结补充（`DEC-010`）：阶段一的证据关联门控为 IoU 与包含关系（加类别/文本兼容谓词），中心距离仅作为 trace 观测量记录、不单独触发合并；融合输入坐标空间为 kFrame 与 kOriented。稳定 ID 采用门控后贪心一对一匹配起步，分裂/合并做事件识别；置信度为来源权重与几何一致性的显式规则，不伪装成概率。
 
 M5 冻结补充（`DEC-016`）：kDisplay 随平台适配定义变换来源后开放——适配层/调用方提供 `FusionOptions::display_transform`（kOriented→kDisplay），证据与融合目标空间均可为 kDisplay，kDisplay 参与时变换必须存在；`run_ocr`/`run_detector` 输出空间保持帧族（kFrame/kOriented/kCropped），显示映射是融合输出职责。
@@ -373,6 +380,8 @@ Mirador 自身许可证可以维持 MIT 方向，但每个可选依赖、参考�
 集成评测沿用 issue #25 的代表性 Android 场景，并扩展 Linux/Windows 窗口、机器人图像和离线数据。Android 数据覆盖原生 View、Compose、WebView、Flutter、React Native、Canvas、游戏与中英文文本。评测比较外部结构区域、OCR、Detector、融合、SoM 与图标缓存的增量效果。核心指标包括区域 proposal recall/precision、OCR 文本准确率与 bbox IoU、稳定 ID 延续率、变化检测漏检/误检率、缓存命中率、融合前后目标选择成功率，以及端到端 p50/p95 延迟、RSS、包体积、CPU 和功耗。
 
 测试数据应包含静态页面、局部动画、滚动、弹窗、主题切换、分辨率与旋转变化、小图标以及相似图标。缓存相关测试必须特别验证模型修订、参数、ROI 和预处理版本变化会使旧结果失效，不能只验证正常命中。
+
+感知质量回归采用确定性合成语料：由纯标准库生成器产出合成截图与封闭 manifest（记录 SHA-256、尺寸、场景标签与期望标注），并提供字节级可复现校验模式；评分按 IoU ≥ 0.5 一一匹配，真实截图不入仓。目标选择类指标应拆分统计正确命中、错目标、弃权与"应弃权而行动"，避免单一成功率掩盖性质不同的失败（模式取自 cua，见[调研报告](../research/trycua-cua-vision-survey.md) §3.6/§3.7；语料建设随首个真实 OCR/Detector Backend 集成工作项立项）。
 
 ## 24. 分阶段开发计划
 
