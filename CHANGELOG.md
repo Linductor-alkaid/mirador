@@ -72,6 +72,26 @@
   取消/超时显式转化、校验先于取消；错误模型 kInvalidArgument 且错误路径池
   完全不变。阈值/预算初值为开发冒烟值，M7-09 校准；负模板 impostor 否决
   归 M7-06。
+- M7-06：`ObjectTracker` 新增证据融合与状态机 `commit_track_evidence`
+  （Experimental，设计 §3/§4/§6.4，帧级管线唯一的状态变更证据入口——门控
+  与验证器保持纯决策，分级→状态映射只发生在此）。消费调用方证据：
+  `verify_track` 产物 `TrackVerification`、调用方声明的
+  `TrackPositionEvidence`（`PositionScenario` 三场景条件化——静止/补偿后
+  滚动全权重、代际切换清零位置先验——加门控内声明与候选语义）与呈现视图。
+  冻结四级判定表：impostor 负模板命中或 DEC-010 语义冲突 → `kVetoed`；
+  强外观（E1 强或 E2 一致）→ `kConfirmed`；弱外观 → `kTentative`；其余 →
+  `kPlaceholder`。四态转移：确认级提交恢复 kTracking（含 kLost 复捕获的
+  状态机语义，重检测原语与身份复核入口归 M7-08）；占位/否决提交降级
+  kUncertain 并按 `uncertain_frame_limit`（连续不足提交数）转 kLost；
+  kTerminated 显式拒绝（失败可见）。冻结采集策略：kConfirmed 采集正模板、
+  语义冲突否决采集负模板（impostor 首次被拒时采集一次，命中不重复入库）。
+  状态簿记走池侧单槽（`kStateSlotOverheadBytes`，`TargetTrack` 冻结布局
+  不动），提交原子、字节预算统一检查、校验先于取消（同 M7-05 决策，与
+  `adopt_track` M7-02 取消优先入口刻意对照）、错误路径池完全不变；
+  `impostor_match_threshold` 初值为开发冒烟值，M7-09 校准。同项扩展
+  `StableIdTracker::advance`（`DEC-010` 第 4 节预留通道，冻结契约不破坏）：
+  新增 `confirmed_associations` 参数（默认空，静态语义逐位不变），跟踪确认
+  的 track↔区域配对绕过 IoU/中心门控直接 kRetained（设计 §6.5 门控直通）。
 
 ### 修复
 
