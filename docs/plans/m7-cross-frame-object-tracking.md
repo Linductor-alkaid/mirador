@@ -435,3 +435,64 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   clang-tidy 双口径。[run 35808507168](https://github.com/Linductor-alkaid/mirador/actions/runs/35808507168)
   （head 58fabd4，覆盖实现、验证套件、签名重载尺寸一致性修复与文档回填
   commit，30m30s）；首轮通过，无修复往返。
+
+2026-09-23：`M7-05` 邻域验证器实现交付（分支
+`feat/m7-05-neighborhood-verifier`，自 master fce42ab 切出；实现于主循环，
+测试按分工由 Independent-Verification-Agent 独立编写与执行，工作项勾选随
+验证套件与门禁证据落地后回填）：
+
+- 交付：`ObjectTracker` 邻域验证器——公共契约与配套类型
+  `TrackStructureDescriptors`/`AppearanceChannelOutcome`/
+  `StructureChannelOutcome`/`AppearanceVerification`/`StructureVerification`/
+  `TrackVerification`，方法 `verify_track`（纯逐 track 双通道证据决策，
+  `const`：不改池状态、不推进 `last_verified_sequence`，分级→状态转移与
+  代际判定归 M7-06，同 M7-03 先例）、验证 ROI 纯查询 `verification_roi`
+  与 E2 基线簿记 `record_structure_baseline`；新选项
+  `verification_work_budget_bytes`（默认 256 MiB 开发冒烟值，M7-09 校准）。
+  四项契约裁决冻结于头注释：(1) 验证器形状为纯决策，E2 消费裸描述量
+  `TrackStructureDescriptors` 而非 `GeometricRegionProposal` 类型——
+  `mirador_fusion` 链接接口保持恰为 core/image/cache，零新依赖（`DEC-019`
+  第 1 条阶段 A 口径，架构测试与链接闭包探针不变），调用方经
+  `verification_roi`（与验证器同一 ROI 规则）在验证 ROI 内运行线段检测 +
+  `propose_regions` 后传入；(2) E2 基线经 `record_structure_baseline` 入池
+  （每 track 单槽、后写覆盖、`kStructureBaselineOverheadBytes = 32` 计入
+  `byte_size`/`pool_budget_bytes`，放不下显式 `kBudgetExceeded`；
+  `terminate`/track 淘汰/`reset` 释放；`TargetTrack` 冻结布局不动，槽位为
+  池侧并行存储），偏差口径 |q − 基线_q| / max(|基线_q|, 1e-6) 三量取最大
+  对比 `structure_deviation_tolerance`，偏差不截断上报供 M7-09 校准；(3)
+  负模板边界：验证器只读正模板，impostor 采集与 `kVetoed` 否决归 M7-06；
+  (4) 验证 ROI：`last_bounds` 以 `verification_roi_diagonal_ratio × 对角/2`
+  每侧围绕 `predicted_center` 扩展，adopt_track 覆盖规则取整并钳制到视图，
+  钳制后小于窗口时退化为仅评估 (0,0) 偏移（`best_offset_* == 0` 可见）。
+  E1：ROI 内"窗口完全落在 ROI 内"整数平移全集 × 全部正模板，adopt_track
+  同款管线（crop + M3-09 fingerprint）提取候选、与 VisualIndex 模板层
+  （M3-10）同一归一化 NCC；逐模板响应面峰取总序（峰值 → 切比雪夫半径 →
+  dy → dx），PSR = (峰 − 旁瓣均值)/(旁瓣总体标准差 + 1e-12)（平坦面 0、
+  单候选集峰/1e-12），胜者模板总序（峰值 → PSR → 模板序）；kStrong 要求
+  峰值与 PSR 同时达标，PSR 不达标峰高一律不采信。非 `kTerminated` 态均可
+  验证（M7-08 身份复核复用），kTerminated 显式 kInvalidArgument（M7-02
+  语义）。E1 规划工作量（饱和算术）先于像素读取对比工作预算，超限显式
+  `kBudgetExceeded`；取消/超时入口 + 逐行检查、校验先于取消、不返回半份
+  结果；同输入逐位确定（固定扫描序 + 总序 + 精确整数和上的单次除法）。
+- 本地验证（交付时点）：debug 预设构建零告警；debug ctest 46/46（既有
+  `mirador.fusion.object_tracker` 72 用例直跑通过，含 adopt/terminate/
+  reset/字节记账改动路径回归）；开发冒烟自检（临时脚本，不入仓）60 余项
+  断言通过——同帧验证 kStrong（峰 1.0/PSR 16.8）、平坦场景峰 1.0 但
+  PSR≈0 判 kNone（平坦性拒绝）、(8,4) 位移恢复为峰偏移、模板集变化使
+  新模板成为最优（`DOD-04` 负向）、容差边界两侧分级不同（参数变化使验证
+  失效）、基线簿记字节记账（+32/覆盖中性/terminate 释放/放不下显式
+  kBudgetExceeded 且池不变）、取消/超时/校验先于取消、错误模型矩阵、双
+  实例逐位确定；clang-format 全仓 dry-run 归零（两改动文件）；clang-tidy
+  `--warnings-as-errors='*'` 对 `object_tracker.cpp` 退出码 0（首轮 7
+  处：OffsetGrid 成员函数触发 non-private-member 与 verify_track/
+  adopt_track 认知复杂度超限，按 M7-03 先例拆分
+  `plan_eviction`/`planned_scan_work`/`scan_appearance_responses`/
+  `appearance_verdict`/`structure_verdict` 辅助后归零）。六预设 ctest、
+  sanitizer、DOD-03 坐标矩阵、`DOD-06` 隐私负向与 CI 证据待验证套件落地
+  后回填。
+- 限制与衔接：阈值与预算初值无真实先验（`DEC-019` 第 5 条，M7-09 校准，
+  `DOD-05` 不宣称真实场景效果）；`kUncertain`/`kLost` 态仍不可经公共 API
+  构造（M7-02 限制段延续），其验证路径与 M7-06 状态机落地后补构造级测
+  试；E2 描述量按 proposal 契约假定 [0, 1]（越界显式拒绝），真实
+  `propose_regions` 输出的端到端联测随 M7-09 harness；分级→状态转移、
+  高置信模板更新与 impostor 否决归 M7-06。

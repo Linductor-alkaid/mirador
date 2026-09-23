@@ -1,11 +1,23 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.13
+> 版本：1.14
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-23
+>
+> 1.14 修订（2026-09-23）：M7 工作项 `M7-05` 邻域验证器实现交付于工作分支
+> `feat/m7-05-neighborhood-verifier`——`ObjectTracker::verify_track`（纯逐
+> track 双通道证据决策：E1 验证 ROI 内多模板 NCC 峰值 + 峰旁瓣质量 PSR，
+> E2 闭合结构描述量与池内基线偏差容差）、验证 ROI 查询
+> `verification_roi` 与基线簿记 `record_structure_baseline`（每 track 单槽、
+> 字节记账）。四项契约裁决（裸描述量消费保持 fusion 零新依赖、单槽基线、
+> 负模板边界归 M7-06、ROI 扩展语义）冻结于头注释并同步设计 §6.2 落点
+> 注记。本地 debug 构建零告警、ctest 46/46、clang-format/clang-tidy 自查
+> 归零；测试由 Independent-Verification-Agent 独立编写与执行，工作项勾选、
+> 六预设门禁与 CI 证据随验证套件落地回填。`SCOPE-13` 维持未勾选（M7
+> 进行中）。
 >
 > 1.13 修订（2026-09-23）：M7 工作项 `M7-04` 全局位移估计原语测试与门禁
 > 证据落地，工作项勾选——Independent-Verification-Agent 验证套件 23 用例
