@@ -16,7 +16,12 @@
 > 纯函数，不触碰 `ObjectTracker` 状态，消费侧归 M7-07）。本地 debug 构建
 > 与 ctest 45/45、clang-format/clang-tidy 自查归零；测试由
 > Independent-Verification-Agent 独立编写与执行，工作项勾选、六预设门禁与
-> CI 证据随验证套件落地回填。`SCOPE-13` 维持未勾选（M7 进行中）。
+> CI 证据随验证套件落地回填。同日验证员首轮发现签名重载缺失缩略图尺寸
+> 一致性校验（前缩略图大于当前时堆越界读，ASAN 实证；反向静默误接受）
+> ——补宽高相等校验修复（`detect_change` 同款检查，契约未放宽）并同步
+> 头注释精度（并列零候选 confidence==1.0 告警、resize 权重表预算口径
+> 交底），复验 debug ctest 46/46 与修复后 ASAN 探针通过；尺寸一致性
+> 负向用例由验证员补充。`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.11 修订（2026-09-23）：M7 工作项 `M7-03` 变化检测门控三级短路测试与
 > 门禁证据落地，工作项勾选——Independent-Verification-Agent 验证套件

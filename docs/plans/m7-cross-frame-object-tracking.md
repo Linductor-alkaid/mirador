@@ -363,3 +363,36 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   预算/隐私负向测试与 CI 证据待验证套件落地后回填。
 - 限制：位移估计质量仅声明合成口径（`DOD-05`：真实场景不宣称，M7-09
   基准与真实数据评估收口）；置信度与默认参数无真实数据先验。
+
+2026-09-23：验证员首轮发现 `M7-04` 三项问题，实现侧修复与契约注释精度
+同步（契约矩阵负向用例由验证员在其套件内补充；本段为实现侧处置记录）：
+
+- 高（内存安全 + 契约违约）：`estimate_global_shift` 签名重载缺少两签名
+  存储缩略图的尺寸一致性校验——契约明文承诺尺寸不一致返回
+  kInvalidArgument，实现只逐签名校验方形 [8, 256]，`search_shift` 的窗口
+  索引导出仅取 previous 缩略图边长：前缩略图大于当前缩略图时堆越界读
+  （ASAN 实证：64x64/8x8 签名、forged frame dims 均 256x256、
+  max_shift=8，`heap-buffer-overflow READ of size 1 at window_sad ←
+  search_shift ← estimate_global_shift`），反向（前小后大）则静默接受并
+  产生无意义结果。修复：两个 `validate_signature` 之后、取消检查之前补
+  宽高相等校验（`detect_change` 签名重载同款检查），公共契约未放宽；
+  校验为纯标量比较，签名重载"零分配"语义不变。
+- 低（语义文档歧义）：冻结的置信度公式在"胜者 SAD=0 且另有候选并列 0"
+  （周期内容位移恰为一个周期）时仍输出恰 1.0——实现与冻结公式一致、
+  胜者总序仍唯一，非代码缺陷；头注释补并列零候选告警：
+  confidence == 1.0 不得解读为无歧义峰，确定性由总序（最小切比雪夫
+  半径，其次 dy/dx）保证，供 M7-07 消费侧与 M7-09 校准知悉。
+- 低（预算口径文档精度）：头注释原称预算覆盖"重采样中间产物 + 灰度
+  缩略图且不分配任何其他内存"，而 `resize_area` 内部按源尺寸分配两个
+  int64 box 权重表（上限约 2 × 65535 × 8B ≈ 1 MiB），不经
+  `work_budget_bytes` 检查、仅分配失败映射 kBudgetExceeded——为 M1 起
+  既有共享路径（`detect_change` 同），非本项回归，任意输入尺寸的固定
+  上界（`RULE-06`）仍成立；头注释措辞改为如实交底权重表口径，
+  `resize_area` 侧是否单独立项收口留待后续决策。
+- 复验（实现侧本地证据）：修复前 ASAN 复现与验证员报告逐帧一致；修复后
+  探针（64→8 与 8→64 双向 kInvalidArgument、等尺寸路径零位移不变、ASAN
+  零报告）通过；debug 预设构建零告警；debug ctest 46/46（含验证套件
+  `mirador.image.shift_estimation` 全部既有用例）；clang-format 两改动
+  文件归零；clang-tidy `--warnings-as-errors='*'` 对 `shift_estimation.cpp`
+  退出码 0；首轮开发冒烟复跑全过。六预设 ctest 与 CI 证据仍随验证套件
+  门禁落地回填。
