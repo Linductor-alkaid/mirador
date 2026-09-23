@@ -888,8 +888,9 @@ Independent-Verification-Agent 独立编写与执行，实现交付见上段）�
   需 2^32 次调用，单测不可行，同 M7-02 冻结套件先例）；sweep 防御性状态
   槽分配的 `kBudgetExceeded` 分支经公共 API 不可达（kUncertain 轨迹必已
   持降级提交分配的槽），套件改为验证可达行为（清扫后 `byte_size` 不
-  变）；release/tsan/warnings 预设与六预设完整复跑随编排脚本收口（CI 矩
-  阵无 release 预设，同 M7-03~06 先例）；滚动往返为合成口径（`DOD-05`
+  变）；release/tsan/warnings 预设与六预设完整复跑随编排脚本收口——
+  tsan/warnings 侧已由 CI 在分支 head 覆盖（见下方 CI 回填；CI 矩阵无
+  release 预设，同 M7-03~06 先例）；滚动往返为合成口径（`DOD-05`
   不宣称真实场景效果），`min_compensation_confidence` 0.0 与
   `max_generation_lag` 1 为开发冒烟初值（`DEC-019` 第 5 条，M7-09 校准
   收口，`RISK-2026-17` 随 A/B/C/D 矩阵 B/C 差值与 `*-scroll` 延续率门
@@ -897,4 +898,9 @@ Independent-Verification-Agent 独立编写与执行，实现交付见上段）�
   声明的单参 `ObjectTracker::terminate(uint64_t)` 重载在 src 中无定义
   （object_tracker.hpp:594，冒烟曾触发链接错误），建议 M7-08 或后续
   refactor 清理。
-- CI 回填：待补（分支未推送，推送与 14/14 证据回填随编排脚本收口）。
+- CI 回填：PR #27 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35896974845](https://github.com/Linductor-alkaid/mirador/actions/runs/35896974845)
+  （head c52a200，覆盖实现、契约注册、验证套件与文档交付/勾选 commit，
+  38m1s）；首轮通过，无修复往返。

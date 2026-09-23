@@ -22,9 +22,10 @@
 > `mirador_fusion` 链接接口恰为 core/image/cache 不变）、新套件 debug
 > 直跑 19/19、asan/ubsan 直跑各 19/19 零 sanitizer 报告、
 > clang-format/clang-tidy 归零；release/tsan/warnings 预设与六预设完整
-> 复跑随编排脚本收口。CI 推送与 14/14 证据回填待编排脚本收口（分支未
-> 推送）；uint32 代际耗尽透传仅经代码审查验证（公共 API 需 2^32 次调
-> 用，同 M7-02 先例）；阈值初值无真实先验随 M7-09 校准；`SCOPE-13`
+> 复跑随编排脚本收口（tsan/warnings 侧已由 CI 在分支 head 覆盖，CI 矩
+> 阵无 release 预设）。CI 证据随 PR #27 回填（run 35896974845，14/14
+> job 全绿，PR 待合入）；uint32 代际耗尽透传仅经代码审查验证（公共 API
+> 需 2^32 次调用，同 M7-02 先例）；阈值初值无真实先验随 M7-09 校准；`SCOPE-13`
 > 维持未勾选（M7 进行中）。
 >
 > 1.18 修订（2026-09-24）：M7 工作项 `M7-07` 全局运动补偿与布局代际集成
@@ -256,8 +257,9 @@ run 35821784682 14/14 job 全绿，待合入）；`M7-06` 证据融合与状态�
 run 35842711760 14/14 job 全绿，待合入）；`M7-07` 全局运动补偿与布局代际
 集成已交付并勾选（实现、19 用例验证套件——含估计器在环滚动往返与
 DOD-03 坐标矩阵——与门禁证据落地于分支
-`feat/m7-07-global-motion-compensation`；分支未推送，CI 证据待编排脚本
-推送后回填）。
+`feat/m7-07-global-motion-compensation`；CI 证据已回填：
+[PR #27](https://github.com/Linductor-alkaid/mirador/pull/27)
+run 35896974845 14/14 job 全绿，待合入）。
 
 ## 交付边界
 
