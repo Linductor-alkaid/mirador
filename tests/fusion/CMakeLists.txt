@@ -74,6 +74,19 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-08 cascade redetection primitives and identity review: the pure const
+# gate with the static-frame zero-trigger anchor, the frozen doubling backoff
+# in frame sequences, the explicit kTerminated budget exhaustion, both
+# identity-review ID branches over the real verify_track/commit_track_evidence
+# reuse, the bounded redetection log with its eviction counter, episode slot
+# lifecycle/byte accounting, cancellation conversion, twin determinism and the
+# DOD-03 rotation/odd-size/stride matrix over the reused review path.
+mirador_add_test(
+    NAME mirador.fusion.object_tracker_redetection
+    SOURCES object_tracker_redetection_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp
