@@ -53,6 +53,25 @@
   进入 `Transform2D` 组合链（`RULE-05`）。纯函数原语：不触碰
   `ObjectTracker` 池状态，位移校正与代际判定归 M7-07；默认参数为开发冒烟
   值，M7-09 校准。
+- M7-05：`ObjectTracker` 新增邻域验证器 `verify_track`（Experimental，设计
+  §6.2，纯逐 track 双通道证据决策：不改池状态、不推进证据字段，分级与状态
+  转移归 M7-06）。E1 模板 NCC：验证 ROI 内整数平移全集 × 池内全部正模板，
+  以 `adopt_track` 同款管线（crop + M3-09 patch fingerprint）提取候选并做
+  与 VisualIndex 模板层同一归一化的 NCC；逐模板响应面取峰（总序：峰值 →
+  切比雪夫半径 → dy → dx）与峰旁瓣质量 PSR（平坦响应面不采信，峰高再高也
+  是 kNone），胜者模板取总序（峰值 → PSR → 模板序）；kStrong 要求峰值与
+  PSR 同时达标。E2 闭合结构一致性：消费调用方在验证 ROI
+  （`verification_roi` 暴露同一规则）内运行 `propose_regions`（`DEC-018`
+  阶段 1）得到的裸描述量 `TrackStructureDescriptors`（不经 proposal 类型，
+  fusion 零新依赖），与显式簿记入池的基线（`record_structure_baseline`，
+  每 track 单槽覆盖式、计入字节记账与 `pool_budget_bytes`）按三量相对偏差
+  对比 `structure_deviation_tolerance`；无输入/无基线显式上报不伪造结论。
+  验证 ROI 语义冻结：bounds 以 `verification_roi_diagonal_ratio × 对角/2`
+  每侧扩展于 `predicted_center` 并钳制到视图。E1 扫描显式工作预算
+  `verification_work_budget_bytes`（规划先查，超限 `kBudgetExceeded`）；
+  取消/超时显式转化、校验先于取消；错误模型 kInvalidArgument 且错误路径池
+  完全不变。阈值/预算初值为开发冒烟值，M7-09 校准；负模板 impostor 否决
+  归 M7-06。
 
 ### 修复
 

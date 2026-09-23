@@ -58,6 +58,11 @@ SPI 的过滤/共线合并自由函数（`filter_segments`、`merge_collinear`�
 `advance_layout_generation` 与代际分组查询 `observations_in_generation`；
 M7-03 起含变化检测门控三级短路 `evaluate_change_gate`（`ChangeGateDecision`/
 `TrackGateDecision`/`ChangeGateTrace`，纯决策不改池状态，设计 §6.1）；
+M7-05 起含邻域验证器 `verify_track`（`TrackStructureDescriptors`/
+`AppearanceVerification`/`StructureVerification`/`TrackVerification`，E1 模板
+NCC 峰值+峰旁瓣质量与 E2 闭合结构一致性的纯逐 track 双通道证据决策，设计
+§6.2）及验证 ROI 查询 `verification_roi` 与 E2 基线簿记
+`record_structure_baseline`；
 **Experimental**：随 M7 go/no-go 判定冻结，冻结前不计兼容性承诺）、
 `perception_session.hpp`（感知入口：变化分析 → 按需 Backend → 坐标恢复 → 缓存 →
 融合发布，`DEC-013`）。
