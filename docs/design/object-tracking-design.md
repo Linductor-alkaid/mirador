@@ -197,8 +197,11 @@ track 决策（复用/待验证/非活跃）。门控是纯决策：不改池内
 复用不推进 `last_verified_sequence`（位置先验非外观证据，设计第 3 节），
 证据级确认随 M7-06 状态机、历史簿记经 `record_observation` 留给调用方；
 非 `kTracking` 态显式返回决策值不静默跳过；`kGlobal` 触发的代际递增判定
-归 M7-07。运动补偿（6.3）落地前，滚动类变化与全部 track 相交、全员进入
-验证入口是本阶段的预期行为（`RISK-2026-17`）。
+已由 M7-07 交付为 `advance_generation_for_classification`（本门控保持纯
+决策不动）。滚动/全局类变化与全部 track 相交、全员进入验证入口是设计
+行为而非缺陷（`RISK-2026-17`）——运动补偿（M7-07
+`compensate_global_motion`）恢复的是验证与提交阶段的位置先验有效性，不
+改变门控的相交判定。
 
 ### 6.2 邻域验证
 
@@ -255,8 +258,8 @@ M7-05 冻结落点：邻域验证器交付于 `ObjectTracker::verify_track`（Ex
   |q − 基线_q| / max(|基线_q|, 1e-6) 取三量最大值 ≤
   `structure_deviation_tolerance` 为一致（偏差不截断上报，供 M7-09 校准）。
 - **验证 ROI**：`last_bounds` 以 `verification_roi_diagonal_ratio × 对角/2`
-  每侧围绕 `predicted_center` 扩展（M7-07 前 `predicted_center` 恒为
-  `last_bounds` 中心），按 adopt_track 覆盖规则取整并钳制到视图。
+  每侧围绕 `predicted_center` 扩展（`predicted_center` 恒为 `last_bounds`
+  中心，M7-07 补偿维持该不变量），按 adopt_track 覆盖规则取整并钳制到视图。
 - **预算与取消**：E1 扫描规划工作量（逐候选 2×窗口字节 + 缩略图字节 +
   2×模板数×缩略图字节 + 响应面存储，饱和算术）先于任何像素读取对比
   `verification_work_budget_bytes`（初值 256 MiB 开发冒烟值），超限显式
@@ -292,6 +295,24 @@ kCancelled/kTimeout，不返回半份结果。消费侧联动（对池内 track 
 校正、`advance_layout_generation` 判定）仍归 M7-07，本原语不触碰
 `ObjectTracker` 状态。
 
+M7-07 冻结落点：消费侧联动交付于 `ObjectTracker` 三个池侧原语
+（Experimental，`object_tracker.hpp`；管线编排形态沿用 M7-03/05/06 先例
+——池侧原语 + 调用方组合帧管线，编排不进本层）。
+`advance_generation_for_classification` 承接触发判定（kGlobal 分类 → 代际
++1，kNone/kPartial 不触发；M7-03 门控刻意延迟项的兑现，门控保持纯决策）；
+`compensate_global_motion` 消费调用方跑出的 `estimate_global_shift` 结果
+（tracker 不自持上一帧、不自跑原语——估计量为证据信任边界输入，同全头）
+并对全部非 `kTerminated` track 施加同一位移校正（`last_bounds`/
+`predicted_center` 平移；kTerminated 归档留在终止位置；位置历史/模板/
+E2 基线/代际不动——补偿是坐标更新不是证据），置信度门
+`min_compensation_confidence` 不达标时显式 `applied=false` 拒绝、池不动
+（默认 0.0 不过滤，开发冒烟值，M7-09 校准，`RISK-2026-17` 门控旋钮）。
+`predicted_center` 恒为 `last_bounds` 中心的冻结不变量**维持**而非由速度
+模型接管：本段"更新速度估计"以逐帧平移本身实现，M7-01 冻结的
+`TargetTrack` 布局无速度字段，速度模型留 M7-09 校准在 Experimental 内
+提议。补偿为逐分量 float 加法 + 中心重算（`RULE-05`，DOD-03 方向/奇数
+尺寸/stride 矩阵适用）。
+
 ### 6.4 布局代际
 
 布局代际（`layout_generation`）由变化检测的全局变化分类（§11 已有全局/局部
@@ -302,6 +323,20 @@ kCancelled/kTimeout，不返回半份结果。消费侧联动（对池内 track 
 - 模板与语义标签跨代保留（外观证据不受布局突变影响；主题切换导致 E1 失效
   时由 E2 承接）。
 - track 的 `layout_generation` 落后当前全局代际超过阈值且证据枯竭 → `kLost`。
+
+M7-07 冻结落点：代际管线交付于 `ObjectTracker` 池侧原语（Experimental，
+`object_tracker.hpp`）。触发判定为 `advance_generation_for_classification`
+（kGlobal → 代际 +1，uint32 耗尽显式 `kBudgetExceeded`）；代际切换后的逐
+track 降级（kTracking 无确认证据 → kUncertain、位置先验清零）维持 M7-06
+状态机语义，经调用方以 `PositionScenario::kGenerationSwitch` 场景提交驱动
+——代际递增本身不直接改写任何 track 状态。耗尽判定为
+`sweep_generation_lag`，其中"证据枯竭"冻结为双条件：track 代际落后池当前
+代际**大于** `max_generation_lag`（每次提交——含占位与否决——都把 track
+代际戳到池当前值，故"落后"等价于"连续超过 `max_generation_lag` 个代际未
+收到任何等级的提交"），**且** track 处于 kUncertain（M7-06 状态机已判定
+帧证据不足、整个落后窗口内无确认证据到达）→ kLost 并记录丢失时刻；
+kLost 粘滞语义不变（kLost→kTracking 仍只经确认提交或 M7-08 身份复核）；
+kTracking 保持确认态——其降级路径是 M7-06 提交链，清扫不伪造证据不足。
 
 ### 6.5 融合层对接
 
