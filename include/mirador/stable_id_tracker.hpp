@@ -29,6 +29,22 @@ struct IdAssignment {
     IdEvent event = IdEvent::kNew;
 };
 
+/// One caller-declared, tracking-confirmed association for `advance` (M7-06
+/// DEC-010 gate passthrough; object-tracking design section 6.5): the fused
+/// region at `region_index` is the cross-frame tracker's confirmed match of
+/// the tracked region carrying `stable_id` (an `ObjectTracker` track in
+/// kTracking state after a confirming `commit_track_evidence`), so the
+/// pairing bypasses the IoU/center gate and the cost ranking — the session's
+/// time-consistency signal stands in for the static gate, with cost set to
+/// optimal. The extension rides the threshold-configuration evolution
+/// channel reserved by DEC-010 section 4; the frozen static matching
+/// semantics are unchanged (an empty association list reproduces the
+/// previous behavior bit for bit).
+struct ConfirmedAssociation {
+    size_t region_index = 0;  ///< index into the current region list
+    uint64_t stable_id = 0;   ///< tracked id the region is confirmed against
+};
+
 /// Outcome of one `StableIdTracker::advance` (DEC-010): per-region
 /// assignments plus the event tallies and the generation decision.
 struct StableIdReport {
@@ -88,12 +104,25 @@ public:
     /// On success the tracker's previous-state becomes the assigned current
     /// regions; on error the state is untouched.
     ///
-    /// Errors: kInvalidArgument (invalid options), kCancelled/kTimeout from
+    /// `confirmed_associations` (M7-06, DEC-010 gate passthrough; design
+    /// section 6.5): tracking-confirmed pairings applied before the gated
+    /// greedy pass. Each named region is pre-matched — kRetained, zero cost
+    /// — to the tracked region carrying its `stable_id` when that id is
+    /// still tracked and neither side is already paired; every other region
+    /// matches exactly as before. An association naming an untracked id is
+    /// ignored (the track may have been terminated between frames; the
+    /// region falls through to the normal gate). Pre-matched regions count
+    /// as retained for the tallies and the generation decision.
+    ///
+    /// Errors: kInvalidArgument (invalid options, a `region_index` outside
+    /// `current_regions`, a zero `stable_id`, or duplicate region indexes
+    /// or stable ids across associations), kCancelled/kTimeout from
     /// `context`, kBudgetExceeded (more regions than `max_regions` or
     /// allocation failure). Never throws.
-    [[nodiscard]] Result<StableIdReport> advance(std::span<const VisualRegion> current_regions,
-                                                 const StableIdOptions& options = {},
-                                                 const ExecutionContext& context = {}) noexcept;
+    [[nodiscard]] Result<StableIdReport> advance(
+        std::span<const VisualRegion> current_regions, const StableIdOptions& options = {},
+        const ExecutionContext& context = {},
+        std::span<const ConfirmedAssociation> confirmed_associations = {}) noexcept;
 
     /// Drops all tracked state; the next advance starts from scratch with a
     /// fresh id space.

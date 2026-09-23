@@ -119,11 +119,14 @@ struct Candidate {
 };
 
 /// Gate and cost every (prev, cur) pair in deterministic index order,
-/// polling `context` every 64 outer stripes.
+/// polling `context` every 64 outer stripes. Current regions already
+/// pre-matched by tracking-confirmed associations (`pre_match_of_cur !=
+/// prev_count`) are skipped — their pairing never enters the greedy pass.
 Result<std::vector<Candidate>> collect_candidates(const std::vector<RectF>& prev_bounds,
                                                   const std::vector<std::string>& prev_texts,
                                                   const std::vector<RectF>& cur_bounds,
                                                   const std::vector<std::string>& cur_texts,
+                                                  const std::vector<size_t>& pre_match_of_cur,
                                                   const StableIdOptions& options, const ExecutionContext& context) {
     std::vector<Candidate> candidates;
     candidates.reserve(prev_bounds.size() * 2);
@@ -137,6 +140,9 @@ Result<std::vector<Candidate>> collect_candidates(const std::vector<RectF>& prev
             options.center_gate_ratio * std::hypot(static_cast<double>(prev_bounds[prev_index].width),
                                                    static_cast<double>(prev_bounds[prev_index].height));
         for (size_t cur_index = 0; cur_index < cur_bounds.size(); ++cur_index) {
+            if (pre_match_of_cur[cur_index] != prev_bounds.size()) {
+                continue;
+            }
             const double iou = rect_iou(prev_bounds[prev_index], cur_bounds[cur_index]);
             const double displacement = center_distance(prev_bounds[prev_index], cur_bounds[cur_index]);
             if (iou < options.match_iou_threshold && displacement > radius) {
@@ -233,8 +239,8 @@ void detect_splits(StableIdReport& report, const std::vector<RectF>& prev_bounds
 }  // namespace
 
 Result<StableIdReport> StableIdTracker::advance(std::span<const VisualRegion> current_regions,
-                                                const StableIdOptions& options,
-                                                const ExecutionContext& context) noexcept {
+                                                const StableIdOptions& options, const ExecutionContext& context,
+                                                std::span<const ConfirmedAssociation> confirmed_associations) noexcept {
     try {
         if (const Status stage = context_status(context); !stage.ok()) {
             return stage;
@@ -268,14 +274,44 @@ Result<StableIdReport> StableIdTracker::advance(std::span<const VisualRegion> cu
         const size_t prev_count = prev_bounds.size();
         const size_t cur_count = cur_bounds.size();
 
+        // M7-06 DEC-010 gate passthrough (design section 6.5): validate the
+        // tracking-confirmed associations, then pre-match each one to its
+        // tracked region. Validation errors leave the state untouched; an
+        // association naming an untracked id is ignored (the region falls
+        // through to the normal gate).
+        std::vector<size_t> pre_match_of_cur(cur_count, prev_count);  // prev_count = "unmatched"
+        std::vector<bool> prev_taken(prev_count, false);
+        for (const ConfirmedAssociation& association : confirmed_associations) {
+            if (association.stable_id == 0) {
+                return Status(ErrorCode::kInvalidArgument, "confirmed association stable_id must be non-zero");
+            }
+            if (association.region_index >= cur_count) {
+                return Status(ErrorCode::kInvalidArgument, "confirmed association region index out of range");
+            }
+            if (pre_match_of_cur[association.region_index] != prev_count) {
+                return Status(ErrorCode::kInvalidArgument, "confirmed association repeats a region index");
+            }
+            const auto prev_it = std::find_if(
+                previous_.begin(), previous_.end(),
+                [&association](const TrackedRegion& region) { return region.stable_id == association.stable_id; });
+            if (prev_it == previous_.end()) {
+                continue;
+            }
+            const auto prev_index = static_cast<size_t>(prev_it - previous_.begin());
+            if (prev_taken[prev_index]) {
+                return Status(ErrorCode::kInvalidArgument, "confirmed association repeats a stable_id");
+            }
+            pre_match_of_cur[association.region_index] = prev_index;
+            prev_taken[prev_index] = true;
+        }
+
         Result<std::vector<Candidate>> candidates =
-            collect_candidates(prev_bounds, prev_texts, cur_bounds, cur_texts, options, context);
+            collect_candidates(prev_bounds, prev_texts, cur_bounds, cur_texts, pre_match_of_cur, options, context);
         if (!candidates.ok()) {
             return candidates.status();
         }
         std::vector<Candidate> pairs = candidates.take_value();
-        std::vector<size_t> match_of_cur(cur_count, prev_count);  // prev_count = "unmatched"
-        std::vector<bool> prev_taken(prev_count, false);
+        std::vector<size_t> match_of_cur = pre_match_of_cur;  // pre-matches keep their retained pairing
         assign_greedy(pairs, prev_count, match_of_cur, prev_taken);
 
         // Baseline events: retained or fresh ids, allocated in cur order.
