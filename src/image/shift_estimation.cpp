@@ -231,6 +231,15 @@ Result<ShiftEstimate> estimate_global_shift(const ChangeSignature& previous, con
         return Status(ErrorCode::kInvalidArgument,
                       "estimate_global_shift: signatures must share their stored frame dimensions");
     }
+    // The search derives every window index from the previous thumbnail's
+    // edge, so differently sized stored thumbnails would read past the
+    // current thumbnail's allocation (or silently misalign the reverse way);
+    // both directions are rejected before any pixel is read (the
+    // detect_change overload's matching check).
+    if (previous.thumbnail.width() != current.thumbnail.width() ||
+        previous.thumbnail.height() != current.thumbnail.height()) {
+        return Status(ErrorCode::kInvalidArgument, "estimate_global_shift: signature thumbnails differ in size");
+    }
     const int32_t size = previous.thumbnail.width();
     if (2 * params.max_shift > size - 1) {
         return Status(ErrorCode::kInvalidArgument,
