@@ -201,6 +201,26 @@ bbox 与置信度，作为 E1 的形变鲁棒替代/复核信号——参与条�
 先验恢复静止期有效性（第 3 节）。补偿量参与坐标变换链，遵守 `RULE-05`
 （`Transform2D` 组合、方向/往返测试矩阵适用）。
 
+M7-04 冻结落点：原语本体交付于 `include/mirador/shift_estimation.hpp`
+（Experimental，随 M7 go/no-go 判定冻结）——`estimate_global_shift` 双入口
+（`ImageView` 双帧 / M1 `ChangeSignature` 双签名；签名版与视图版在相同
+缩略图尺寸下逐位一致）。搜索语义：两帧经与变化检测相同的确定性管线
+（整数 area 重采样 + BT.601 luma）缩至方形灰度缩略图，在
+`[-max_shift, max_shift]²` 整数平移全集上以固定中心比较窗（每候选等像素
+数）做 SAD 全遍历；胜者取总序 (SAD, 切比雪夫半径, dy, dx) 最小者，纯整数
+运算。语义决策冻结于头注释：置信度为缩略图 SAD 表面的峰显著度
+`(μ_others − best) / (μ_others + best)` ∈ [0, 1]（整数和 + 单次 double
+除法；单候选/全平手为 0，缩略图分辨率逐像素相同的帧对为 1）；位移精度为
+精确有理数 `thumbnail_shift × frame_dim / thumbnail_size`（double 求值后
+收窄 float），方向为 p_curr = p_prev + (dx, dy)，经 `make_translation`
+进入 `Transform2D` 组合链（`RULE-05`，DOD-03 矩阵适用）；默认参数
+（thumbnail 64 / max_shift 16 / 预算 512 KiB）为开发冒烟值，M7-09 校准。
+两帧必须同呈现尺寸；比较恒在呈现像素上进行（同 `detect_change` 约定）。
+搜索循环为有界非平凡循环，经 `ExecutionContext` 入口 + 逐行检查显式转化
+kCancelled/kTimeout，不返回半份结果。消费侧联动（对池内 track 施加位移
+校正、`advance_layout_generation` 判定）仍归 M7-07，本原语不触碰
+`ObjectTracker` 状态。
+
 ### 6.4 布局代际
 
 布局代际（`layout_generation`）由变化检测的全局变化分类（§11 已有全局/局部

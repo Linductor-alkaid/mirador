@@ -2,7 +2,7 @@
 
 > 状态：Active（`M5-08` 立档；M6 登记 `geometric_proposal.hpp`，`DEC-018`
 > 阶段 1 转正后为正式兼容性登记；M7 新增 Experimental API 节）
-> 更新日期：2026-09-21
+> 更新日期：2026-09-23
 > 负责人：linductor
 
 本文登记 Mirador 实际验证过的构建与运行组合，以及各可选依赖的已知可用版本
@@ -48,6 +48,7 @@
 | 头 / 符号 | 登记依据 | 状态说明 |
 | --- | --- | --- |
 | `include/mirador/object_tracker.hpp`（`TrackState`、`EvidenceGrade`、`TrackObservation`、`TrackTemplate`、`TrackSemantics`、`TargetTrack`、`ObjectTrackerOptions`、`TrackAdoption`、`ObjectTracker`） | M7-01 契约冻结（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) Accepted；[跟踪设计](../design/object-tracking-design.md)）；M7-02 扩展池有界变更原语（`record_observation`、`add_template`、`add_negative_template`、`advance_layout_generation`、`observations_in_generation`、淘汰 trace 计数）；M7-03 扩展变化检测门控三级短路（`evaluate_change_gate`、`ChangeGateDecision`、`TrackGateDecision`、`ChangeGateTrace`，消费 `ChangeReport` 的纯决策入口） | **Experimental**：M7 内字段与签名可调整；`ObjectTracker` 随管线工作项在同一头内扩展，直至 M7-09/M7-10 go/no-go 判定后经决策冻结才计入兼容性承诺。阈值初值为开发默认值，M7-09 校准（`DEC-019` 第 5 条） |
+| `include/mirador/shift_estimation.hpp`（`ShiftEstimationParams`、`ShiftEstimate`、`estimate_global_shift`） | M7-04 全局位移估计原语（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) 第 2 条；[跟踪设计](../design/object-tracking-design.md) §6.3） | **Experimental**：M7 内字段与签名可调整，随 M7-09/M7-10 go/no-go 判定后经决策冻结才计入兼容性承诺。置信度/位移精度/默认参数口径冻结于头文件契约注释，初值为开发冒烟默认值，M7-09 校准（`DEC-019` 第 5 条）；不发布性能承诺（效果随 M7-09 A/B/C/D 矩阵门控，`RISK-2026-17`） |
 
 ## 平台功能可用性
 

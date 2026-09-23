@@ -1,11 +1,40 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.11
+> 版本：1.13
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-23
+>
+> 1.13 修订（2026-09-23）：M7 工作项 `M7-04` 全局位移估计原语测试与门禁
+> 证据落地，工作项勾选——Independent-Verification-Agent 验证套件 23 用例
+> （已知位移恢复与冻结置信度/精度规则、胜者总序、DOD-03 坐标矩阵、预算/
+> 取消/超时显式转化、格式路径逐位一致、签名重载坏状态拒绝、隐私零落盘）
+> 随验证轮处置 commit 落地：签名重载缩略图尺寸一致性校验修复（契约未
+> 放宽，前缩略图更大方向的 ASAN 实证越界读以回归用例锁定）与头注释精度
+> 同步。本地门禁：debug ctest 46/46、asan/ubsan/tsan 全量 ctest 各 45/45
+> 且 sanitizer 零报告（tsan 经 `setarch -R` 注册包装）、clang-format 全仓
+> 归零、clang-tidy `--warnings-as-errors='*'` 退出码 0；release/warnings
+> 预设与六预设完整复跑随编排脚本收口。CI 证据随 PR #24 回填（run
+> 35808507168，14/14 job 全绿，PR 待合入）；`SCOPE-13` 维持未勾选（M7
+> 进行中）。
+>
+> 1.12 修订（2026-09-23）：M7 工作项 `M7-04` 全局位移估计原语实现交付于
+> 工作分支 `feat/m7-04-global-shift-estimation`——`mirador::image` 公共契约
+> `shift_estimation.hpp`（Experimental；`estimate_global_shift` 双入口：
+> `ImageView` 双帧 / M1 `ChangeSignature` 双签名；灰度缩略图
+> `[-max_shift, max_shift]²` 整数平移全搜索，置信度/位移精度/默认参数口径
+> 冻结于头注释，M7-09 校准；显式字节预算与 kCancelled/kTimeout 错误模型；
+> 纯函数，不触碰 `ObjectTracker` 状态，消费侧归 M7-07）。本地 debug 构建
+> 与 ctest 45/45、clang-format/clang-tidy 自查归零；测试由
+> Independent-Verification-Agent 独立编写与执行，工作项勾选、六预设门禁与
+> CI 证据随验证套件落地回填。同日验证员首轮发现签名重载缺失缩略图尺寸
+> 一致性校验（前缩略图大于当前时堆越界读，ASAN 实证；反向静默误接受）
+> ——补宽高相等校验修复（`detect_change` 同款检查，契约未放宽）并同步
+> 头注释精度（并列零候选 confidence==1.0 告警、resize 权重表预算口径
+> 交底），复验 debug ctest 46/46 与修复后 ASAN 探针通过；尺寸一致性
+> 负向用例由验证员补充。`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.11 修订（2026-09-23）：M7 工作项 `M7-03` 变化检测门控三级短路测试与
 > 门禁证据落地，工作项勾选——Independent-Verification-Agent 验证套件
@@ -112,7 +141,11 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 目标池契约冻结、`M7-02` 池有界变更原语已交付，`M7-03` 变化检测门控三级
 短路已交付并勾选（实现、16 用例验证套件、门控基准与门禁证据落地；CI
 证据已回填：[PR #22](https://github.com/Linductor-alkaid/mirador/pull/22)
-run 35759053505 14/14 job 全绿，待合入）。
+run 35759053505 14/14 job 全绿，待合入）；`M7-04` 全局位移估计原语已交付
+并勾选（实现、23 用例验证套件、签名重载尺寸一致性修复与门禁证据落地于
+分支 `feat/m7-04-global-shift-estimation`；CI 证据已回填：
+[PR #24](https://github.com/Linductor-alkaid/mirador/pull/24)
+run 35808507168 14/14 job 全绿，待合入）。
 
 ## 交付边界
 

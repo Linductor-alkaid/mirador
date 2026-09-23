@@ -40,6 +40,19 @@
   门控开销对照（Linux x64 release，`DEC-011` 口径）：gate-only p50
   0.09–0.34 µs，相对 M1 `detect_change` 基线无可测回归
   （[基准报告](docs/benchmarks/linux-x64-change-gate-2026-09.md)）。
+- M7-04：`mirador::image` 新增 Experimental 全局位移估计原语
+  `shift_estimation.hpp`——`estimate_global_shift` 双入口（`ImageView` 双帧 /
+  M1 `ChangeSignature` 双签名，签名版与视图版在同尺寸下逐位一致）：两帧缩至
+  与变化检测同一确定性管线（整数 area 重采样 + BT.601 luma）的方形灰度
+  缩略图，在 `[-max_shift, max_shift]²` 整数平移全集上以固定中心比较窗做
+  SAD 全遍历，总序 (SAD, 切比雪夫半径, dy, dx) 决出唯一胜者，输出缩略图/
+  帧两级位移向量与峰显著度置信度（口径冻结于头注释：整数和 + 单次 double
+  除法，无随机与浮点平台差异路径）。纯 CPU、确定性、显式字节预算
+  （`work_budget_bytes`，超限显式 `kBudgetExceeded`）、取消/超时经
+  `ExecutionContext` 显式转化且不返回半份结果；位移经 `make_translation`
+  进入 `Transform2D` 组合链（`RULE-05`）。纯函数原语：不触碰
+  `ObjectTracker` 池状态，位移校正与代际判定归 M7-07；默认参数为开发冒烟
+  值，M7-09 校准。
 
 ### 修复
 

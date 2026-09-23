@@ -60,7 +60,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-03` 变化检测门控三级短路：画面未变/变化 ROI 不相交的近零路径、
   ROI 相交触发的验证入口；同帧多 track 独立短路；短路路径不引入相对 M1
   变化检测基线的可测回归（基准对照）。
-- [ ] `M7-04` 全局位移估计原语（`mirador::image`）：低分辨率平移搜索、
+- [x] `M7-04` 全局位移估计原语（`mirador::image`）：低分辨率平移搜索、
   纯 CPU 确定性、预算保护；输出位移向量 + 置信度；坐标链经 `Transform2D`
   组合并通过方向/奇数尺寸/往返容差矩阵（`DOD-03`）。
 - [ ] `M7-05` 邻域验证器：验证 ROI 内模板 NCC（多模板最优 + 峰旁瓣质量）
@@ -322,3 +322,116 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   通过；分支 head [run 35759053505](https://github.com/Linductor-alkaid/mirador/actions/runs/35759053505)
   （head 3a2cb3c，仅追加文档回填 commit，34m30s）复证全绿；首轮通过，
   无修复往返。
+
+2026-09-23：`M7-04` 全局位移估计原语实现交付（分支
+`feat/m7-04-global-shift-estimation`，自 master d96f1af 切出；实现于主
+循环，测试按分工由 Independent-Verification-Agent 独立编写与执行，工作项
+勾选随验证套件与门禁证据落地后回填）：
+
+- 交付：公共契约 `include/mirador/shift_estimation.hpp`（Experimental，
+  随 M7 go/no-go 冻结）与 `src/image/shift_estimation.cpp`，源文件注册进
+  根 CMakeLists.txt 的 image 目标。`estimate_global_shift` 双入口：
+  `ImageView` 双帧与 M1 `ChangeSignature` 双签名（直接检索存储缩略图，
+  与视图版在同尺寸下逐位一致，零分配）；变化检测的确定性灰度缩略图管线
+  （整数 area 重采样 + BT.601 luma）抽取为内部头 `src/image/gray_thumbnail.h`
+  供两处共享（行为不变重构）。语义决策冻结于头注释：搜索 =
+  `[-max_shift, max_shift]²` 整数平移全集 × 固定中心比较窗（每候选等像素
+  数，工作量与帧尺寸无关，`RULE-06`）；胜者取总序 (SAD, 切比雪夫半径,
+  dy, dx)；置信度 = 峰显著度 `(μ_others − best)/(μ_others + best)`
+  （单候选/全平手为 0，缩略图分辨率逐像素相同为 1；整数和 + 单次 double
+  除法，无随机/浮点平台差异路径）；位移精度 = 精确有理数
+  `thumbnail_shift × frame_dim / thumbnail_size`（double 求值收窄
+  float），方向 p_curr = p_prev + (dx, dy)，经 `make_translation` 进
+  `Transform2D` 组合链（`RULE-05`，DOD-03 矩阵适用）；两帧须同呈现尺寸，
+  比较恒在呈现像素上进行（同 `detect_change` 约定）；预算字段
+  `work_budget_bytes` 逐内部分配请求检查，超限显式 `kBudgetExceeded`；
+  搜索为有界非平凡循环，经 `ExecutionContext` 入口 + 逐行检查显式转化
+  kCancelled/kTimeout（校验先于取消），不返回半份结果。纯函数：不触碰
+  `ObjectTracker` 池状态、不做变化分类与代际判定（M7-07 边界维持，
+  `RISK-2026-17` 的补偿效果随 M7-09 A/B/C/D 矩阵门控，本项不发布性能
+  承诺）。默认参数（thumbnail 64 / max_shift 16 / 512 KiB）为开发冒烟
+  值，M7-09 校准（`DEC-019` 第 5 条）。
+- 本地验证（交付时点）：debug 预设构建零告警；debug ctest 45/45（缩略图
+  管线重构后既有套件行为不变）；开发冒烟自检（临时脚本，不入仓）覆盖
+  同帧零位移 + 置信度 1、已知整数位移恢复（+8, −4 帧像素 → 缩略图
+  (+4, −2)、帧 (8.0, −4.0)）、签名版与视图版逐位一致、双实例逐位确定、
+  参数校验矩阵、1 字节预算显式 `kBudgetExceeded`、呈现尺寸不匹配拒绝、
+  取消/超时显式转化与 NV12 luma 路径；clang-format 全仓 dry-run 零违规；
+  clang-tidy `--warnings-as-errors='*'` 对 `shift_estimation.cpp` 与
+  `change_detection.cpp` 退出码 0。六预设 ctest、DOD-03 坐标矩阵
+  （0/90/180/270 × 奇数尺寸 × 非连续 stride × 贴边/往返容差）、确定性/
+  预算/隐私负向测试与 CI 证据待验证套件落地后回填。
+- 限制：位移估计质量仅声明合成口径（`DOD-05`：真实场景不宣称，M7-09
+  基准与真实数据评估收口）；置信度与默认参数无真实数据先验。
+
+2026-09-23：验证员首轮发现 `M7-04` 三项问题，实现侧修复与契约注释精度
+同步（契约矩阵负向用例由验证员在其套件内补充；本段为实现侧处置记录）：
+
+- 高（内存安全 + 契约违约）：`estimate_global_shift` 签名重载缺少两签名
+  存储缩略图的尺寸一致性校验——契约明文承诺尺寸不一致返回
+  kInvalidArgument，实现只逐签名校验方形 [8, 256]，`search_shift` 的窗口
+  索引导出仅取 previous 缩略图边长：前缩略图大于当前缩略图时堆越界读
+  （ASAN 实证：64x64/8x8 签名、forged frame dims 均 256x256、
+  max_shift=8，`heap-buffer-overflow READ of size 1 at window_sad ←
+  search_shift ← estimate_global_shift`），反向（前小后大）则静默接受并
+  产生无意义结果。修复：两个 `validate_signature` 之后、取消检查之前补
+  宽高相等校验（`detect_change` 签名重载同款检查），公共契约未放宽；
+  校验为纯标量比较，签名重载"零分配"语义不变。
+- 低（语义文档歧义）：冻结的置信度公式在"胜者 SAD=0 且另有候选并列 0"
+  （周期内容位移恰为一个周期）时仍输出恰 1.0——实现与冻结公式一致、
+  胜者总序仍唯一，非代码缺陷；头注释补并列零候选告警：
+  confidence == 1.0 不得解读为无歧义峰，确定性由总序（最小切比雪夫
+  半径，其次 dy/dx）保证，供 M7-07 消费侧与 M7-09 校准知悉。
+- 低（预算口径文档精度）：头注释原称预算覆盖"重采样中间产物 + 灰度
+  缩略图且不分配任何其他内存"，而 `resize_area` 内部按源尺寸分配两个
+  int64 box 权重表（上限约 2 × 65535 × 8B ≈ 1 MiB），不经
+  `work_budget_bytes` 检查、仅分配失败映射 kBudgetExceeded——为 M1 起
+  既有共享路径（`detect_change` 同），非本项回归，任意输入尺寸的固定
+  上界（`RULE-06`）仍成立；头注释措辞改为如实交底权重表口径，
+  `resize_area` 侧是否单独立项收口留待后续决策。
+- 复验（实现侧本地证据）：修复前 ASAN 复现与验证员报告逐帧一致；修复后
+  探针（64→8 与 8→64 双向 kInvalidArgument、等尺寸路径零位移不变、ASAN
+  零报告）通过；debug 预设构建零告警；debug ctest 46/46（含验证套件
+  `mirador.image.shift_estimation` 全部既有用例）；clang-format 两改动
+  文件归零；clang-tidy `--warnings-as-errors='*'` 对 `shift_estimation.cpp`
+  退出码 0；首轮开发冒烟复跑全过。六预设 ctest 与 CI 证据仍随验证套件
+  门禁落地回填。
+
+2026-09-23：`M7-04` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-04-global-shift-estimation`；验证套件由 Independent-Verification-Agent
+独立编写与执行，实现交付与同日验证员三项发现的处置见上两段）：
+
+- 交付摘要：`estimate_global_shift` 双入口公共契约
+  `include/mirador/shift_estimation.hpp`（Experimental）与
+  `src/image/shift_estimation.cpp`（语义冻结见本日交付段）；本轮补齐签名
+  重载缩略图尺寸一致性校验（d7bc29e，契约未放宽）并同步头注释精度
+  （3d12763）；尺寸一致性负向用例随套件补齐
+  （`SignatureOverloadRejectsMismatchedThumbnailSizes`，commit 01642e8，
+  前缩略图更大方向即 ASAN 实证越界读的回归锁定）。
+- 验证覆盖：`mirador.image.shift_estimation` 23 用例（commit 8862182 的
+  22 个 + 回归 1 个）——已知整数位移恢复与冻结的置信度/精度规则（逐轴
+  映射与精确有理数 float 收窄）、胜者总序（切比雪夫半径与周期并列）、
+  重复调用/独立帧拷贝/签名重载逐位确定性、DOD-03 坐标矩阵（旋转元数据
+  × 奇数 33x21 × 非连续 stride × max_shift 贴缩略图边）、极窗边界位移、
+  预算边界显式 `kBudgetExceeded`、错误模型矩阵、入口/搜索中途 kCancelled
+  与 kTimeout 显式转化、gray/RGBA/NV12 格式路径逐位一致、签名重载坏状态
+  拒绝（含尺寸不一致双向）与隐私默认零落盘（`DOD-06`）。
+- 门禁：debug 预设 ctest 46/46、`mirador.image.shift_estimation` 直跑
+  23/23；asan/ubsan/tsan 预设全量 ctest 各 45/45（debug 多 1 条为
+  `mirador.adapters.opencv` 既有条目差异），sanitizer 零报告，tsan 经
+  `setarch -R` 注册包装裸 `ctest --preset tsan` 通过；clang-format 全仓
+  dry-run 归零；clang-tidy `--warnings-as-errors='*'` 对
+  `shift_estimation.cpp` 与 `shift_estimation_test.cpp` 退出码 0。修复前
+  ASAN 探针复现与修复后双向 `kInvalidArgument` 复验见上段（探针为会话内
+  复验工具未入仓，场景已由回归用例永久化）。
+- 限制：release/warnings 预设完整 ctest 未在本轮执行——warnings 侧已由
+  CI 在分支 head 覆盖（见下方 CI 回填；CI 矩阵无 release 预设），六预设
+  完整门禁仍随编排脚本收口（同 M7-03 先例）；位移估计质量仅合成口径
+  （`DOD-05`），置信度与默认参数先验随 M7-09 校准；`resize_area` 权重表
+  预算口径是否单独立项收口留待负责人决策（见上段处置记录）。
+- CI 回填：PR #24 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35808507168](https://github.com/Linductor-alkaid/mirador/actions/runs/35808507168)
+  （head 58fabd4，覆盖实现、验证套件、签名重载尺寸一致性修复与文档回填
+  commit，30m30s）；首轮通过，无修复往返。
