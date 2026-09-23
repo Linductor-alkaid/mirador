@@ -66,7 +66,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-05` 邻域验证器：验证 ROI 内模板 NCC（多模板最优 + 峰旁瓣质量）
   与 `GeometricRegionProposal` 闭合结构一致性（描述量与池内基线偏差容差）
   双通道；模板版本/参数变化使验证结果失效（`DOD-04` 负向）。
-- [ ] `M7-06` 证据融合与状态机：静止/补偿后滚动/代际切换的条件化权重，
+- [x] `M7-06` 证据融合与状态机：静止/补偿后滚动/代际切换的条件化权重，
   E1/E2/位置/语义四级证据分级（确认/临时延续/占位/否决，含 impostor 负
   模板排除）；`kTracking/kUncertain/kLost/kTerminated` 转移与 `DEC-010`
   tracker 对接（已确认 track 门控直通）。
@@ -697,3 +697,47 @@ c5a7c82 的验证套件复现；不放宽公共契约，实现向已冻结契约
   `perception_session` 26 直跑全通过）；clang-format 对三改动文件归零；
   clang-tidy `--warnings-as-errors='*'` 对 `stable_id_tracker.cpp` 退出码
   0。六预设门禁与 CI 证据随编排脚本在分支 head 收口回填。
+
+2026-09-23：`M7-06` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-06-evidence-fusion-state-machine`；验证套件由
+Independent-Verification-Agent 独立编写与执行，实现交付与验证员首轮两项
+发现的处置见上两段）：
+
+- 交付摘要：`ObjectTracker::commit_track_evidence` 证据融合与状态机（冻结
+  判定表/四态转移/采集策略/三场景条件化输入面见本日交付段）与
+  `StableIdTracker::advance` 的 `confirmed_associations` 门控直通；验证
+  套件 47 用例 `tests/fusion/object_tracker_evidence_fusion_test.cpp` 随
+  test(fusion) commit c5a7c82 落地。验证员首轮两项处置：340f03e 将
+  advance 的重复检测升级为纯结构校验前置（`region_claimed` 位图 +
+  `claimed_ids` 线性扫描先于 tracked 查找，未跟踪 id 的重复同样显式
+  `kInvalidArgument`，被覆盖的不可达 `prev_taken` 分支移除，头注释冻结
+  "结构校验先于未跟踪回落"——实现向已冻结契约文字对齐，契约零改动）；
+  01fbc66 将 `commit_track_evidence` 取消注释向实现对齐（校验后单次入口
+  轮询，不补死代码二次轮询）。本轮零测试改动（`git diff c5a7c82..HEAD --
+  tests/` 为空），首轮缺陷探针按冻结契约文字断言、修复后原样通过。
+- 验证覆盖：`mirador.fusion.object_tracker_evidence_fusion` 47 用例——
+  `ObjectTrackerEvidenceFusionTest` 39 例（四级分级判定表 12、三场景
+  条件化 2、四态转移 9、`RULE-06` 簿记 7、`DOD-04` 失效负向 2、取消/
+  错误路径 2、逐位确定性 1、`DOD-03` 坐标矩阵 2、M7-02/03 两态构造级
+  补测 3）与 `StableIdConfirmedAssociationTest` 8 例（DEC-010 直通/未
+  跟踪回落/校验矩阵与静态语义逐位不变，含首轮缺陷探针
+  `DuplicateUntrackedAssociationsAreExplicitErrors`）。
+- 门禁（文档同步时点于分支 head dc21c35 复验）：六预设 ctest 全绿——
+  debug 48/48（debug 多 1 条为 `mirador.adapters.opencv` 既有条目差异）、
+  release/asan/ubsan/tsan/warnings 各 47/47；五个 fusion 套件直跑——
+  `mirador.fusion.object_tracker_evidence_fusion` 47/47、
+  `stable_id_tracker` 19/19、`object_tracker` 72/72、验证器套件
+  `object_tracker_verification` 30/30、`perception_session` 26/26；
+  evidence_fusion 套件 asan/ubsan 直跑 47/47 且 sanitizer 零报告，tsan
+  经 `setarch -R` 直跑 47/47 零报告（均含修复后的关联校验新路径）；
+  clang-format `--dry-run --Werror` 三改动文件归零；clang-tidy
+  `--warnings-as-errors='*'`（`-p build/debug`）对 `stable_id_tracker.cpp`
+  退出码 0。
+- 限制：CI 推送与 14/14 证据回填随编排脚本在分支 head 收口（分支未推送，
+  本轮按交底不推送）；结构校验的 `claimed_ids` 为关联数线性扫描（最坏
+  O(k²)，k 为调用方传入关联数），与既有 per-association 查找同阶，关联数
+  无显式上限选项——当前调用方为会话管线自产配对（量级为 track 数），如
+  M7-07 会话管线接入后出现大规模关联再议上限；`max_generation_lag` 耗尽
+  判定与代际触发归 M7-07、重检测原语归 M7-08（见交付段限制与衔接）；
+  阈值初值无真实先验随 M7-09 校准。
+- CI 回填：待补（分支未推送）。
