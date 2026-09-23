@@ -835,6 +835,110 @@ TEST(ObjectTrackerRedetectionTest, StaleEpisodeSlotWithoutBookkeepingReadsFresh)
     EXPECT_EQ(restart.value().attempts, 1U) << "the count restarts and re-keys the slot";
 }
 
+/// The recapture event applies the same stale-reads-fresh rule to its
+/// `attempts` count, keyed by the caller's `lost_sequence` evidence (the only
+/// episode key available after the confirming commit zeroed the state slot's
+/// entry sequence): a slot keyed by an older episode — a loss episode that
+/// ended without recapture bookkeeping, then a re-loss — reports 0, never the
+/// dead episode's count, while a keyed episode reports its exact count and a
+/// mismatched key reads as the fresh episode. The stale slot is still
+/// released with the closed episode.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): the three-branch key rule dominates the metric
+TEST(ObjectTrackerRedetectionTest, RecaptureAttemptsApplyTheCallerEpisodeKeyRule) {
+    const GrayImage image = noise_image(64, 64);
+    const ImageView view = view_of(image);
+
+    // Stale slot: the dead episode's count must not leak into the new
+    // episode's event (regression for the key rule on this read).
+    {
+        ObjectTracker tracker = make_tracker();
+        ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7U, RectF{16.0F, 16.0F, 8.0F, 8.0F}, 1));
+        ASSERT_EQ(lose_track(tracker, 7U, view, 2), 2U);
+        ASSERT_TRUE(tracker.record_redetection_failure(7U, 3).ok());  // episode 1: count 1, key 2
+        ASSERT_TRUE(
+            tracker
+                .commit_track_evidence(7U, verification_of(7U, TrackState::kLost, AppearanceChannelOutcome::kStrong),
+                                       position_of(), std::nullopt, view, 5)
+                .ok());  // walk-in recapture, no bookkeeping
+        ASSERT_EQ(lose_track(tracker, 7U, view, 8), 8U);
+        ASSERT_TRUE(
+            tracker
+                .commit_track_evidence(7U, verification_of(7U, TrackState::kLost, AppearanceChannelOutcome::kStrong),
+                                       position_of(), std::nullopt, view, 10)
+                .ok());  // episode 2 recaptured
+        const auto stale = tracker.record_redetection_recapture(7U, 10U, 8U);
+        ASSERT_TRUE(stale.ok());
+        EXPECT_EQ(stale.value().attempts, 0U) << "the stale count must not leak into the new episode's event";
+        ASSERT_EQ(tracker.redetection_records().size(), 1U);
+        EXPECT_EQ(tracker.redetection_records()[0].attempts, 0U) << "the stored record carries the keyed count";
+    }
+
+    // Keyed episode: the slot whose key matches the supplied evidence reports
+    // its exact count; a mismatched key reads as the fresh episode (0).
+    {
+        ObjectTracker tracker = make_tracker();
+        ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7U, RectF{16.0F, 16.0F, 8.0F, 8.0F}, 1));
+        ASSERT_EQ(lose_track(tracker, 7U, view, 2), 2U);
+        ASSERT_TRUE(
+            tracker
+                .commit_track_evidence(7U, verification_of(7U, TrackState::kLost, AppearanceChannelOutcome::kStrong),
+                                       position_of(), std::nullopt, view, 5)
+                .ok());  // walk-in recapture of episode 1
+        ASSERT_EQ(lose_track(tracker, 7U, view, 8), 8U);
+        ASSERT_TRUE(tracker.record_redetection_failure(7U, 9).ok());  // episode 2: count 1, re-keyed to 8
+        ASSERT_TRUE(
+            tracker
+                .commit_track_evidence(7U, verification_of(7U, TrackState::kLost, AppearanceChannelOutcome::kStrong),
+                                       position_of(), std::nullopt, view, 10)
+                .ok());
+        const auto keyed = tracker.record_redetection_recapture(7U, 10U, 8U);
+        ASSERT_TRUE(keyed.ok());
+        EXPECT_EQ(keyed.value().attempts, 1U) << "the keyed episode's exact count";
+        // A mismatched key (the caller asserts an episode that holds no slot)
+        // reads as the fresh episode it is.
+        const auto mismatched = tracker.record_redetection_recapture(7U, 11U, 5U);
+        ASSERT_TRUE(mismatched.ok());
+        EXPECT_EQ(mismatched.value().attempts, 0U) << "the mismatched key reads as the fresh episode";
+    }
+
+    // The stale slot is still released with the closed episode: after the
+    // bookkeeping, the byte footprint equals a twin that ran the identical
+    // scenario WITHOUT the accounted failure.
+    {
+        ObjectTracker tracker = make_tracker();
+        ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7U, RectF{16.0F, 16.0F, 8.0F, 8.0F}, 1));
+        ASSERT_EQ(lose_track(tracker, 7U, view, 2), 2U);
+        ASSERT_TRUE(tracker.record_redetection_failure(7U, 3).ok());
+        ASSERT_TRUE(
+            tracker
+                .commit_track_evidence(7U, verification_of(7U, TrackState::kLost, AppearanceChannelOutcome::kStrong),
+                                       position_of(), std::nullopt, view, 5)
+                .ok());
+        ASSERT_EQ(lose_track(tracker, 7U, view, 8), 8U);
+        ASSERT_TRUE(
+            tracker
+                .commit_track_evidence(7U, verification_of(7U, TrackState::kLost, AppearanceChannelOutcome::kStrong),
+                                       position_of(), std::nullopt, view, 10)
+                .ok());
+        ASSERT_TRUE(tracker.record_redetection_recapture(7U, 10U, 8U).ok());
+
+        ObjectTracker twin = make_tracker();
+        ASSERT_NO_FATAL_FAILURE(adopt_or_fail(twin, view, 7U, RectF{16.0F, 16.0F, 8.0F, 8.0F}, 1));
+        ASSERT_EQ(lose_track(twin, 7U, view, 2), 2U);
+        ASSERT_TRUE(
+            twin.commit_track_evidence(7U, verification_of(7U, TrackState::kLost, AppearanceChannelOutcome::kStrong),
+                                       position_of(), std::nullopt, view, 5)
+                .ok());
+        ASSERT_EQ(lose_track(twin, 7U, view, 8), 8U);
+        ASSERT_TRUE(
+            twin.commit_track_evidence(7U, verification_of(7U, TrackState::kLost, AppearanceChannelOutcome::kStrong),
+                                       position_of(), std::nullopt, view, 10)
+                .ok());
+        EXPECT_EQ(tracker.byte_size(), twin.byte_size() + ObjectTracker::kRedetectionRecordOverheadBytes)
+            << "exactly one log record remains: the stale slot was released with the closed episode";
+    }
+}
+
 // --- association: the new-id branch of the ID semantics -----------------------
 
 /// The association is a diagnostic identity-handoff note: it validates that
