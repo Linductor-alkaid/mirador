@@ -72,3 +72,9 @@ mirador_add_test(
     SOURCES patch_fingerprint_test.cpp
     LIBS mirador::image
     LABELS unit)
+
+mirador_add_test(
+    NAME mirador.image.shift_estimation
+    SOURCES shift_estimation_test.cpp
+    LIBS mirador::image
+    LABELS unit)
