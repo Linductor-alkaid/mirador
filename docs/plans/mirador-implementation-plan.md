@@ -1,11 +1,27 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.15
+> 版本：1.16
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-23
+>
+> 1.16 修订（2026-09-23）：M7 工作项 `M7-06` 证据融合与状态机实现交付于
+> 工作分支 `feat/m7-06-evidence-fusion-state-machine`——
+> `ObjectTracker::commit_track_evidence`（帧级管线唯一的状态变更证据入口：
+> 静止/补偿后滚动/代际切换三场景条件化输入面、E1/E2/位置/语义四级分级
+> 判定表、`kTracking/kUncertain/kLost/kTerminated` 转移与
+> `uncertain_frame_limit` 连续不足计数、impostor 负模板排除与采集策略、
+> `kStateSlotOverheadBytes` 池侧状态簿记槽）与 `StableIdTracker::advance`
+> 的 `confirmed_associations` 门控直通参数（`DEC-010` 第 4 节预留通道，
+> 空关联下冻结静态语义逐位不变）。三项契约裁决（纯决策/状态变更边界、
+> 负模板采集策略、kLost→kTracking 归属 M7-08）冻结于头注释并同步设计
+> §4/§6.5 落点注记。本地 debug 构建零告警、全量 ctest 47/47、开发冒烟
+> 自检 10 组断言、clang-format/clang-tidy 双口径归零；测试由
+> Independent-Verification-Agent 独立编写与执行，工作项勾选、六预设门禁
+> 与 CI 证据随验证套件落地回填。`max_generation_lag` 耗尽判定与代际触发
+> 归 M7-07，重检测原语归 M7-08。`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.15 修订（2026-09-23）：M7 工作项 `M7-05` 邻域验证器测试与门禁证据
 > 落地，工作项勾选——Independent-Verification-Agent 验证套件 30 用例

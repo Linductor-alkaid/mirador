@@ -571,3 +571,95 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   clang-tidy 双口径。[run 35821784682](https://github.com/Linductor-alkaid/mirador/actions/runs/35821784682)
   （head 89f210c，覆盖实现、验证套件、出处/精度注释处置与文档回填
   commit，39m0s）；首轮通过，无修复往返。
+
+2026-09-23：`M7-06` 证据融合与状态机实现交付（分支
+`feat/m7-06-evidence-fusion-state-machine`，自 master 5653040 切出；实现于
+主循环，测试按分工由 Independent-Verification-Agent 独立编写与执行，工作项
+勾选随验证套件与门禁证据落地后回填）：
+
+- 交付：`ObjectTracker::commit_track_evidence`（Experimental，帧级管线唯一
+  的状态变更证据入口——M7-03 门控与 M7-05 验证器保持纯决策，分级→状态映射
+  只发生在此，兑现两处冻结注记）与配套类型 `PositionScenario`/
+  `TrackPositionEvidence`/`TrackEvidenceCommit`，新选项
+  `impostor_match_threshold`（默认 0.8 开发冒烟值，M7-09 校准）与
+  `kStateSlotOverheadBytes = 16` 状态簿记槽。消费调用方证据：`verify_track`
+  的 `TrackVerification`（不重跑扫描，证据信任边界同全头）、调用方声明
+  `TrackPositionEvidence`（三场景条件化 + 门控内声明）与候选语义、呈现视图
+  （候选 patch 一次提取，负模板检查与模板采集共用）。冻结判定表（顶到底
+  首中即停）：impostor 命中（候选 patch 对任一负模板 NCC ≥ 阈值，仅 E1 有
+  候选时检查）或 DEC-010 语义冲突（双 label 非空且不等；无候选真空兼容）→
+  `kVetoed`；强外观（E1 kStrong 或 E2 kConsistent）+ 门控准入 →
+  `kConfirmed`；弱外观（E1 kWeak）+ 门控准入 → `kTentative`；其余 →
+  `kPlaceholder`（含门控拒绝外观候选——位置门控是确认的必要条件，
+  `DEC-019` 第 2 条）。条件化权重按设计 §3 表实现为显式输入面：静止/
+  补偿后滚动全权重（后者由调用方声明已补偿，行为同权重、区别供 trace 与
+  M7-09 分场景校准），代际切换清零位置先验（门控不作为确认必要条件、
+  仅位置先验不再构成占位依据，模板/语义证据跨代保留）；补偿量计算与全局
+  变化分类消费归 M7-07，本项不触碰 `estimate_global_shift` 结果流。四态
+  转移冻结：确认级提交（kConfirmed/kTentative）自任意受理态恢复 kTracking
+  ——kLost→kTracking 只定义状态机语义，重检测原语与身份复核入口归 M7-08
+  （kLost 态位置先验失效、不再门控复捕获）；占位/否决提交将 kTracking/
+  kUncertain 降级 kUncertain（否决 = 排除候选证据，外观通道无确认可用），
+  连续不足计数（占位与否决均计，确认即清零）达 `uncertain_frame_limit`
+  转 kLost（第 L 次连续不足提交即转移、第 L−1 次保持 kUncertain，边界
+  两侧可观测）；kLost 粘滞（直至确认提交、调用方 `terminate` 或 M7-07
+  代际耗尽）；kTerminated 显式 kInvalidArgument。限额按"连续不足提交数"计
+  而非墙钟帧（tracker 无内部时钟，`RULE-03`；帧步进归 M7-07 管线）。
+  三项契约裁决冻结于头注释：(1) 纯决策/状态变更边界；(2) 负模板采集策略
+  ——语义冲突否决且未命中既有负模板时采集（impostor 恰在其首次被拒的
+  确认尝试时采集一次，命中不重复入库）；kConfirmed 采集正模板
+  （`max_templates >= 2` 时，kTentative 不写模板）；(3) kLost→kTracking
+  归属（见上）。确认提交簿记：`last_bounds` 移至候选窗口（E1 有产出取
+  best_offset，E2-only 确认位置不变）、`predicted_center` 恒为新 bounds
+  中心（M7-07 前冻结不变量）、`confidence` 取钳制 E1 峰值 NCC（E2-only
+  保留原值）、`last_verified_sequence` 收 `frame_sequence`、
+  `layout_generation` 推进至池当前代际（每次提交）；占位/否决不改任何
+  证据字段（被否决候选不得移动 track，位置先验非外观证据——M7-03 冻结）。
+  状态簿记（连续不足计数 + kLost 进入时刻）为池侧单槽（`StateSlots`，同
+  M7-05 基线槽先例并行存储，`TargetTrack` 冻结布局不动；`terminate`/
+  track 淘汰/`reset` 释放，`byte_size`/`pool_budget_bytes` 计账，放不下
+  显式 `kBudgetExceeded`）。提交原子：patch 提取先于任何变更，模板插入
+  与槽分配统一预算检查（满集交换字节中性，同 `record_observation` 口径），
+  任何失败池完全不变；校验先于取消（M7-06 冻结决策，同 M7-05 验证器、
+  与 `adopt_track` M7-02 取消优先入口刻意对照）。`terminate` 头注释补记
+  状态槽释放与"调用方驱动的 kLost/kTracking→kTerminated 边"定位（预算
+  耗尽策略归 M7-08，`RULE-12`）。
+- DEC-010 对接：`StableIdTracker::advance` 新增第 4 个默认参数
+  `confirmed_associations`（`ConfirmedAssociation` = region_index +
+  stable_id）——跟踪确认配对在门控阶段直接 kRetained（成本置优，绕过
+  IoU/中心门控与成本排序），空关联列表下既有静态语义逐位不变（M4 冻结
+  契约不破坏，`DEC-010` 第 4 节预留演进通道，设计 §6.5）；指向已不存在
+  tracked region 的关联被忽略（区域回落常规门控）；region 索引越界、零
+  id、重复索引/重复 id 显式 kInvalidArgument 且状态不变；"跟踪确认"判定
+  权在调用方会话管线（消费 `ObjectTracker` 状态），本层只接受显式声明。
+- 本地验证（交付时点）：debug 预设构建零告警；debug 全量 ctest 47/47
+  （既有 `mirador.fusion.object_tracker` 72 用例、验证套件 30 用例、
+  `stable_id_tracker` 19 用例、`perception_session` 26 用例直跑通过——
+  池侧槽仅在状态转移后分配、advance 默认参数逐位保旧，既有记账/行为
+  测试零回归）；开发冒烟自检（临时脚本，不入仓）10 组断言通过——
+  kConfirmed + 正模板采集、`uncertain_frame_limit` 边界两侧（第 4 次保持
+  kUncertain、第 5 次转 kLost）、kLost 复捕获、语义冲突否决 + 负模板采集
+  （同 patch 复现时 impostor 命中且不重复采集）、代际切换场景（门控失效
+  仍可外观确认、无外观降级）、kTerminated 拒绝、字节精确满池下槽分配
+  拒绝且池完全不变、校验先于取消（证据不匹配在取消上下文下仍返回
+  kInvalidArgument）、kCancelled/kTimeout 显式转化、DEC-010 直通（零 IoU
+  远位移配对 retained + 校验矩阵 + 未跟踪 id 忽略回落）；clang-format
+  全仓 dry-run 对四改动文件归零；clang-tidy `--warnings-as-errors='*'`
+  对 `object_tracker.cpp` 与 `stable_id_tracker.cpp` 退出码 0（首轮 3
+  处：impostor 循环改 `std::ranges::any_of`、gate 布尔返回化简、
+  commit 方法认知复杂度 44>25/31>25 两轮拆分
+  `validate_commit_inputs`/`extract_candidate_patch`/`apply_template_capture`/
+  `plan_track_commit`/`planned_store_delta`/`apply_commit_stores` 辅助后
+  归零，行为不变）。六预设 ctest、sanitizer、DOD-03 坐标矩阵、`DOD-04`
+  负向、`DOD-06` 隐私负向与 CI 证据待验证套件落地后回填。
+- 限制与衔接：M7-02/M7-03 限制段的 kUncertain/kLost 构造级补测（两态经
+  本状态机可构造：`record_observation`/`evaluate_change_gate` 的非活跃态
+  路径、`verify_track` 对两态的验证）随验证套件交付；`max_generation_lag`
+  的"代际落后超阈值且证据枯竭 → kLost"判定与 `advance_layout_generation`
+  触发（全局变化分类）归 M7-07，本项未实现；重检测预算耗尽策略（退避/
+  最大尝试）归 M7-08，kLost→kTerminated 现经调用方 `terminate` 驱动；
+  阈值初值（`impostor_match_threshold` 0.8）无真实先验（`DEC-019` 第 5
+  条，M7-09 校准，`DOD-05` 不宣称滚动/swap 场景效果——`RISK-2026-16`/
+  `RISK-2026-17` 随 A/B/C/D 矩阵门控，负模板机制不达标的回退为相似外观
+  候选一律降级 kUncertain）；深度增强通道（M7-11~13）不在本项，未注入
+  `TrackerBackend` 是默认态。
