@@ -377,6 +377,31 @@ ID 语义），在 Mirador 中映射为既有按需 Detector 路径的策略化�
 成本结构：常态路径近零；Detector 调用仅在丢失触发，频率受退避与变化门控
 约束，作为一等指标上报（设计 §20"每分钟 Backend 调用次数"口径）。
 
+M7-08 冻结落点：触发/节流原语与身份复核簿记交付于 `ObjectTracker` 四原语
+（Experimental，`object_tracker.hpp`；管线编排形态沿用 M7-03/05/06/07 先例
+——池侧原语 + 调用方组合管线，触发决策权在上层，`RULE-12`）。
+`evaluate_redetection_gate` 为纯 `const` 退避状态查询：kNone 分类（静止画面）
+一律 kHoldStaticFrame 不触发（负向测试锚点；变化 ROI 不消费——kLost 位置
+先验失效、不得门控复捕获，同 M7-06 冻结）；退避窗口内 kHoldBackoff；
+否则 kTrigger；非 kLost 活跃 track 显式 kInactive（M7-03 先例）。
+`record_redetection_failure` 记账失败尝试：冻结倍增退避
+`min(base × 2^(n-1), max)` 以调用方帧序列计（无墙钟，`RULE-03`，同 M7-06
+口径），连续失败达 `redetect_max_attempts` 由该入口自身执行 kLost →
+kTerminated 归档转移（与 `terminate` 共享同一 archive 语义）——预算耗尽
+显式失败可见，不静默清池。身份复核本体**零新验证代码**：复用 `verify_track`
+（M7-05 冻结，接受 kLost）+ `commit_track_evidence`（M7-06 冻结 kLost →
+kTracking 复捕获语义，不重写）；复核通过后 `record_redetection_recapture`
+写入有界中断事件（丢失/复捕获序列 + 尝试数，仅 id 与序列，`RULE-10`）并
+关闭回合槽；证据不足分支由调用方走常规融合采纳路径（`adopt_track`，
+`DEC-010`——新 ID 不绕过静态融合语义）后经 `record_redetection_association`
+记录身份交接关联（诊断性记录，不改任何 track 状态）。回合簿记为池侧单槽
+（`kRedetectSlotOverheadBytes`，以回合 kLost 进入时刻为陈旧键），中断事件
+与关联共享一条有界池级日志（`max_redetection_records`，溢出淘汰最旧并计入
+`evicted_redetection_record_count`），全部计入 `byte_size()`/
+`pool_budget_bytes`；`TargetTrack` 冻结布局不动。设计第 2 条"按语义标签
+过滤候选的通用组件"不在 M7-08 工作项文本内，随后续工作项或上层集成交付。
+退避/阈值初值为开发冒烟值，M7-09 校准（`DEC-019` 第 5 条）。
+
 ## 8. 测试与验证
 
 指标（合成 harness 先行，真实数据评估为转正前置，沿用

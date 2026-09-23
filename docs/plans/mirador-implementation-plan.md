@@ -1,11 +1,57 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.19
+> 版本：1.21
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-24
+>
+> 1.21 修订（2026-09-24）：M7 工作项 `M7-08` 级联重检测原语与身份复核
+> 测试与门禁证据落地，工作项勾选——Independent-Verification-Agent 验证
+> 套件 23 用例（静止画面 `kNone` 零触发负向、门判定矩阵、冻结倍增退避
+> 逐帧计与封顶、预算耗尽由记账入口自身执行 kTerminated 归档显式可见、
+> 回合槽/日志放不下显式 `kBudgetExceeded` 且池与回合状态不变、复捕获
+> 回合关闭与再丢失新回合、修复回归三分支——死回合计数不泄漏/键匹配
+> 精确上报/错键读作新回合且陈旧槽随回合关闭释放、关联记录纯诊断、
+> 有界日志溢出淘汰并计数、身份复核延续/新 ID 两分支、取消/超时显式
+> 转化、双实例逐位确定性、记录仅 id 与序列与 DOD-03 坐标矩阵）随
+> test(fusion) commit d8c439d + a578628 落地；验证员 scratch 复核发现的
+> recapture attempts 陈旧键缺陷已修复（0a95f79：以调用方 `lost_sequence`
+> 证据为回合键施加 stale-reads-fresh 规则，仅触诊断字段、行为零变化、
+> 契约未放宽）。本地门禁（文档同步时点于分支 head a578628 复验）：debug
+> 全量 ctest 50/50、新套件直跑 debug/asan/ubsan 各 23/23 且 sanitizer
+> 零报告、clang-format/clang-tidy 归零；release/tsan/warnings 预设与六
+> 预设完整复跑随编排脚本收口（tsan/warnings 侧已由 CI 在分支 head 覆盖，
+> CI 矩阵无 release 预设）。CI 证据随 PR #28 回填（run 35917953109，
+> 14/14 job 全绿，PR 待合入）；调用方证据错键时诊断字段失真由调用方
+> 证据负责（头注
+> 释冻结）、相同 kLost 进入序列陈旧性按设计不可分辨；退避/预算初值随
+> M7-09 校准；`SCOPE-13` 维持未勾选（M7 进行中）。
+>
+> 1.20 修订（2026-09-24）：M7 工作项 `M7-08` 级联重检测原语与身份复核实现
+> 交付于工作分支 `feat/m7-08-cascade-redetection-identity-review`——
+> `ObjectTracker` 四原语（管线编排形态冻结为池侧原语 + 调用方组合管线，
+> 策略决策权留上层 `RULE-12`）：`evaluate_redetection_gate`（纯 const 退避
+> 门查询，kNone 静止画面零触发——变化门控联动负向测试锚点）、
+> `record_redetection_failure`（冻结倍增退避 `min(base × 2^(n-1), max)` 以
+> 帧序列计无墙钟，连续失败达 `redetect_max_attempts` 由该入口自身执行
+> kLost → kTerminated 归档转移——预算耗尽显式失败可见）、
+> `record_redetection_recapture`（复捕获确认后有界中断事件写入与回合
+> 关闭）与 `record_redetection_association`（新 ID 分支身份交接关联）。
+> 身份复核本体复用 `verify_track`（M7-05）+ `commit_track_evidence`
+> （M7-06 复捕获语义不重写）零新验证代码，新 ID 分支走常规融合采纳
+> （`DEC-010` 不绕过静态融合语义）；回合簿记为池侧单槽（陈旧键 = 回合
+> kLost 进入时刻），中断事件与关联共享 `max_redetection_records` 有界
+> 日志（溢出淘汰最旧并计数），`TargetTrack` 冻结布局不动。随项移除
+> M7-07 验证记录指出的单参 `terminate(uint64_t)` 死声明。本地 debug
+> 构建零告警、全量 ctest 49/49 零回归、开发冒烟 118 断言（门判定矩阵/
+> 倍增序列/耗尽归档/陈旧回合重置/有界日志/字节记账/双实例逐位确定性/
+> 取消超时转化）、clang-format/clang-tidy 双口径在实现文件归零；测试由
+> Independent-Verification-Agent 独立编写与执行，工作项勾选、六预设门禁
+> 与 CI 证据随验证套件落地回填。设计 §7"按语义标签过滤候选"通用组件不
+> 在本工作项文本内，随后续工作项或上层集成交付；`SCOPE-13` 维持未勾选
+> （M7 进行中）。
 >
 > 1.19 修订（2026-09-24）：M7 工作项 `M7-07` 全局运动补偿与布局代际集成
 > 测试与门禁证据落地，工作项勾选——Independent-Verification-Agent 验证
@@ -259,7 +305,13 @@ run 35842711760 14/14 job 全绿，待合入）；`M7-07` 全局运动补偿与�
 DOD-03 坐标矩阵——与门禁证据落地于分支
 `feat/m7-07-global-motion-compensation`；CI 证据已回填：
 [PR #27](https://github.com/Linductor-alkaid/mirador/pull/27)
-run 35896974845 14/14 job 全绿，待合入）。
+run 35896974845 14/14 job 全绿，待合入）；`M7-08` 级联重检测原语与身份
+复核已交付并勾选（实现、验证员 scratch 复核发现的 recapture attempts
+陈旧键缺陷修复、23 用例验证套件——含静止画面零触发负向、预算耗尽
+显式归档、修复回归三分支与身份复核两分支——与门禁证据落地于分支
+`feat/m7-08-cascade-redetection-identity-review`；CI 证据已回填：
+[PR #28](https://github.com/Linductor-alkaid/mirador/pull/28)
+run 35917953109 14/14 job 全绿，待合入）。
 
 ## 交付边界
 

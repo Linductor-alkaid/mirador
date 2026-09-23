@@ -114,6 +114,25 @@
   语义不变，kTracking 保持确认态（其降级路径是 M7-06 提交链）。三原语均
   校验先于变异、错误路径池完全不变、入口单次取消轮询（`commit_track_evidence`
   先例）。
+- M7-08：`ObjectTracker` 新增级联重检测原语与身份复核簿记（Experimental，
+  设计 §7，`RULE-12` 策略决策权留上层——tracker 只参数化退避与预算状态、
+  不做内部调度、不创建线程/定时器；池侧原语 + 调用方组合管线沿用既有形态）。
+  `evaluate_redetection_gate` 纯 `const` 退避门查询：`kNone` 静止画面一律
+  kHoldStaticFrame 零触发（变化门控联动负向测试锚点）、退避窗口内
+  kHoldBackoff、其余 kTrigger、非 kLost 显式 kInactive（M7-03 先例）；
+  `record_redetection_failure` 失败尝试记账——冻结倍增退避
+  `min(base × 2^(n-1), max)` 以帧序列计（无墙钟，`RULE-03`），连续失败达
+  `redetect_max_attempts` 由该入口自身执行 kLost → kTerminated 归档转移
+  （与 `terminate` 共享 archive 语义）——预算耗尽显式失败可见，不静默清池。
+  身份复核复用 `verify_track`（M7-05，接受 kLost）+ `commit_track_evidence`
+  （M7-06 冻结复捕获语义不重写）：复核通过经 `record_redetection_recapture`
+  写入有界中断事件（仅 id 与序列，`RULE-10`）并关闭回合；新 ID 分支走常规
+  融合采纳路径（`DEC-010`）后经 `record_redetection_association` 记录身份
+  交接关联。回合簿记为池侧单槽（陈旧键 = 回合 kLost 进入时刻），事件与
+  关联共享有界日志（`max_redetection_records`，溢出淘汰最旧并计数），全部
+  计入字节预算；`TargetTrack` 冻结布局不动。随项移除 M7-07 验证记录指出的
+  无定义单参 `terminate(uint64_t)` 死声明（refactor）。退避初值为开发冒烟
+  值，M7-09 校准。
 
 ### 修复
 

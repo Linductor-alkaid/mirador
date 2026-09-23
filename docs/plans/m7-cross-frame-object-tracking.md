@@ -73,7 +73,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-07` 全局运动补偿与布局代际集成：全局变化分类 → 代际递增 → 位置
   先验条件化（清零/降权）、track 降级与超阈值转 `kLost`；补偿后位置恢复
   验证（滚动场景往返）。
-- [ ] `M7-08` 级联重检测原语与身份复核：退避序列、最大重试、变化门控联动
+- [x] `M7-08` 级联重检测原语与身份复核：退避序列、最大重试、变化门控联动
   （静止画面零触发负向测试）、预算耗尽显式失败；重检测候选经池模板 + E2
   复核后延续/新分配 ID 并记录中断事件；策略决策权留给上层（`RULE-12`）。
 - [ ] `M7-09` 合成验证 harness 与基准发布：A/B/C/D 方法对比矩阵、第 3 节
@@ -904,3 +904,146 @@ Independent-Verification-Agent 独立编写与执行，实现交付见上段）�
   clang-tidy 双口径。[run 35896974845](https://github.com/Linductor-alkaid/mirador/actions/runs/35896974845)
   （head c52a200，覆盖实现、契约注册、验证套件与文档交付/勾选 commit，
   38m1s）；首轮通过，无修复往返。
+
+2026-09-24：`M7-08` 实现交付（分支 `feat/m7-08-cascade-redetection-identity-review`
+自 master 3b517a9 切出；测试由 Independent-Verification-Agent 独立编写与
+执行，随验证套件落地后另行勾选）：
+
+- 契约冻结（object_tracker.hpp）：级联重检测四原语——`evaluate_redetection_gate`
+  （纯 `const` 退避门查询：kNone 静止画面一律 kHoldStaticFrame 零触发、
+  退避窗口内 kHoldBackoff、其余 kTrigger、非 kLost 显式 kInactive；变化
+  ROI 刻意不消费——kLost 位置先验失效不得门控复捕获，同 M7-06 冻结）、
+  `record_redetection_failure`（失败尝试记账 + 冻结倍增退避
+  `min(base × 2^(n-1), max)` 帧序列计 + 连续失败达 `redetect_max_attempts`
+  由该入口自身执行 kLost → kTerminated 归档转移）、
+  `record_redetection_recapture`（复捕获确认后有界中断事件写入 +
+  回合槽关闭；要求 track 已 kTracking——确认提交先行）与
+  `record_redetection_association`（新 ID 分支身份交接关联，前置 kLost
+  前驱；诊断性记录不改状态）。const/状态变更边界、回合槽陈旧键（回合
+  kLost 进入时刻）、有界日志表示（`RedetectionRecord` 仅 id 与序列，
+  `RULE-10`）、`max_redetection_records` 选项与
+  `kRedetectSlotOverheadBytes`/`kRedetectionRecordOverheadBytes` 记账
+  冻结于头注释；`TargetTrack` 布局不动。身份复核本体零新验证代码：复用
+  `verify_track`（M7-05）+ `commit_track_evidence`（M7-06 kLost →
+  kTracking 复捕获语义不重写）；新 ID 分支走常规融合采纳（`adopt_track`，
+  `DEC-010`）。随项移除 M7-07 验证记录指出的无定义单参
+  `terminate(uint64_t)` 死声明（独立 refactor commit，先于实现落地）。
+- 实现要点（src/fusion/object_tracker.cpp）：`terminate` 归档语义重构为
+  共享 `archive_track` 助手（调用方驱动边与预算耗尽边同一语义，行为
+  不变）；入口单次取消轮询（M7-07 先例，O(1) 入口校验后无失败路径者
+  cancel-first——门查询同 `evaluate_change_gate`，记账同
+  `compensate_global_motion`）；回合槽/日志插入、淘汰与字节记账沿用
+  `record_observation`/M7-05/06 槽位先例；淘汰计划计入回合槽字节
+  （`plan_eviction`）；`reset` 清理全部新状态。设计 §7 第 2 条"按语义
+  标签过滤候选的通用组件"不在本工作项文本内，落点注记显式声明随后续
+  工作项或上层集成交付。
+- 本地验证（实现交付时点）：debug 构建零告警；全量 ctest 49/49（既有
+  4 个 object_tracker 套件零回归；首次全量出现 1 例未复现失败，未捕获
+  用例名，连续 4 轮全量复跑全绿——按抖动处理，若验证轮再现按
+  Independent-Verification-Agent 流程上报）；开发冒烟 118 断言通过
+  （门判定矩阵含静止画面零触发、倍增序列 1→2→4 与封顶、预算耗尽
+  kTerminated 归档、回合陈旧键重置、中断事件/关联校验矩阵、有界日志
+  溢出淘汰计数、字节记账逐项、双实例逐位确定性、取消/超时显式转化）；
+  clang-format/clang-tidy 双口径在两份实现文件归零（CI 口径复跑随编排
+  脚本）。PSR 平坦门冒烟注记：默认 `peak_sidelobe_ratio_min` 5.0 下
+  同帧精确匹配峰值 PSR≈4.6 被拒（平坦门按设计工作），冒烟以 2.0 验证
+  复核通路——阈值初值随 M7-09 校准（`DEC-019` 第 5 条）。
+- 移交验证员：静止画面零触发负向（计划退出条件、设计 §8 强制）、退避
+  序列符合配置（1→2→…→60 封顶，确定性、无墙钟）、预算耗尽显式失败
+  （kTerminated 可见、错误路径池不变）、复核通过延续/新分配两分支、
+  中断事件与关联记录的有界性（RULE-06 负向）、取消/超时转化、字节
+  记账与回合槽生命周期（terminate/淘汰/reset 释放）、DOD-03/04/06
+  负向、双实例逐位确定性；六预设门禁与 CI 证据随验证套件落地回填。
+
+2026-09-24：`M7-08` 验证轮处置（验证套件
+`tests/fusion/object_tracker_redetection_test.cpp` 随 test(fusion)
+commit 落地；实现侧修复由验证员 scratch 复核发现的一处低severity缺陷）：
+
+- 缺陷与修复：验证员 scratch 复核证实 `record_redetection_recapture`
+  读取中断事件 `attempts` 时未施加回合视图陈旧键校验（与
+  `evaluate_redetection_gate`/`record_redetection_failure` 的键校验路径
+  不一致）——track 于 seq2 丢失、记账失败 1 次、经 `commit_track_evidence`
+  走入式复捕获（无簿记）、再丢失于 seq8 后，回合 2 的中断事件错误携带
+  已死回合 1 的计数（冻结语义应报 0：回合槽陈旧即按新回合读取，头注释
+  §M7-08 节冻结规则）。影响限于诊断记录字段失真——退避调度、门判定与
+  耗尽转移均走键校验路径，行为不受影响。修复：recapture 读取处以调用方
+  `lost_sequence` 证据为回合键施加同一陈旧规则（确认提交已清零状态槽
+  kLost 进入时刻，调用方证据是此处唯一可得键，与既有证据信任边界一致，
+  不放宽公共契约）；头注释同步精确化该键语义。验证员附注口径维持：两
+  回合 kLost 进入序列相同（调用方帧序列不前进）时陈旧性按设计不可分辨，
+  不另立缺陷。
+- 修复回归（本会话执行）：开发冒烟追加验证员复现场景（死回合计数不
+  泄漏——stale 事件 attempts==0；合法回合仍精确上报——键匹配事件
+  attempts==2）共 137 断言全过；全量 debug ctest 50/50（含验证套件
+  `mirador.fusion.object_tracker_redetection`，既有用例零改动通过——
+  套件 recapture 调用均以匹配键调用，修复不改变其断言路径）；
+  clang-format/clang-tidy 双口径在两份实现文件归零。六预设与 CI 复跑
+  随编排脚本收口。
+
+2026-09-24：`M7-08` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-08-cascade-redetection-identity-review`；验证套件由
+Independent-Verification-Agent 独立编写与执行，实现交付与验证轮缺陷处置
+见上两段）：
+
+- 交付摘要：级联重检测四原语（冻结语义见本日实现交付段）的验证套件
+  22 用例 `tests/fusion/object_tracker_redetection_test.cpp` 随
+  test(fusion) commit d8c439d 落地（注册 ctest 项
+  `mirador.fusion.object_tracker_redetection`，LABELS unit）；验证员
+  scratch 复核发现 `record_redetection_recapture` 的 attempts 读取缺
+  回合陈旧键校验（低严重度、诊断字段失真，见上段处置），实现侧修复
+  0a95f79——attempts 读取施加回合视图陈旧键规则、以调用方
+  `lost_sequence` 证据为回合键（`slot->second.episode_lost_sequence ==
+  lost_sequence` 才读槽内计数，否则按新回合报 0，
+  src/fusion/object_tracker.cpp:1628-1637；确认提交已清零状态槽 kLost
+  进入时刻，调用方证据是 recapture 时点唯一可得回合键，与全头证据信任
+  边界一致），头注释同步冻结该键语义（object_tracker.hpp:1408-1415，
+  纯注释澄清已冻结语义，无签名/行为面放宽）；修复回归
+  `RecaptureAttemptsApplyTheCallerEpisodeKeyRule` 随 test(fusion)
+  commit a578628 落地（22 → 23 用例；既有 22 例零改动通过——套件
+  recapture 调用均以匹配键调用，无测试过时）。
+- 验证覆盖：`mirador.fusion.object_tracker_redetection` 23 用例——
+  门判定 3 例（静止画面 `kNone` 一律 kHoldStaticFrame 零触发——计划
+  退出条件与设计 §8 强制负向、判定矩阵显式、未知/终止/非法分类拒绝）；
+  退避 2 例（冻结倍增公式 `min(base × 2^(n-1), max)` 逐帧计、自定义
+  base 与封顶以帧序列计无墙钟）；预算耗尽 3 例（连续失败达
+  `redetect_max_attempts` 由记账入口自身执行 kTerminated 归档显式可见、
+  单次预算首败即终、回合槽/日志放不下显式 `kBudgetExceeded` 且池与
+  回合状态不变）；复捕获 5 例（入口校验矩阵、回合关闭与再丢失新回合、
+  无簿记走入式陈旧槽读作新回合、修复回归三分支——死回合计数不泄漏
+  attempts==0/键匹配精确上报/错键读作新回合且陈旧槽随回合关闭释放、
+  字节足迹等于无失败双实例 + 恰好一条日志记录）；关联记录 1 例（纯
+  诊断不改状态、全量校验）；有界日志 2 例（溢出淘汰最旧并显式计数、
+  `max_redetection_records` 有界）；回合槽生命周期与字节记账 1 例
+  （terminate/淘汰/reset 释放）；身份复核两分支 2 例（复核通过经冻结
+  M7-05 `verify_track` + M7-06 `commit_track_evidence` 延续 ID + 中断
+  事件；证据不足经 `adopt_track` 新 ID + 关联记录）；取消/超时全入口
+  显式转化、双实例逐位确定性、隐私（`RedetectionRecord` 仅 id 与序列，
+  `RULE-10`）与 DOD-03 坐标矩阵（0/90/180/270 旋转 × 奇数 21×15 ×
+  +7 非连续 stride 下复核复捕获链路成立）各 1 例。
+- 门禁（文档同步时点于分支 head a578628 复验）：`cmake --build
+  --preset debug` 增量 up-to-date（干净构建零告警为修复会话证据）；debug
+  全量 ctest 50/50（label 汇总 architecture 7 / property 1 / unit 42，
+  既有 fusion 套件零回归）；新套件直跑 debug 23/23、asan/ubsan 预设直
+  跑各 23/23 且 sanitizer 零报告；clang-format `--dry-run --Werror` 对
+  三改动文件（hpp/cpp/测试）归零；clang-tidy
+  `--warnings-as-errors='*'`（`-p build/debug`）对 `object_tracker.cpp`
+  与新测试文件退出码 0。修复会话缺陷双向证实（/tmp scratch 复现程序，
+  不入仓）：修复前同场景 attempts==1（即上轮报告的缺陷），修复后
+  'A: stale episode event attempts=0' 与 'B: keyed episode event
+  attempts=1' 双向断言通过、开发冒烟累计 137 断言全过——检查具区分
+  力且未伤键内路径。
+- 限制：调用方提供的 `lost_sequence` 与当前回合真实键不符（证据错误）
+  时 attempts 读 0 且陈旧/错键槽仍随回合关闭释放——诊断字段失真由调用
+  方证据负责，与全头证据信任边界一致（头注释冻结）；两回合 kLost 进入
+  序列相同（调用方帧序列不前进）时陈旧性按设计不可分辨（验证员附注
+  口径维持，不另立缺陷）；修复仅触诊断字段——退避调度、门判定与耗尽
+  转移走既有键校验路径，行为零变化；release/tsan/warnings 预设与六预设
+  完整复跑随编排脚本收口——tsan/warnings 侧已由 CI 在分支 head 覆盖
+  （见下方 CI 回填；CI 矩阵无 release 预设，同 M7-03~07 先例）；
+  退避/预算初值为开发冒烟值，M7-09 校准（`DEC-019` 第 5 条）。
+- CI 回填：PR #28 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35917953109](https://github.com/Linductor-alkaid/mirador/actions/runs/35917953109)
+  （head 86c6433，覆盖实现、契约注册、验证套件与文档交付/勾选 commit，
+  37m18s）；首轮通过，无修复往返。

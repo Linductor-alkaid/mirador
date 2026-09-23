@@ -731,6 +731,35 @@ void apply_commit_stores(TargetTrack& track, const CommitPlan& plan, const Track
     }
 }
 
+// ---- M7-08 cascade-redetection helpers ----
+
+/// Backoff wait of the n-th consecutive accounted failure (n >= 1), frozen
+/// formula `min(base * 2^(n-1), max)` over the M7-01 options: the doubling
+/// sequence in frames, capped. The loop breaks at the cap, so it runs at
+/// most log2(max/base) + 1 doublings; `create` validates base in [1, max],
+/// so no overflow is reachable (wait <= max <= int32 max throughout).
+[[nodiscard]] int64_t redetection_backoff_wait(const uint32_t failure_index,
+                                               const ObjectTrackerOptions& options) noexcept {
+    const int64_t base = options.redetect_backoff_base_frames;
+    const int64_t max_wait = options.redetect_backoff_max_frames;
+    int64_t wait = base;
+    for (uint32_t i = 1; i < failure_index && wait < max_wait; ++i) {
+        wait = std::min(wait * 2, max_wait);
+    }
+    return wait;
+}
+
+/// Saturating frame-sequence addition for the scheduled next attempt (the
+/// recorded sequence plus the backoff wait): a caller sequence near the
+/// uint64 maximum saturates instead of wrapping into the past.
+[[nodiscard]] uint64_t saturating_sequence_add(const uint64_t sequence, const int64_t wait) noexcept {
+    constexpr uint64_t kMaxSequence = std::numeric_limits<uint64_t>::max();
+    if (wait <= 0 || sequence > kMaxSequence - static_cast<uint64_t>(wait)) {
+        return kMaxSequence;
+    }
+    return sequence + static_cast<uint64_t>(wait);
+}
+
 }  // namespace
 
 int64_t ObjectTracker::track_bytes(const TargetTrack& track) noexcept {
@@ -789,6 +818,48 @@ int64_t ObjectTracker::erase_state_slot(uint64_t track_id) noexcept {
     return kStateSlotOverheadBytes;
 }
 
+ObjectTracker::RedetectSlots::iterator ObjectTracker::find_redetect_slot(uint64_t track_id) noexcept {
+    return std::lower_bound(redetect_slots_.begin(), redetect_slots_.end(), track_id,
+                            [](const std::pair<uint64_t, RedetectSlot>& slot, uint64_t id) { return slot.first < id; });
+}
+
+ObjectTracker::RedetectSlots::const_iterator ObjectTracker::find_redetect_slot(uint64_t track_id) const noexcept {
+    return std::lower_bound(redetect_slots_.cbegin(), redetect_slots_.cend(), track_id,
+                            [](const std::pair<uint64_t, RedetectSlot>& slot, uint64_t id) { return slot.first < id; });
+}
+
+int64_t ObjectTracker::redetect_slot_bytes(uint64_t track_id) const noexcept {
+    return find_redetect_slot(track_id) != redetect_slots_.cend() ? kRedetectSlotOverheadBytes : 0;
+}
+
+int64_t ObjectTracker::erase_redetect_slot(uint64_t track_id) noexcept {
+    const auto slot = find_redetect_slot(track_id);
+    if (slot == redetect_slots_.end() || slot->first != track_id) {
+        return 0;
+    }
+    redetect_slots_.erase(slot);
+    return kRedetectSlotOverheadBytes;
+}
+
+void ObjectTracker::archive_track(TargetTrack& track, uint64_t frame_sequence) noexcept {
+    const int64_t before = track_bytes(track);
+    track.state = TrackState::kTerminated;
+    track.terminated_sequence = frame_sequence;
+    track.templates.clear();
+    track.negative_templates.clear();
+    track.position_history.clear();
+    track.templates.shrink_to_fit();
+    track.negative_templates.shrink_to_fit();
+    track.position_history.shrink_to_fit();
+    used_bytes_ -= before - track_bytes(track);
+    // The pool-side E2 baseline slot is released with the track's evidence
+    // data (archives stay cheap, M7-01 freeze semantics), and so are the
+    // M7-06 state-machine slot and the M7-08 redetection-episode slot.
+    used_bytes_ -= erase_structure_baseline(track.track_id);
+    used_bytes_ -= erase_state_slot(track.track_id);
+    used_bytes_ -= erase_redetect_slot(track.track_id);
+}
+
 ObjectTracker::EvictionPlan ObjectTracker::plan_eviction(int64_t insertion_bytes) const noexcept {
     EvictionPlan plan;
     const auto already_victim = [&plan](uint64_t id) {
@@ -807,8 +878,8 @@ ObjectTracker::EvictionPlan ObjectTracker::plan_eviction(int64_t insertion_bytes
             }
         }
         plan.victim_ids.push_back(victim->track_id);
-        plan.freed_bytes +=
-            track_bytes(*victim) + baseline_slot_bytes(victim->track_id) + state_slot_bytes(victim->track_id);
+        plan.freed_bytes += track_bytes(*victim) + baseline_slot_bytes(victim->track_id) +
+                            state_slot_bytes(victim->track_id) + redetect_slot_bytes(victim->track_id);
     }
     return plan;
 }
@@ -843,6 +914,9 @@ Result<ObjectTracker> ObjectTracker::create(const ObjectTrackerOptions& options)
         options.redetect_backoff_max_frames < options.redetect_backoff_base_frames ||
         options.redetect_max_attempts < 1) {
         return Status{ErrorCode::kInvalidArgument, "redetection backoff parameters invalid"};
+    }
+    if (options.max_redetection_records < 1 || options.max_redetection_records > 4096) {
+        return Status{ErrorCode::kInvalidArgument, "max_redetection_records outside its documented range"};
     }
     ObjectTracker tracker;
     tracker.options_ = options;
@@ -896,7 +970,8 @@ Result<TrackAdoption> ObjectTracker::adopt_track(const VisualRegion& region, con
     // Plan the eviction (count pressure, then byte pressure) without mutating
     // the pool: terminated tracks first, then oldest by (last_verified_sequence,
     // track_id); every victim id is reported (RULE-06 explicit eviction).
-    // A victim's pool-side E2 baseline slot (M7-05) is freed with it.
+    // A victim's pool-side E2 baseline (M7-05), state-machine (M7-06) and
+    // redetection-episode (M7-08) slots are freed with it.
     const EvictionPlan plan = plan_eviction(insertion_bytes);
 
     // Capture the adoption template before any eviction commits: the capture
@@ -922,6 +997,7 @@ Result<TrackAdoption> ObjectTracker::adopt_track(const VisualRegion& region, con
     for (const uint64_t victim_id : adoption.evicted_track_ids) {
         erase_structure_baseline(victim_id);
         erase_state_slot(victim_id);
+        erase_redetect_slot(victim_id);
         const auto it = std::find_if(tracks_.begin(), tracks_.end(),
                                      [victim_id](const TargetTrack& track) { return track.track_id == victim_id; });
         tracks_.erase(it);
@@ -962,21 +1038,7 @@ Result<void> ObjectTracker::terminate(uint64_t track_id, uint64_t frame_sequence
     if (track->state == TrackState::kTerminated) {
         return Status{ErrorCode::kInvalidArgument, "terminate: track already terminated"};
     }
-    const int64_t before = track_bytes(*track);
-    track->state = TrackState::kTerminated;
-    track->terminated_sequence = frame_sequence;
-    track->templates.clear();
-    track->negative_templates.clear();
-    track->position_history.clear();
-    track->templates.shrink_to_fit();
-    track->negative_templates.shrink_to_fit();
-    track->position_history.shrink_to_fit();
-    used_bytes_ -= before - track_bytes(*track);
-    // The pool-side E2 baseline slot is released with the track's evidence
-    // data (archives stay cheap, M7-01 freeze semantics), and so is the
-    // M7-06 state-machine slot.
-    used_bytes_ -= erase_structure_baseline(track_id);
-    used_bytes_ -= erase_state_slot(track_id);
+    archive_track(*track, frame_sequence);
     return Status::success();
 }
 
@@ -1396,6 +1458,258 @@ Result<std::vector<uint64_t>> ObjectTracker::sweep_generation_lag(uint64_t frame
     return swept;
 }
 
+Result<RedetectionGateDecision> ObjectTracker::evaluate_redetection_gate(
+    uint64_t track_id, const ChangeClassification classification, const uint64_t frame_sequence,
+    const ExecutionContext& context) const noexcept {
+    // Entry-only cancellation poll (the `evaluate_change_gate` precedent —
+    // an O(1) bounded read).
+    if (is_cancelled(context)) {
+        return Status{ErrorCode::kCancelled, "evaluate_redetection_gate cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return Status{ErrorCode::kTimeout, "evaluate_redetection_gate deadline reached"};
+    }
+    switch (classification) {
+        case ChangeClassification::kNone:
+        case ChangeClassification::kPartial:
+        case ChangeClassification::kGlobal:
+            break;
+        default:
+            return Status{ErrorCode::kInvalidArgument, "evaluate_redetection_gate unknown change classification"};
+    }
+    const TargetTrack* track = find_track(track_id);
+    if (track == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "evaluate_redetection_gate: unknown track id"};
+    }
+    if (track->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "evaluate_redetection_gate: track already terminated"};
+    }
+
+    RedetectionGateDecision decision;
+    decision.track_id = track_id;
+    decision.state = track->state;
+    if (track->state != TrackState::kLost) {
+        // Redetection is the kLost path; live tracks get an explicit
+        // kInactive verdict, never a silent skip (the M7-03 pattern).
+        decision.verdict = RedetectionGateVerdict::kInactive;
+        return decision;
+    }
+    if (classification == ChangeClassification::kNone) {
+        // Change-gate coupling: a static frame never triggers redetection
+        // (design section 7; the zero-trigger negative-test anchor).
+        decision.verdict = RedetectionGateVerdict::kHoldStaticFrame;
+        return decision;
+    }
+    // Episode view: the slot describes the current loss episode only when its
+    // key matches the track state slot's kLost entry sequence; a stale slot
+    // (recaptured without recapture bookkeeping, then re-lost) reads as the
+    // fresh episode it is. Every kLost track holds a state slot with its
+    // entry sequence (frozen M7-06/M7-07 loss paths) — the fallback below is
+    // defensive and deterministic.
+    const auto state_slot = find_state_slot(track_id);
+    const uint64_t episode_key =
+        (state_slot != state_slots_.cend() && state_slot->first == track_id) ? state_slot->second.lost_sequence : 0;
+    const auto slot = find_redetect_slot(track_id);
+    const bool slot_valid =
+        slot != redetect_slots_.cend() && slot->first == track_id && slot->second.episode_lost_sequence == episode_key;
+    decision.attempts = slot_valid ? slot->second.consecutive_failures : 0;
+    const uint64_t next_attempt = slot_valid ? slot->second.next_attempt_sequence : 0;
+    if (frame_sequence < next_attempt) {
+        decision.verdict = RedetectionGateVerdict::kHoldBackoff;
+        decision.wait_frames = static_cast<uint32_t>(
+            std::min<uint64_t>(next_attempt - frame_sequence, std::numeric_limits<uint32_t>::max()));
+        return decision;
+    }
+    // Reachable only with attempts < redetect_max_attempts: the max-th
+    // accounted failure terminates the track, so an exhausted budget is the
+    // visible kTerminated archive, never a gate verdict.
+    decision.verdict = RedetectionGateVerdict::kTrigger;
+    return decision;
+}
+
+Result<RedetectionFailureRecord> ObjectTracker::record_redetection_failure(uint64_t track_id,
+                                                                           const uint64_t frame_sequence,
+                                                                           const ExecutionContext& context) noexcept {
+    // Entry-only cancellation poll (the `compensate_global_motion`
+    // precedent — an O(1) bounded entry, infallible after validation).
+    if (is_cancelled(context)) {
+        return Status{ErrorCode::kCancelled, "record_redetection_failure cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return Status{ErrorCode::kTimeout, "record_redetection_failure deadline reached"};
+    }
+    TargetTrack* track = find_track_mutable(track_id);
+    if (track == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_failure: unknown track id"};
+    }
+    if (track->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_failure: track already terminated"};
+    }
+    if (track->state != TrackState::kLost) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_failure requires a kLost track"};
+    }
+
+    // Episode view (see evaluate_redetection_gate): the slot counts for the
+    // current loss episode only; a stale slot restarts the count.
+    const auto state_slot = find_state_slot(track_id);
+    const uint64_t episode_key =
+        (state_slot != state_slots_.end() && state_slot->first == track_id) ? state_slot->second.lost_sequence : 0;
+    const auto slot = find_redetect_slot(track_id);
+    const bool slot_valid =
+        slot != redetect_slots_.end() && slot->first == track_id && slot->second.episode_lost_sequence == episode_key;
+    const uint32_t new_failures = (slot_valid ? slot->second.consecutive_failures : 0U) + 1U;
+
+    RedetectionFailureRecord record;
+    record.track_id = track_id;
+    record.attempts = new_failures;
+
+    // Budget exhaustion: THIS entry performs the kLost → kTerminated edge
+    // with exactly `terminate`'s archive semantics — the explicit, visible
+    // end state of design section 7, never a silent pool clear.
+    if (new_failures >= static_cast<uint32_t>(options_.redetect_max_attempts)) {
+        archive_track(*track, frame_sequence);
+        record.state = TrackState::kTerminated;
+        return record;
+    }
+
+    const int64_t wait = redetection_backoff_wait(new_failures, options_);
+    const uint64_t next_attempt = saturating_sequence_add(frame_sequence, wait);
+    const bool slot_exists = slot != redetect_slots_.end() && slot->first == track_id;
+    if (!slot_exists) {
+        // First accounted failure of the episode: allocate the slot with a
+        // budget check (RULE-06); any failure leaves the pool untouched.
+        if (used_bytes_ + kRedetectSlotOverheadBytes > options_.pool_budget_bytes) {
+            return Status{ErrorCode::kBudgetExceeded,
+                          "record_redetection_failure slot allocation does not fit the pool budget"};
+        }
+        redetect_slots_.insert(slot, {track_id, RedetectSlot{episode_key, next_attempt, new_failures}});
+        used_bytes_ += kRedetectSlotOverheadBytes;
+    } else {
+        // Existing (valid or stale) slot: the fixed-size update is
+        // byte-neutral.
+        slot->second = RedetectSlot{episode_key, next_attempt, new_failures};
+    }
+    record.state = TrackState::kLost;
+    record.backoff_frames = static_cast<int32_t>(wait);
+    record.next_attempt_sequence = next_attempt;
+    return record;
+}
+
+Result<TrackInterruptionEvent> ObjectTracker::record_redetection_recapture(uint64_t track_id,
+                                                                           const uint64_t frame_sequence,
+                                                                           const uint64_t lost_sequence,
+                                                                           const ExecutionContext& context) noexcept {
+    // Entry-only cancellation poll (as record_redetection_failure).
+    if (is_cancelled(context)) {
+        return Status{ErrorCode::kCancelled, "record_redetection_recapture cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return Status{ErrorCode::kTimeout, "record_redetection_recapture deadline reached"};
+    }
+    TargetTrack* track = find_track_mutable(track_id);
+    if (track == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_recapture: unknown track id"};
+    }
+    if (track->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_recapture: track already terminated"};
+    }
+    if (track->state != TrackState::kTracking) {
+        // The confirming commit must have happened: the kTracking state IS
+        // the recapture proof (frozen M7-06 edge — this entry records it,
+        // it does not produce it).
+        return Status{ErrorCode::kInvalidArgument,
+                      "record_redetection_recapture requires a recaptured (kTracking) track"};
+    }
+    if (lost_sequence > frame_sequence) {
+        return Status{ErrorCode::kInvalidArgument,
+                      "record_redetection_recapture lost_sequence exceeds the recapture sequence"};
+    }
+
+    // Episode view — the same staleness rule as the gate and the failure
+    // accounting, keyed by the caller's `lost_sequence` evidence: the state
+    // slot's entry sequence was already zeroed by the confirming commit, so
+    // the supplied evidence is the only episode key available here. A slot
+    // keyed by an older episode (a loss episode that ended without
+    // recapture bookkeeping) reads as the fresh episode it is: attempts 0.
+    const auto slot = find_redetect_slot(track_id);
+    const bool slot_valid =
+        slot != redetect_slots_.end() && slot->first == track_id && slot->second.episode_lost_sequence == lost_sequence;
+    const uint32_t attempts = slot_valid ? slot->second.consecutive_failures : 0;
+
+    // Plan the log append before any mutation (RULE-06): on error neither
+    // the log nor the episode slot changes.
+    if (const auto appended = append_redetection_record(RedetectionRecord{
+            RedetectionRecordKind::kInterruption, frame_sequence, track_id, 0, lost_sequence, attempts});
+        !appended.ok()) {
+        return appended.status();
+    }
+    // Episode closed: release the slot (a later loss starts a fresh episode).
+    used_bytes_ -= erase_redetect_slot(track_id);
+    return TrackInterruptionEvent{track_id, lost_sequence, frame_sequence, attempts};
+}
+
+Result<RedetectionAssociation> ObjectTracker::record_redetection_association(const uint64_t predecessor_track_id,
+                                                                             const uint64_t successor_track_id,
+                                                                             const uint64_t frame_sequence,
+                                                                             const ExecutionContext& context) noexcept {
+    // Entry-only cancellation poll (as record_redetection_failure).
+    if (is_cancelled(context)) {
+        return Status{ErrorCode::kCancelled, "record_redetection_association cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return Status{ErrorCode::kTimeout, "record_redetection_association deadline reached"};
+    }
+    if (predecessor_track_id == successor_track_id) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_association ids must differ"};
+    }
+    const TargetTrack* predecessor = find_track(predecessor_track_id);
+    if (predecessor == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_association: unknown predecessor track id"};
+    }
+    if (predecessor->state != TrackState::kLost) {
+        // The association documents a replaced open identity; a terminated
+        // (identity closed) or live predecessor is not that.
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_association requires a kLost predecessor"};
+    }
+    const TargetTrack* successor = find_track(successor_track_id);
+    if (successor == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_association: unknown successor track id"};
+    }
+    if (successor->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "record_redetection_association: successor already terminated"};
+    }
+    if (const auto appended = append_redetection_record(RedetectionRecord{
+            RedetectionRecordKind::kAssociation, frame_sequence, predecessor_track_id, successor_track_id, 0, 0});
+        !appended.ok()) {
+        return appended.status();
+    }
+    return RedetectionAssociation{predecessor_track_id, successor_track_id, frame_sequence};
+}
+
+Result<void> ObjectTracker::append_redetection_record(const RedetectionRecord& record) noexcept {
+    // One fixed-size element: the count-pressure drop of the oldest entry
+    // always frees exactly the bytes the insertion needs (the
+    // record_observation rule), so the byte check can only fail below the
+    // history bound (explicit error, log untouched — never silent growth).
+    const bool at_capacity = redetection_records_.size() >= static_cast<size_t>(options_.max_redetection_records);
+    const int64_t freed = at_capacity ? kRedetectionRecordOverheadBytes : 0;
+    if (used_bytes_ - freed + kRedetectionRecordOverheadBytes > options_.pool_budget_bytes) {
+        return Status{ErrorCode::kBudgetExceeded, "redetection record does not fit the pool budget"};
+    }
+    if (at_capacity) {
+        redetection_records_.erase(redetection_records_.begin());
+        ++evicted_redetection_records_;
+        used_bytes_ -= freed;
+    }
+    redetection_records_.push_back(record);
+    used_bytes_ += kRedetectionRecordOverheadBytes;
+    return Status::success();
+}
+
+std::vector<RedetectionRecord> ObjectTracker::redetection_records() const noexcept {
+    return redetection_records_;
+}
+
 Result<RectI> ObjectTracker::verification_roi(uint64_t track_id, const ImageView& presented_view) const noexcept {
     if (auto validated = validate(presented_view); !validated.ok()) {
         return validated.status();
@@ -1489,12 +1803,15 @@ void ObjectTracker::reset() noexcept {
     tracks_.clear();
     structure_baselines_.clear();
     state_slots_.clear();
+    redetect_slots_.clear();
+    redetection_records_.clear();
     layout_generation_ = 0;
     used_bytes_ = 0;
     evicted_count_ = 0;
     evicted_observations_ = 0;
     evicted_templates_ = 0;
     evicted_negative_templates_ = 0;
+    evicted_redetection_records_ = 0;
 }
 
 std::vector<uint64_t> ObjectTracker::track_ids() const noexcept {

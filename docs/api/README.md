@@ -74,6 +74,18 @@ NCC 峰值+峰旁瓣质量与 E2 闭合结构一致性的纯逐 track 双通道�
 的池级位移校正，`MotionCompensationResult`/`MotionCompensationEntry` 与
 `min_compensation_confidence` 置信度门选项）与 `sweep_generation_lag`
 （`max_generation_lag` 代际耗尽 → kLost 的显式清扫 trace，设计 §6.3/§6.4）；
+M7-08 起含级联重检测原语与身份复核簿记 `evaluate_redetection_gate`
+（kNone 分类零触发的纯 const 退避门查询，设计 §7 变化门控联动）、
+`record_redetection_failure`（失败尝试记账：帧序列倍增退避
+`min(base × 2^(n-1), max)`，达 `redetect_max_attempts` 由该入口执行
+kLost → kTerminated 归档转移——预算耗尽显式失败）、
+`record_redetection_recapture`（复捕获确认后有界中断事件写入与回合关闭）
+与 `record_redetection_association`（新 ID 分支的身份交接关联，
+`RedetectionGateVerdict`/`RedetectionGateDecision`/`RedetectionFailureRecord`/
+`TrackInterruptionEvent`/`RedetectionAssociation`/`RedetectionRecord`、
+`max_redetection_records` 选项与 `kRedetectSlotOverheadBytes`/
+`kRedetectionRecordOverheadBytes`，身份复核本体复用 `verify_track` +
+`commit_track_evidence` 冻结契约，设计 §7）；
 **Experimental**：随 M7 go/no-go 判定冻结，冻结前不计兼容性承诺）、
 `perception_session.hpp`（感知入口：变化分析 → 按需 Backend → 坐标恢复 → 缓存 →
 融合发布，`DEC-013`）。

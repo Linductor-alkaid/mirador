@@ -208,6 +208,12 @@ struct ObjectTrackerOptions {
     /// Maximum redetection attempts before a kLost track becomes kTerminated.
     /// >= 1.
     int32_t redetect_max_attempts = 8;
+    /// Capacity of the pool-wide bounded redetection-record log (M7-08): the
+    /// interruption events (`record_redetection_recapture`) and recapture
+    /// associations (`record_redetection_association`) share one log and one
+    /// capacity; overflow drops the oldest record, explicitly counted in
+    /// `evicted_redetection_record_count()` (RULE-06). [1, 4096].
+    int32_t max_redetection_records = 64;
 };
 
 /// Outcome of one pool adoption: the new track id plus the ids of tracks
@@ -512,6 +518,180 @@ struct MotionCompensationResult {
     std::vector<MotionCompensationEntry> tracks;
 };
 
+// ---- Cascade redetection primitives and identity review (M7-08;
+// object-tracking design section 7 — frozen contract decisions recorded here
+// and on the four entries). Shape decision: like M7-03/M7-05/M7-06/M7-07,
+// this milestone delivers pool-side primitives and the pipeline stays with
+// the caller (RULE-12 — the tracker parameterizes backoff and budget state,
+// it never decides to detect, never schedules and holds no thread or timer,
+// DEC-001/RULE-03). The composed redetection pipeline the upper layer drives
+// per design section 7:
+//   gate (`evaluate_redetection_gate`, a pure read) reports kTrigger →
+//   coarse recall is the caller's Detector Backend call (this pool consumes
+//   none of it and ships no candidate filtering of its own) → identity
+//   review of the candidate is `verify_track` reused as frozen (M7-05; it
+//   accepts kLost tracks, the stale position prior never gates — design
+//   section 7) → confirming evidence is committed through
+//   `commit_track_evidence` as frozen (M7-06 — the kLost → kTracking edge
+//   is the state machine's, not rewritten here) → `record_redetection_recapture`
+//   appends the interruption event and closes the episode; review evidence
+//   insufficient → the caller adopts the new region through the normal
+//   fusion path (`adopt_track`; DEC-010 — the new-id branch never bypasses
+//   the static fusion semantics) → `record_redetection_association` records
+//   the identity handoff; every failed attempt is accounted by
+//   `record_redetection_failure`, and reaching
+//   `options().redetect_max_attempts` consecutive failures makes THAT entry
+//   perform the kLost → kTerminated transition — the budget-exhausted end
+//   state is explicit and visible, the pool is never cleared silently.
+//
+// const/state-change boundary (the M7-03/05/06 freeze pattern):
+// `evaluate_redetection_gate` is the only pure const query of this section
+// (the "should redetection run now" backoff-state read); the three record
+// entries are the state changes (attempt accounting with the exhaustion
+// edge, episode closure with the event append, association append).
+//
+// Episode bookkeeping (RULE-06): one loss episode per kLost stretch of a
+// track, held in a pool-side slot (`kRedetectSlotOverheadBytes`, the
+// M7-05/M7-06 parallel-storage pattern; the frozen `TargetTrack` layout is
+// untouched) keyed by the episode's kLost entry sequence. The slot is
+// allocated by the first accounted failure, read by the gate, cleared by
+// `record_redetection_recapture`, `terminate` (including the exhaustion
+// edge), track eviction and `reset`. A slot whose key no longer matches the
+// track's current kLost entry sequence is stale (the track was recaptured
+// without recapture bookkeeping and re-lost) and reads as the fresh episode
+// it is. Consecutive-failure counts and backoff waits count the caller's
+// frame sequences, never wall-clock time (the M7-06 RULE-03 pattern).
+//
+// Trace records (privacy, RULE-10/DOD-06): interruption events and
+// associations carry ids and frame sequences only — no coordinates, no
+// template or image content, no semantics text. Both kinds share one bounded
+// pool-wide log (`options().max_redetection_records` capacity +
+// `kRedetectionRecordOverheadBytes` each, accounted in `byte_size()` and
+// `pool_budget_bytes`); overflow drops the oldest record with an explicit
+// counter, and only `reset` clears the log. ----
+
+/// Verdict of one `evaluate_redetection_gate` call (design section 7 trigger
+/// and throttle primitives; RULE-12 — the verdict classifies, the upper
+/// layer decides and drives every actual Detector call).
+enum class RedetectionGateVerdict : uint8_t {
+    /// Change present, the backoff window has elapsed and the attempt budget
+    /// is not exhausted: the upper layer may spend one redetection attempt
+    /// (coarse recall + identity review) this frame.
+    kTrigger,
+    /// The frame classification is kNone: a static frame never triggers
+    /// redetection (design section 7 — the near-zero change gate of section
+    /// 6.1 applies to redetection itself; the zero-trigger negative-test
+    /// anchor).
+    kHoldStaticFrame,
+    /// Change present, but the frame sequence is inside the backoff window
+    /// scheduled by the previous accounted failure (`wait_frames` reports
+    /// the remaining wait).
+    kHoldBackoff,
+    /// The track is not kLost (kTracking/kUncertain): redetection does not
+    /// apply and the gate reports the state explicitly instead of skipping it
+    /// silently (the M7-03 kInactive pattern; degradation is the M7-06 state
+    /// machine's contract).
+    kInactive,
+};
+
+/// Deterministic outcome of one `evaluate_redetection_gate` call (M7-08): a
+/// pure per-track classification — no pool state changes on any path.
+struct RedetectionGateDecision {
+    uint64_t track_id = 0;
+    /// Track state at decision time (echo; the gate never changes it).
+    TrackState state = TrackState::kLost;
+    RedetectionGateVerdict verdict = RedetectionGateVerdict::kInactive;
+    /// Consecutive failed redetection attempts accounted for the current loss
+    /// episode (0 before the first accounted failure; a stale episode slot
+    /// reads as 0 — see the section note above).
+    uint32_t attempts = 0;
+    /// Remaining backoff wait in frames; nonzero only for kHoldBackoff
+    /// verdicts. Saturated at uint32 max (reachable only when the caller
+    /// moves its frame sequence backwards).
+    uint32_t wait_frames = 0;
+};
+
+/// Deterministic outcome of one `record_redetection_failure` call (M7-08):
+/// the accounted attempt state after the record. When the attempt budget is
+/// exhausted, `state` is kTerminated (the explicit, visible failure of
+/// design section 7 — the archive semantics are exactly `terminate`'s) and
+/// the backoff fields are zero: a terminated identity schedules nothing.
+struct RedetectionFailureRecord {
+    uint64_t track_id = 0;
+    /// Track state after the record: kLost, or kTerminated on exhaustion.
+    TrackState state = TrackState::kLost;
+    /// Consecutive failed attempts after this record (>= 1).
+    uint32_t attempts = 0;
+    /// Backoff wait this failure scheduled, in frames: the frozen doubling
+    /// sequence `min(base * 2^(attempts-1), max)` over
+    /// `options().redetect_backoff_base_frames` /
+    /// `redetect_backoff_max_frames`; 0 when the record terminated the track.
+    int32_t backoff_frames = 0;
+    /// First frame sequence at which the next attempt may trigger
+    /// (the recorded frame sequence + `backoff_frames`, saturating); 0 when
+    /// the record terminated the track.
+    uint64_t next_attempt_sequence = 0;
+};
+
+/// Frozen interruption-event record (M7-08; design section 7 ID semantics —
+/// "review passed → the track_id continues, the interruption is recorded").
+/// Appended to the bounded pool log by `record_redetection_recapture` after
+/// the confirming `commit_track_evidence`; ids and frame sequences only
+/// (RULE-10).
+struct TrackInterruptionEvent {
+    uint64_t track_id = 0;  ///< the recaptured (identity-continued) track
+    /// Frame sequence at which the track entered kLost, as supplied by the
+    /// caller's evidence (the state machine's kLost entry sequence is zeroed
+    /// by the confirming commit, so the caller — which observed the loss
+    /// through the commit echo or the sweep trace — carries it; the same
+    /// evidence-trust boundary as every method of this header).
+    uint64_t lost_sequence = 0;
+    /// Frame sequence of the recapture (the recorded call's sequence).
+    uint64_t recapture_sequence = 0;
+    /// Failed attempts the episode had accounted when it ended.
+    uint32_t attempts = 0;
+};
+
+/// Frozen recapture-association record (M7-08; design section 7 ID
+/// semantics — "evidence insufficient → a new id is assigned by the fusion
+/// rules, the association is recorded"). Appended by
+/// `record_redetection_association`; a diagnostic identity-handoff note
+/// only — neither track's state is changed by it.
+struct RedetectionAssociation {
+    /// The kLost track whose identity review did not confirm (the open
+    /// identity that was replaced).
+    uint64_t predecessor_track_id = 0;
+    /// The newly adopted track (its id came through `adopt_track` from the
+    /// fusion path — DEC-010).
+    uint64_t successor_track_id = 0;
+    /// Frame sequence the association was recorded at.
+    uint64_t sequence = 0;
+};
+
+/// Kind tag of one bounded redetection-log entry (M7-08).
+enum class RedetectionRecordKind : uint8_t {
+    kInterruption,  ///< a `TrackInterruptionEvent` (identity continued)
+    kAssociation,   ///< a `RedetectionAssociation` (identity handed off)
+};
+
+/// One entry of the pool-wide bounded redetection log (M7-08): the stored
+/// form of the two record kinds above, oldest first, capacity
+/// `options().max_redetection_records`, overflow drops the oldest (counted).
+/// Field mapping — kInterruption: `track_id` is the recaptured track,
+/// `related_track_id` is 0, `lost_sequence`/`attempts` carry the event;
+/// kAssociation: `track_id` is the predecessor, `related_track_id` the
+/// successor, `lost_sequence`/`attempts` are 0. Ids and sequences only
+/// (RULE-10); returned by `redetection_records()`.
+struct RedetectionRecord {
+    RedetectionRecordKind kind = RedetectionRecordKind::kInterruption;
+    /// Frame sequence the record was appended at.
+    uint64_t sequence = 0;
+    uint64_t track_id = 0;
+    uint64_t related_track_id = 0;
+    uint64_t lost_sequence = 0;  ///< kInterruption only
+    uint32_t attempts = 0;       ///< kInterruption only
+};
+
 /// Bounded cross-frame target pool over fused regions (object-tracking design
 /// section 5, SCOPE-13). The pool is the structural core of the M7 tracker:
 /// adoption captures the initial appearance template from the frame, every
@@ -536,6 +716,20 @@ public:
     /// (the same pool-side parallel storage pattern as the M7-05 baseline
     /// slots; the `TargetTrack` layout stays frozen).
     static constexpr int64_t kStateSlotOverheadBytes = 16;
+    /// Byte overhead of one track's redetection episode slot (M7-08): the
+    /// loss-episode bookkeeping — the episode's kLost entry sequence (key),
+    /// the consecutive failed attempt count and the scheduled next-attempt
+    /// sequence. At most one slot per track, allocated by the first accounted
+    /// redetection failure, released by `record_redetection_recapture`,
+    /// `terminate` (including the budget-exhaustion edge of
+    /// `record_redetection_failure`), track eviction and `reset` (the same
+    /// pool-side parallel storage pattern as the M7-05 baseline and M7-06
+    /// state slots; the `TargetTrack` layout stays frozen).
+    static constexpr int64_t kRedetectSlotOverheadBytes = 24;
+    /// Byte overhead of one record of the bounded pool-wide redetection log
+    /// (M7-08): interruption events and recapture associations, ids and
+    /// frame sequences only.
+    static constexpr int64_t kRedetectionRecordOverheadBytes = 48;
 
     ObjectTracker() noexcept = default;
     ObjectTracker(const ObjectTracker&) = delete;
@@ -585,13 +779,14 @@ public:
     /// templates, negative templates and position history are released so
     /// archives stay cheap; the identity record (bounds, semantics, state)
     /// stays visible ("failure is visible", design section 4). The pool-side
-    /// E2 baseline (M7-05) and state-machine (M7-06) slots are released with
-    /// it. This is the caller-driven kLost/kTracking → kTerminated edge of
-    /// the state machine (M7-06); the redetect-budget-exhausted policy that
-    /// decides to call it is M7-08's (RULE-12). Errors:
+    /// E2 baseline (M7-05), state-machine (M7-06) and redetection-episode
+    /// (M7-08) slots are released with it. This is the caller-driven
+    /// kLost/kTracking → kTerminated edge of the state machine (M7-06); the
+    /// redetect-budget-exhausted edge is M7-08's and is performed by
+    /// `record_redetection_failure` itself (same archive semantics, no need
+    /// to call this entry there). Errors:
     /// kInvalidArgument for an unknown or already-terminated id. Never throws.
     [[nodiscard]] Result<void> terminate(uint64_t track_id, uint64_t frame_sequence) noexcept;
-    [[nodiscard]] Result<void> terminate(uint64_t track_id) noexcept;
 
     /// Appends one position observation to the track's bounded history (M7-02
     /// pool structure): the entry is stamped with this pool's current layout
@@ -914,7 +1109,9 @@ public:
     ///     rule only — the redetection primitives and the identity-review
     ///     entry that produce such commits are M7-08 work (`verify_track`
     ///     already accepts non-terminated tracks for that reuse), and the
-    ///     interruption-event log stays with M7-08 too.
+    ///     interruption-event log stayed with M7-08 too: it is
+    ///     `record_redetection_recapture`, called by the redetection
+    ///     pipeline after this commit confirms the recapture.
     ///   - kPlaceholder / kVetoed: kTracking and kUncertain degrade to
     ///     kUncertain — a vetoed commit is excluded-candidate evidence, so
     ///     the appearance channel has nothing to confirm with this frame —
@@ -1115,6 +1312,150 @@ public:
     [[nodiscard]] Result<std::vector<uint64_t>> sweep_generation_lag(uint64_t frame_sequence,
                                                                      const ExecutionContext& context = {}) noexcept;
 
+    /// Redetection gate of one kLost track (M7-08; object-tracking design
+    /// section 7, the trigger and throttle primitives — RULE-12: this entry
+    /// only classifies, the upper layer decides and drives every Detector
+    /// call). A pure read (`const`): no pool state changes on any path, no
+    /// scheduling, no thread, no timer (RULE-03). Coupling with the change
+    /// gate: the caller's M1 classification decides eligibility — a kNone
+    /// (static) frame never triggers redetection (the design section 7
+    /// "static frame, no retry" rule, the same near-zero gate that section
+    /// 6.1 applies to verification; the zero-trigger negative-test anchor) —
+    /// while kPartial/kGlobal frames are eligible. Change ROIs are
+    /// deliberately not consumed: a kLost track has no valid position prior
+    /// to intersect with (the stale prior must not gate a recapture, the
+    /// frozen M7-06 decision), so only the classification carries gate
+    /// information for this path.
+    ///
+    /// Verdicts (see `RedetectionGateVerdict`): kInactive for live non-kLost
+    /// tracks (explicit echo, never a silent skip); for kLost tracks
+    /// kHoldStaticFrame under kNone, otherwise the episode's backoff state
+    /// decides — kHoldBackoff while `frame_sequence` is before the scheduled
+    /// next-attempt sequence (`wait_frames` reports the remaining wait),
+    /// else kTrigger. The episode view reads the track's redetection slot
+    /// (frozen M7-08 shape, see the section note): attempts are the
+    /// consecutive failures accounted for the CURRENT loss episode — a slot
+    /// keyed by an older episode (recaptured without recapture bookkeeping,
+    /// then re-lost) reads as the fresh episode it is. Invariant: a kLost
+    /// track has always accounted fewer failures than
+    /// `options().redetect_max_attempts` — the max-th accounted failure
+    /// terminates the track (`record_redetection_failure`), so the exhausted
+    /// end state is the visible kTerminated archive, never a gate verdict.
+    ///
+    /// Entry-only cancellation poll (the `evaluate_change_gate` precedent:
+    /// an O(1) bounded read, so a mid-read poll could only abort a verdict
+    /// that costs nothing to redo). Determinism: identical inputs produce
+    /// bit-identical decisions. Errors: kInvalidArgument for an unknown
+    /// classification value, an unknown track id, or a terminated track
+    /// (identity closed — the per-track-entry rule of `verify_track`);
+    /// kCancelled/kTimeout from `context`. Never throws.
+    [[nodiscard]] Result<RedetectionGateDecision> evaluate_redetection_gate(
+        uint64_t track_id, ChangeClassification classification, uint64_t frame_sequence,
+        const ExecutionContext& context = {}) const noexcept;
+
+    /// Accounts one failed redetection attempt of one kLost track (M7-08;
+    /// the attempt-bookkeeping state change of the frozen const/state-change
+    /// boundary). The record IS the caller's declaration that an attempt was
+    /// made and failed (evidence trust — the pool observes no Detector call
+    /// of its own). Effects, planned before anything mutates:
+    ///   - The episode's consecutive-failure count increments (a slot keyed
+    ///     by an older episode counts as a fresh episode: the count restarts
+    ///     at 1).
+    ///   - Before exhaustion: the frozen doubling backoff
+    ///     `min(base * 2^(attempts-1), max)` is scheduled — the returned
+    ///     record carries the wait and the saturating
+    ///     `frame_sequence + backoff_frames` next-attempt sequence; the gate
+    ///     holds subsequent triggers until that sequence. Frame counting,
+    ///     never wall-clock (RULE-03).
+    ///   - At exhaustion — the attempt count reaches
+    ///     `options().redetect_max_attempts` — THIS entry performs the
+    ///     kLost → kTerminated transition with exactly `terminate`'s archive
+    ///     semantics (identity record stays, evidence stores and pool-side
+    ///     slots are released, `terminated_sequence` stamped): the
+    ///     budget-exhausted end state of design section 7, explicit and
+    ///     visible, never a silent pool clear. The record reports the
+    ///     kTerminated state with zeroed backoff fields.
+    ///
+    /// The redetection-episode slot allocation (first accounted failure) is
+    /// budget-checked (`kRedetectSlotOverheadBytes`); on any error the pool
+    /// is untouched. Entry-only cancellation poll (the
+    /// `compensate_global_motion` precedent: an O(1) bounded entry,
+    /// infallible after validation). Determinism: identical inputs produce
+    /// bit-identical records. Errors: kInvalidArgument for an unknown track
+    /// id, a terminated track, or a track that is not kLost (redetection is
+    /// the kLost path; kTracking/kUncertain accounting would fabricate an
+    /// episode); kBudgetExceeded when the slot allocation does not fit
+    /// `pool_budget_bytes`; kCancelled/kTimeout from `context`. Never throws.
+    [[nodiscard]] Result<RedetectionFailureRecord> record_redetection_failure(
+        uint64_t track_id, uint64_t frame_sequence, const ExecutionContext& context = {}) noexcept;
+
+    /// Records the interruption event of a recaptured track (M7-08; design
+    /// section 7 ID semantics — review passed, the track_id continues, the
+    /// interruption is recorded). Call AFTER the confirming
+    /// `commit_track_evidence`: the track must be kTracking again (that
+    /// state IS the recapture proof; the kLost → kTracking edge itself
+    /// stays exclusively the frozen M7-06 state machine's). The event —
+    /// `TrackInterruptionEvent`: the caller-supplied `lost_sequence`
+    /// evidence, the recapture `frame_sequence`, and the episode's accounted
+    /// failure count — is appended to the bounded pool-wide redetection log
+    /// and the episode slot is released (the episode is closed; a later
+    /// loss starts fresh). The log append is planned before anything
+    /// mutates: on any error neither the log nor the episode slot changes.
+    ///
+    /// `lost_sequence` is the caller's evidence (the state machine zeroes
+    /// the kLost entry sequence on the confirming commit, so the pool cannot
+    /// recover it — the caller observed the loss through the commit echo or
+    /// the sweep trace and carries it; the same evidence-trust boundary as
+    /// every input of this header). It must not exceed the recapture
+    /// sequence. Zero accounted failures (first-attempt recapture) record
+    /// `attempts == 0` legitimately. The recorded count applies the
+    /// section's stale-reads-fresh rule with the caller's evidence as the
+    /// episode key (the only key available here — the confirming commit has
+    /// already zeroed the state slot's entry sequence): the slot's count is
+    /// read only when the slot's key matches the supplied `lost_sequence`;
+    /// a slot keyed by an older episode — a loss episode that ended without
+    /// recapture bookkeeping, then a re-loss — reads as the fresh episode it
+    /// is and reports 0, never the dead episode's count.
+    ///
+    /// Entry-only cancellation poll (as `record_redetection_failure`).
+    /// Determinism: identical inputs produce bit-identical events and log
+    /// order. Errors: kInvalidArgument for an unknown track id, a
+    /// terminated track, a track that is not kTracking (the recapture commit
+    /// has not happened), or `lost_sequence > frame_sequence`;
+    /// kBudgetExceeded when the log cannot hold one more record;
+    /// kCancelled/kTimeout from `context`. Never throws.
+    [[nodiscard]] Result<TrackInterruptionEvent> record_redetection_recapture(
+        uint64_t track_id, uint64_t frame_sequence, uint64_t lost_sequence,
+        const ExecutionContext& context = {}) noexcept;
+
+    /// Records a recapture association (M7-08; design section 7 ID
+    /// semantics — review evidence insufficient, the caller assigned a new id
+    /// through the normal fusion path, the identity handoff is recorded). A
+    /// bounded-log append only: neither track's state is changed, the kLost
+    /// predecessor keeps its sticky loss (its later disposition — caller
+    /// `terminate`, exhaustion, eviction — stays with the frozen paths), and
+    /// the association is a diagnostic note, not an identity claim.
+    ///
+    /// Entry-only cancellation poll (as `record_redetection_failure`).
+    /// Determinism: identical inputs produce bit-identical records and log
+    /// order. Errors: kInvalidArgument when the ids are equal, the
+    /// predecessor is unknown or not kLost (the association documents a
+    /// replaced open identity — terminated or live predecessors are not
+    /// that), or the successor is unknown or terminated;
+    /// kBudgetExceeded when the log cannot hold one more record;
+    /// kCancelled/kTimeout from `context`. Never throws.
+    [[nodiscard]] Result<RedetectionAssociation> record_redetection_association(
+        uint64_t predecessor_track_id, uint64_t successor_track_id, uint64_t frame_sequence,
+        const ExecutionContext& context = {}) noexcept;
+
+    /// Snapshot of the bounded pool-wide redetection log (M7-08), oldest
+    /// first — `RedetectionRecord` entries; filter by `kind` for the
+    /// interruption events and associations as recorded. Ids and frame
+    /// sequences only (RULE-10: no coordinates, no template or image
+    /// content, no semantics text). Pure read; cleared by `reset` only.
+    /// Never throws.
+    [[nodiscard]] std::vector<RedetectionRecord> redetection_records() const noexcept;
+
     /// Drops all pool state; the next adoption starts from scratch. Caller
     /// initiated — the tracker never clears itself silently.
     void reset() noexcept;
@@ -1136,8 +1477,11 @@ public:
     /// (`kTemplateOverheadBytes` + thumbnail bytes each) + observations
     /// (`kObservationOverheadBytes` each) + semantics text/label byte lengths,
     /// plus one `kStructureBaselineOverheadBytes` slot per track that holds an
-    /// E2 structure baseline (M7-05) and one `kStateSlotOverheadBytes` slot
-    /// per track that holds a state-machine slot (M7-06). Always <=
+    /// E2 structure baseline (M7-05), one `kStateSlotOverheadBytes` slot
+    /// per track that holds a state-machine slot (M7-06) and one
+    /// `kRedetectSlotOverheadBytes` slot per track that holds a
+    /// redetection-episode slot (M7-08), plus `kRedetectionRecordOverheadBytes`
+    /// per record of the bounded redetection log (M7-08). Always <=
     /// `options().pool_budget_bytes`.
     [[nodiscard]] int64_t byte_size() const noexcept { return used_bytes_; }
     /// Cumulative number of tracks evicted by budget/count pressure since
@@ -1154,6 +1498,11 @@ public:
     /// Cumulative number of impostor templates evicted by
     /// `add_negative_template` overflow since creation or `reset`.
     [[nodiscard]] uint64_t evicted_negative_template_count() const noexcept { return evicted_negative_templates_; }
+    /// Cumulative number of redetection-log records dropped from the bounded
+    /// log's front by capacity pressure since creation or `reset` (M7-08,
+    /// RULE-06 accounting; the same rule as the other eviction counters —
+    /// termination/`reset` releases do not count).
+    [[nodiscard]] uint64_t evicted_redetection_record_count() const noexcept { return evicted_redetection_records_; }
 
 private:
     /// Accounted bytes of one track (must track the `byte_size` contract).
@@ -1206,6 +1555,38 @@ private:
     [[nodiscard]] int64_t state_slot_bytes(uint64_t track_id) const noexcept;
     /// Removes the track's state slot if present; returns the bytes freed.
     int64_t erase_state_slot(uint64_t track_id) noexcept;
+    /// Pool-side redetection-episode slot of one track (M7-08), parallel
+    /// storage like the baseline/state slots above and sorted by track_id
+    /// the same way. Holds the current loss episode's kLost entry sequence
+    /// (the staleness key), the consecutive failed attempt count driving the
+    /// backoff/exhaustion primitives and the scheduled next-attempt
+    /// sequence; absent means no accounted episode.
+    struct RedetectSlot {
+        uint64_t episode_lost_sequence = 0;
+        uint64_t next_attempt_sequence = 0;
+        uint32_t consecutive_failures = 0;
+    };
+    using RedetectSlots = std::vector<std::pair<uint64_t, RedetectSlot>>;
+    /// Iterator to the track's redetection slot, or `end()` when absent.
+    [[nodiscard]] RedetectSlots::iterator find_redetect_slot(uint64_t track_id) noexcept;
+    [[nodiscard]] RedetectSlots::const_iterator find_redetect_slot(uint64_t track_id) const noexcept;
+    /// Bytes of the track's redetection slot (0 when the track holds none).
+    [[nodiscard]] int64_t redetect_slot_bytes(uint64_t track_id) const noexcept;
+    /// Removes the track's redetection slot if present; returns the bytes
+    /// freed.
+    int64_t erase_redetect_slot(uint64_t track_id) noexcept;
+    /// Archive semantics shared by `terminate` and the budget-exhaustion
+    /// edge of `record_redetection_failure` (frozen M7-01 visibility rule):
+    /// the track becomes kTerminated at `frame_sequence`, its evidence
+    /// stores are released and the pool-side baseline, state-machine and
+    /// redetection slots are erased with it.
+    void archive_track(TargetTrack& track, uint64_t frame_sequence) noexcept;
+    /// Shared bounded-log append of `record_redetection_recapture` and
+    /// `record_redetection_association`: fixed-size records, capacity
+    /// pressure drops the oldest entry (counted in
+    /// `evicted_redetection_record_count()`), pool byte budget enforced. On
+    /// error the log — and the pool — are untouched.
+    [[nodiscard]] Result<void> append_redetection_record(const RedetectionRecord& record) noexcept;
     /// Planned (not yet applied) eviction of an `adopt_track` insertion:
     /// terminated tracks first, then oldest by (`last_verified_sequence`,
     /// `track_id`), until the insertion fits both the count and byte bounds.
@@ -1222,12 +1603,17 @@ private:
     BaselineSlots structure_baselines_;
     /// State-machine slots keyed by track_id, ascending (M7-06).
     StateSlots state_slots_;
+    /// Redetection-episode slots keyed by track_id, ascending (M7-08).
+    RedetectSlots redetect_slots_;
+    /// Bounded pool-wide redetection log, oldest first (M7-08).
+    std::vector<RedetectionRecord> redetection_records_;
     uint32_t layout_generation_ = 0;
     int64_t used_bytes_ = 0;
     uint64_t evicted_count_ = 0;
     uint64_t evicted_observations_ = 0;
     uint64_t evicted_templates_ = 0;
     uint64_t evicted_negative_templates_ = 0;
+    uint64_t evicted_redetection_records_ = 0;
 };
 
 }  // namespace mirador
