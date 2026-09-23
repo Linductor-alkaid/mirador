@@ -1,14 +1,14 @@
 #include <mirador/change_detection.hpp>
 
-#include <mirador/color_convert.hpp>
 #include <mirador/fingerprint.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
-#include <mirador/pixel_format.hpp>
-#include <mirador/resize.hpp>
 #include <mirador/result.hpp>
 #include <mirador/status.hpp>
+
+// Internal shared helper (M7-04): the square grayscale comparison thumbnail.
+#include "gray_thumbnail.h"
 
 #include <algorithm>
 #include <cmath>
@@ -26,18 +26,6 @@ constexpr int64_t kChangeDetectionBudgetBytes = int64_t{512} * 1024;
 constexpr int32_t kMinThumbnailSize = 8;
 constexpr int32_t kMaxThumbnailSize = 256;
 constexpr int32_t kMaxBlocksPerSide = 64;
-
-Result<ImageBuffer> gray_thumbnail(const ImageView& src, int32_t size) noexcept {
-    Result<ImageBuffer> small = resize_area(src, size, size, kChangeDetectionBudgetBytes);
-    if (!small.ok()) {
-        return small.status();
-    }
-    ImageBuffer thumb = small.take_value();
-    if (thumb.format() == PixelFormat::kGray8) {
-        return thumb;
-    }
-    return convert_color(thumb.view(), PixelFormat::kGray8, kChangeDetectionBudgetBytes);
-}
 
 Status validate_param_ranges(const ChangeDetectionParams& params) {
     if (!std::isfinite(params.fingerprint_similarity_threshold) || params.fingerprint_similarity_threshold < 0.0 ||
@@ -275,7 +263,8 @@ Result<ChangeSignature> make_change_signature(const ImageView& frame, const Chan
     if (!frame_fingerprint.ok()) {
         return frame_fingerprint.status();
     }
-    Result<ImageBuffer> thumbnail = gray_thumbnail(frame, params.thumbnail_size);
+    Result<ImageBuffer> thumbnail =
+        image_internal::gray_thumbnail(frame, params.thumbnail_size, kChangeDetectionBudgetBytes);
     if (!thumbnail.ok()) {
         return thumbnail.status();
     }
