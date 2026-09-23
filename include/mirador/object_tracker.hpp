@@ -898,8 +898,9 @@ public:
     ///
     /// Validation precedes cancellation (frozen M7-06 decision — the same
     /// order as the M7-05 verifier and the deliberate contrast to
-    /// `adopt_track`'s M7-02 cancel-first entry): cancellation is polled at
-    /// the entry after validation and again before the patch extraction.
+    /// `adopt_track`'s M7-02 cancel-first entry): cancellation is polled
+    /// exactly once, at the entry — after validation and immediately before
+    /// the patch extraction, the commit's only pixel work.
     ///
     /// Coordinates: `presented_view` must be the same frame, in the same
     /// space, that produced `verification` — mixing frames or spaces is the
