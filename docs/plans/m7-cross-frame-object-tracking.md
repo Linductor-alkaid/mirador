@@ -496,3 +496,36 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   试；E2 描述量按 proposal 契约假定 [0, 1]（越界显式拒绝），真实
   `propose_regions` 输出的端到端联测随 M7-09 harness；分级→状态转移、
   高置信模板更新与 impostor 否决归 M7-06。
+
+2026-09-23：验证员首轮发现 `M7-05` 一处出处引用不准确与三项记录级知悉，
+实现侧处置（注释精度同步，行为与冻结契约不变；验证套件 30 用例由验证员
+随 test(fusion) commit 落地）：
+
+- 轻微（文档出处）：`verify_track` 头注释称校验先于取消为"(M7-02
+  semantics)"，而 M7-02 实际冻结语义相反——`adopt_track` 入口先查取消/
+  超时再做校验（src/fusion/object_tracker.cpp:532-537），且
+  `AdoptCancelledContextTakesPriorityOverValidation`
+  （tests/fusion/object_tracker_test.cpp:468-484）把取消优先钉死为 M7-02
+  行为。M7-05 实现本身（校验 → 预算 → 取消）符合本工作项验收口径
+  「校验先于取消」，验证套件亦按文档化语义钉死
+  （object_tracker_verification_test.cpp："validation and budget errors
+  beat cancellation"），行为不改；头注释与实现内联注释的出处更正为
+  「M7-05 本项冻结决策」，并显式注明与 `adopt_track` M7-02 取消优先入口
+  的刻意对照，避免 M7-06/M7-08 引用混乱。
+- 信息（不可达防御分支）：头注释错误列表中 "a track with no appearance
+  templates" 经公共 API 不可达（kTerminated 在更早处被拒绝、adopt_track
+  恒存恰好 1 个模板）——纯防御分支行为正确、测试无法构造，头注释就地
+  标注 "defensive — unreachable through the public API"。
+- 信息（工作量计量口径）：冻结的 planned-work 公式以 ceil(bounds) 估算
+  窗口字节，逐偏移 crop 实际按 covering 规则取整，分数边界下可比计量值
+  每偏移多读至多一像素行/列——按契约实现（公式即冻结计量口径），头注释
+  补 metering-precision 注记，余量归 M7-09 校准。
+- 信息（ROI 精度口径）：`clamped_verification_roi` 将 double margin 收窄
+  为 float 后展开，ROI 边缘相对全 double 计算可有 ±1 像素差异；确定性
+  不受影响（同输入逐位同结果已测），`verification_roi` 头注释补
+  precision note（M7-09 以真实阈值校准 ROI 覆盖率时的冻结计量口径）。
+- 复验（实现侧本地证据）：debug 预设重建零告警；debug ctest 47/47
+  （`mirador.fusion.object_tracker` 72 用例与验证套件
+  `mirador.fusion.object_tracker_verification` 30 用例直跑均通过）；两
+  改动文件 clang-format dry-run 归零；clang-tidy
+  `--warnings-as-errors='*'` 对 `object_tracker.cpp` 退出码 0。
