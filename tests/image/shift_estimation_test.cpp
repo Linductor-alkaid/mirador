@@ -523,6 +523,26 @@ TEST(ShiftEstimation, SignatureOverloadRejectsBadStoredState) {
                    "max_shift beyond stored thumbnails");
 }
 
+TEST(ShiftEstimation, SignatureOverloadRejectsMismatchedThumbnailSizes) {
+    // Regression for the M7-04 verification round: the search derives every
+    // window index from the previous thumbnail's edge, so with a larger
+    // previous thumbnail the window read past the current thumbnail's
+    // allocation (ASAN-proven heap-buffer-overflow before the fix) and the
+    // reverse direction was silently misaligned. Frame dimensions match in
+    // both cases, so only the stored thumbnail size differs.
+    auto big = thumbnail_with_blob(64, 10, 20);
+    auto small = thumbnail_with_blob(8, 0, 0);
+    ASSERT_FALSE(big.empty());
+    ASSERT_FALSE(small.empty());
+    const ChangeSignature large = manual_signature(std::move(big), 256, 256);
+    const ChangeSignature small_signature = manual_signature(std::move(small), 256, 256);
+
+    ShiftEstimationParams params;
+    params.max_shift = 8;  // fits the 64x64 thumbnail, exceeds the 8x8 one
+    expect_invalid(estimate_global_shift(large, small_signature, params), "previous thumbnail larger than current");
+    expect_invalid(estimate_global_shift(small_signature, large, params), "previous thumbnail smaller than current");
+}
+
 // --- DOD-03 coordinate matrix ----------------------------------------------------
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest macro expansion dominates the metric
