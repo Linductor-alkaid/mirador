@@ -19,8 +19,8 @@
 > 本地门禁（文档同步时点于分支 head dc21c35 复验）：六预设 ctest debug
 > 48/48、其余各 47/47，五个 fusion 套件直跑通过，evidence_fusion 套件
 > asan/ubsan/tsan 直跑零 sanitizer 报告（tsan 经 `setarch -R`），
-> clang-format/clang-tidy 归零。CI 证据待分支推送后随编排脚本回填；
-> `SCOPE-13` 维持未勾选（M7 进行中）。
+> clang-format/clang-tidy 归零。CI 证据随 PR #26 回填（run 35842711760，
+> 14/14 job 全绿，PR 待合入）；`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.16 修订（2026-09-23）：M7 工作项 `M7-06` 证据融合与状态机实现交付于
 > 工作分支 `feat/m7-06-evidence-fusion-state-machine`——
@@ -212,8 +212,9 @@ run 35808507168 14/14 job 全绿，待合入）；`M7-05` 邻域验证器已交�
 [PR #25](https://github.com/Linductor-alkaid/mirador/pull/25)
 run 35821784682 14/14 job 全绿，待合入）；`M7-06` 证据融合与状态机已交付
 并勾选（实现、验证员首轮两项发现处置、47 用例验证套件与六预设门禁证据
-落地于分支 `feat/m7-06-evidence-fusion-state-machine`；CI 证据待分支推送
-后随编排脚本回填）。
+落地于分支 `feat/m7-06-evidence-fusion-state-machine`；CI 证据已回填：
+[PR #26](https://github.com/Linductor-alkaid/mirador/pull/26)
+run 35842711760 14/14 job 全绿，待合入）。
 
 ## 交付边界
 

@@ -733,11 +733,16 @@ Independent-Verification-Agent 独立编写与执行，实现交付与验证员�
   clang-format `--dry-run --Werror` 三改动文件归零；clang-tidy
   `--warnings-as-errors='*'`（`-p build/debug`）对 `stable_id_tracker.cpp`
   退出码 0。
-- 限制：CI 推送与 14/14 证据回填随编排脚本在分支 head 收口（分支未推送，
-  本轮按交底不推送）；结构校验的 `claimed_ids` 为关联数线性扫描（最坏
+- 限制：CI 推送与 14/14 证据回填已随 PR #26 在分支 head 收口（见下方
+  CI 回填）；结构校验的 `claimed_ids` 为关联数线性扫描（最坏
   O(k²)，k 为调用方传入关联数），与既有 per-association 查找同阶，关联数
   无显式上限选项——当前调用方为会话管线自产配对（量级为 track 数），如
   M7-07 会话管线接入后出现大规模关联再议上限；`max_generation_lag` 耗尽
   判定与代际触发归 M7-07、重检测原语归 M7-08（见交付段限制与衔接）；
   阈值初值无真实先验随 M7-09 校准。
-- CI 回填：待补（分支未推送）。
+- CI 回填：PR #26 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35842711760](https://github.com/Linductor-alkaid/mirador/actions/runs/35842711760)
+  （head 4c905d2，覆盖实现、验证套件、验证员首轮两项处置与文档回填
+  commit，33m2s）；首轮通过，无修复往返。
