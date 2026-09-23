@@ -1,11 +1,51 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.17
+> 版本：1.19
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-23
+> 更新日期：2026-09-24
+>
+> 1.19 修订（2026-09-24）：M7 工作项 `M7-07` 全局运动补偿与布局代际集成
+> 测试与门禁证据落地，工作项勾选——Independent-Verification-Agent 验证
+> 套件 19 用例（冻结触发判定三分类与未知枚举拒绝、全池补偿中心不变量
+> 维持与 kTerminated 排除、置信门闭区间显式拒绝、非有限/float 溢出原子
+> 失败、入口单次取消轮询、严格大于的耗尽清扫边界与 kUncertain 单条件、
+> kLost 粘滞至确认提交复捕获、kGenerationSwitch 级联降级与恢复、估计器
+> 在环滚动往返——补偿前 kReuse 短路与验证 kNone 的 `RISK-2026-17` 结构
+> 性失效实证、补偿后 kVerify + kStrong@offset(0,0) + kCompensatedScroll
+> 确认、DOD-03 旋转 × 奇数尺寸 × 非连续 stride × 贴边矩阵与双实例逐位
+> 确定性）随 test(fusion) commit e231d12 落地，验证轮零实现改动（实现
+> 审查对照冻结契约逐条核对未发现缺陷）。本地门禁（文档同步时点于分支
+> head e231d12 复验）：debug 全量 ctest 49/49（含 7 项架构/链接闭包，
+> `mirador_fusion` 链接接口恰为 core/image/cache 不变）、新套件 debug
+> 直跑 19/19、asan/ubsan 直跑各 19/19 零 sanitizer 报告、
+> clang-format/clang-tidy 归零；release/tsan/warnings 预设与六预设完整
+> 复跑随编排脚本收口（tsan/warnings 侧已由 CI 在分支 head 覆盖，CI 矩
+> 阵无 release 预设）。CI 证据随 PR #27 回填（run 35896974845，14/14
+> job 全绿，PR 待合入）；uint32 代际耗尽透传仅经代码审查验证（公共 API
+> 需 2^32 次调用，同 M7-02 先例）；阈值初值无真实先验随 M7-09 校准；`SCOPE-13`
+> 维持未勾选（M7 进行中）。
+>
+> 1.18 修订（2026-09-24）：M7 工作项 `M7-07` 全局运动补偿与布局代际集成
+> 实现交付于工作分支 `feat/m7-07-global-motion-compensation`——
+> `ObjectTracker` 三个池侧原语（管线编排形态冻结为池侧原语 + 调用方组合
+> 帧管线，M7-03/05/06 先例）：`advance_generation_for_classification`
+> （kGlobal 分类触发代际递增的冻结触发判定，uint32 耗尽显式失败）、
+> `compensate_global_motion`（消费 `estimate_global_shift` 结果的池级位移
+> 校正——`predicted_center` 恒为 `last_bounds` 中心的冻结不变量维持、
+> `min_compensation_confidence` 置信度门显式拒绝、非 kTerminated 全 track
+> 平移、错误路径池完全不变）与 `sweep_generation_lag`（`max_generation_lag`
+> 耗尽判定——"证据枯竭"冻结为"代际落后超阈值且处于 kUncertain"双条件，
+> 逐 id trace 显式上报，kLost 粘滞与 kTracking 确认态语义不变）。兑现全部
+> M7-06 预留钩子注记并同步设计 §6.3/§6.4 落点注记；`mirador_fusion` 链接
+> 接口恰为 core/image/cache 不变。本地 debug 构建零告警、全量 ctest 48/48
+> 零回归、开发冒烟自检九组断言（含滚动补偿往返 kStrong 峰值 NCC 1.0）、
+> clang-format/clang-tidy 双口径归零；测试由 Independent-Verification-Agent
+> 独立编写与执行，工作项勾选、六预设门禁与 CI 证据随验证套件落地回填。
+> 阈值初值（`min_compensation_confidence` 0.0 等）无真实先验随 M7-09 校准；
+> `SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.17 修订（2026-09-23）：M7 工作项 `M7-06` 证据融合与状态机测试与门禁
 > 证据落地，工作项勾选——Independent-Verification-Agent 验证套件 47 用例
@@ -214,7 +254,12 @@ run 35821784682 14/14 job 全绿，待合入）；`M7-06` 证据融合与状态�
 并勾选（实现、验证员首轮两项发现处置、47 用例验证套件与六预设门禁证据
 落地于分支 `feat/m7-06-evidence-fusion-state-machine`；CI 证据已回填：
 [PR #26](https://github.com/Linductor-alkaid/mirador/pull/26)
-run 35842711760 14/14 job 全绿，待合入）。
+run 35842711760 14/14 job 全绿，待合入）；`M7-07` 全局运动补偿与布局代际
+集成已交付并勾选（实现、19 用例验证套件——含估计器在环滚动往返与
+DOD-03 坐标矩阵——与门禁证据落地于分支
+`feat/m7-07-global-motion-compensation`；CI 证据已回填：
+[PR #27](https://github.com/Linductor-alkaid/mirador/pull/27)
+run 35896974845 14/14 job 全绿，待合入）。
 
 ## 交付边界
 

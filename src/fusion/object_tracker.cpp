@@ -10,6 +10,7 @@
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
+#include <mirador/shift_estimation.hpp>
 #include <mirador/status.hpp>
 #include <mirador/visual_fingerprint.hpp>
 
@@ -621,6 +622,25 @@ void apply_template_capture(std::vector<TrackTemplate>& set, size_t evict_index,
     used_bytes += template_bytes;
 }
 
+// ---- M7-07 global-motion and generation-pipeline helpers ----
+
+/// Planned finiteness of one track's compensation (evaluated before any
+/// mutation so the whole-pool application stays atomic).
+[[nodiscard]] bool translation_stays_finite(const RectF& bounds, float dx, float dy) noexcept {
+    return std::isfinite(bounds.x + dx) && std::isfinite(bounds.y + dy);
+}
+
+/// Applies the uniform compensation translation to one live track:
+/// `last_bounds` moves by (dx, dy) and `predicted_center` is recomputed as
+/// the exact new center — the frozen invariant, with the same formula as
+/// adoption and confirming commits.
+void apply_compensation(TargetTrack& track, float dx, float dy) noexcept {
+    track.last_bounds =
+        RectF{track.last_bounds.x + dx, track.last_bounds.y + dy, track.last_bounds.width, track.last_bounds.height};
+    track.predicted_center = PointF{track.last_bounds.x + track.last_bounds.width / 2.0F,
+                                    track.last_bounds.y + track.last_bounds.height / 2.0F};
+}
+
 /// Everything one commit computes before any mutation (frozen table and
 /// capture policies; see the `commit_track_evidence` class contract).
 struct CommitPlan {
@@ -815,6 +835,9 @@ Result<ObjectTracker> ObjectTracker::create(const ObjectTrackerOptions& options)
     }
     if (options.impostor_match_threshold < 0.0 || options.impostor_match_threshold > 1.0) {
         return Status{ErrorCode::kInvalidArgument, "impostor_match_threshold must be in [0, 1]"};
+    }
+    if (options.min_compensation_confidence < 0.0 || options.min_compensation_confidence > 1.0) {
+        return Status{ErrorCode::kInvalidArgument, "min_compensation_confidence must be in [0, 1]"};
     }
     if (options.redetect_backoff_base_frames < 1 ||
         options.redetect_backoff_max_frames < options.redetect_backoff_base_frames ||
@@ -1228,6 +1251,149 @@ Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
     track->state = plan.transition.state;
     track->layout_generation = std::max(track->layout_generation, layout_generation_);
     return commit;
+}
+
+Result<GenerationAdvance> ObjectTracker::advance_generation_for_classification(
+    const ChangeClassification classification) noexcept {
+    GenerationAdvance advance;
+    advance.generation = layout_generation_;
+    switch (classification) {
+        case ChangeClassification::kNone:
+        case ChangeClassification::kPartial:
+            // The frozen trigger: only a global classification advances the
+            // layout generation (design section 6.4).
+            return advance;
+        case ChangeClassification::kGlobal: {
+            const auto advanced = advance_layout_generation();
+            if (!advanced.ok()) {
+                // uint32 exhaustion: explicit failure, generation unchanged.
+                return advanced.status();
+            }
+            advance.advanced = true;
+            advance.generation = advanced.value();
+            return advance;
+        }
+        default:
+            return Status{ErrorCode::kInvalidArgument,
+                          "advance_generation_for_classification unknown change classification"};
+    }
+}
+
+Result<MotionCompensationResult> ObjectTracker::compensate_global_motion(const ShiftEstimate& shift,
+                                                                         const ExecutionContext& context) noexcept {
+    // Entry-only cancellation poll (frozen: the whole-pool pass is bounded,
+    // trivial per track and infallible after validation, so a mid-loop poll
+    // could only abort a half-applied pool).
+    if (is_cancelled(context)) {
+        return Status{ErrorCode::kCancelled, "compensate_global_motion cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return Status{ErrorCode::kTimeout, "compensate_global_motion deadline reached"};
+    }
+    if (!std::isfinite(shift.dx) || !std::isfinite(shift.dy)) {
+        return Status{ErrorCode::kInvalidArgument, "compensate_global_motion: shift estimate must be finite"};
+    }
+    if (!std::isfinite(shift.confidence) || shift.confidence < 0.0F || shift.confidence > 1.0F) {
+        return Status{ErrorCode::kInvalidArgument, "compensate_global_motion: shift confidence must be in [0, 1]"};
+    }
+
+    MotionCompensationResult result;
+    result.dx = shift.dx;
+    result.dy = shift.dy;
+    if (static_cast<double>(shift.confidence) < options_.min_compensation_confidence) {
+        // Explicit refusal (RULE-06): the evaluated estimate is echoed, the
+        // pool stays untouched.
+        return result;
+    }
+    result.applied = true;
+
+    // Planned before any mutation: every non-terminated track's translated
+    // bounds must stay finite, else the whole call fails and the pool is
+    // untouched.
+    for (const TargetTrack& track : tracks_) {
+        if (track.state == TrackState::kTerminated) {
+            continue;
+        }
+        if (!translation_stays_finite(track.last_bounds, shift.dx, shift.dy)) {
+            return Status{ErrorCode::kInvalidArgument,
+                          "compensate_global_motion: compensated bounds leave the finite float range"};
+        }
+    }
+    result.tracks.reserve(tracks_.size());
+    for (TargetTrack& track : tracks_) {
+        if (track.state == TrackState::kTerminated) {
+            continue;
+        }
+        const RectF previous = track.last_bounds;
+        apply_compensation(track, shift.dx, shift.dy);
+        result.tracks.push_back(MotionCompensationEntry{track.track_id, track.state, previous, track.last_bounds});
+    }
+    return result;
+}
+
+Result<std::vector<uint64_t>> ObjectTracker::sweep_generation_lag(uint64_t frame_sequence,
+                                                                  const ExecutionContext& context) noexcept {
+    // Entry-only cancellation poll (same rationale as
+    // `compensate_global_motion`).
+    if (is_cancelled(context)) {
+        return Status{ErrorCode::kCancelled, "sweep_generation_lag cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return Status{ErrorCode::kTimeout, "sweep_generation_lag deadline reached"};
+    }
+
+    // Plan first (pure): the tracks the frozen exhaustion rule condemns plus
+    // the bookkeeping their transitions need — any failure below leaves the
+    // pool untouched.
+    struct SweepEntry {
+        uint64_t track_id = 0;
+        bool slot_exists = false;
+    };
+    std::vector<SweepEntry> plan;
+    const auto lag_limit = static_cast<uint64_t>(options_.max_generation_lag);
+    const auto pool_generation = static_cast<uint64_t>(layout_generation_);
+    for (const TargetTrack& track : tracks_) {
+        if (track.state != TrackState::kUncertain) {
+            // Exhausted evidence: only a track the M7-06 state machine has
+            // already judged insufficient is swept; kLost stays (sticky) and
+            // kTracking keeps its confirmed status.
+            continue;
+        }
+        // Pool generation >= track generation on every path (each commit
+        // stamps the track with the pool's current generation), so the
+        // unsigned subtraction cannot underflow.
+        if (pool_generation - static_cast<uint64_t>(track.layout_generation) <= lag_limit) {
+            continue;
+        }
+        plan.push_back({track.track_id, state_slot_bytes(track.track_id) != 0});
+    }
+    int64_t planned_slot_bytes = 0;
+    for (const SweepEntry& entry : plan) {
+        if (!entry.slot_exists) {
+            planned_slot_bytes += kStateSlotOverheadBytes;
+        }
+    }
+    if (used_bytes_ + planned_slot_bytes > options_.pool_budget_bytes) {
+        return Status{ErrorCode::kBudgetExceeded,
+                      "sweep_generation_lag state-slot allocation does not fit the pool budget"};
+    }
+
+    // Commit — no failure is possible past this point.
+    std::vector<uint64_t> swept;
+    swept.reserve(plan.size());
+    for (const SweepEntry& entry : plan) {
+        TargetTrack* track = find_track_mutable(entry.track_id);
+        track->state = TrackState::kLost;
+        const auto slot = find_state_slot(entry.track_id);
+        if (slot != state_slots_.end() && slot->first == entry.track_id) {
+            slot->second.lost_sequence = frame_sequence;
+        } else {
+            state_slots_.insert(slot, {entry.track_id, StateSlot{0, frame_sequence}});
+            used_bytes_ += kStateSlotOverheadBytes;
+        }
+        swept.push_back(entry.track_id);
+    }
+    return swept;
 }
 
 Result<RectI> ObjectTracker::verification_roi(uint64_t track_id, const ImageView& presented_view) const noexcept {

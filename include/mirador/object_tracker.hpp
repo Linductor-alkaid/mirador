@@ -7,6 +7,7 @@
 #include <mirador/image_view.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
+#include <mirador/shift_estimation.hpp>
 #include <mirador/visual_fingerprint.hpp>
 
 #include <cstddef>
@@ -93,8 +94,12 @@ struct TargetTrack {
     TrackState state = TrackState::kTracking;
     /// Last confirmed or adopted bounds in the tracker's coordinate space.
     RectF last_bounds;
-    /// Motion-model extrapolation of the center. Until the motion primitives
-    /// exist (M7-04/M7-07) this is exactly the center of `last_bounds`.
+    /// Motion-model extrapolation of the center. Exactly the center of
+    /// `last_bounds` on every path: adoption and confirming commits set it
+    /// there, and the M7-07 compensation (`compensate_global_motion`)
+    /// maintains the invariant by translating bounds and center equally — a
+    /// separate velocity model does not exist (frozen M7-07 decision, see
+    /// there).
     PointF predicted_center;
     /// Bounded observation history, oldest first, explicit eviction on overflow.
     std::vector<TrackObservation> position_history;
@@ -181,6 +186,16 @@ struct ObjectTrackerOptions {
     /// template for the impostor veto to fire in `commit_track_evidence`.
     /// [0, 1].
     double impostor_match_threshold = 0.8;
+
+    // ---- Global motion compensation (M7-07; object-tracking design section
+    // 6.3; initial value, calibrated by M7-09 per DEC-019 section 5). ----
+    /// Minimum `ShiftEstimate::confidence` for `compensate_global_motion` to
+    /// apply the caller's shift estimate to the pool; below it the call
+    /// reports `applied == false` and the pool stays untouched. [0, 1]. The
+    /// default 0.0 applies every well-formed estimate (development smoke
+    /// default — no real-world prior exists yet); this option is
+    /// RISK-2026-17's compensation gate, calibrated by M7-09.
+    double min_compensation_confidence = 0.0;
 
     // ---- Cascade redetection primitives (design section 7): the upper layer
     // drives every call (RULE-12); these values only parameterize the backoff
@@ -370,10 +385,11 @@ struct TrackVerification {
 /// table (static: full weight; compensated scroll: full weight —
 /// compensation restores the static-period validity; generation switch:
 /// zeroed). Declaring the scenario is the caller's evidence: the tracker
-/// never classifies motion itself, and this contract never consumes
-/// `estimate_global_shift` results — applying the compensation and deriving
-/// the scenario from the global change classification are the M7-07
-/// pipeline's decisions.
+/// never classifies motion itself. The M7-07 pipeline entries that produce
+/// these declarations are `compensate_global_motion` (apply the
+/// `estimate_global_shift` result, then declare `kCompensatedScroll`) and
+/// `advance_generation_for_classification` (the kGlobal trigger, then
+/// declare `kGenerationSwitch`).
 enum class PositionScenario : uint8_t {
     /// Static period: the position gate carries full weight (design section
     /// 3, row 1).
@@ -441,6 +457,59 @@ struct TrackEvidenceCommit {
     /// already hit a stored negative template; bounded store, eviction
     /// counted in `evicted_negative_template_count()`).
     bool negative_template_captured = false;
+};
+
+// ---- Global motion compensation and layout-generation pipeline (M7-07;
+// object-tracking design sections 6.3 and 6.4 — frozen contract decisions
+// recorded here and on the three pipeline entries). Shape decision: like
+// M7-03/M7-05/M7-06, this milestone delivers pool-side primitives and the
+// frame pipeline stays with the caller — the caller runs `detect_change`
+// (M1) and `estimate_global_shift` (M7-04), feeds this pool the
+// classification trigger, the compensation and the lag sweep, and drives
+// verification and commits per frame. The tracker holds no previous frame
+// and classifies no motion itself (the M7-03/M7-06 freezes). ----
+
+/// Deterministic outcome of one `advance_generation_for_classification` call
+/// (M7-07): whether the pool's layout generation advanced, and its value
+/// after the call.
+struct GenerationAdvance {
+    /// True when the classification was kGlobal and the generation advanced.
+    bool advanced = false;
+    /// This pool's layout generation after the call (the unchanged value when
+    /// `advanced` is false).
+    uint32_t generation = 0;
+};
+
+/// Per-track echo of one `compensate_global_motion` call (M7-07): the bounds
+/// before and after the applied translation, for trace visibility and M7-09
+/// calibration.
+struct MotionCompensationEntry {
+    uint64_t track_id = 0;
+    /// Track state at compensation time (echo; compensation never changes it).
+    TrackState state = TrackState::kTracking;
+    /// `last_bounds` before the translation.
+    RectF previous_bounds;
+    /// `last_bounds` after the translation; the new `predicted_center` is the
+    /// exact center of this rect (the frozen center invariant is maintained,
+    /// see `compensate_global_motion`).
+    RectF compensated_bounds;
+};
+
+/// Deterministic whole-pool result of one `compensate_global_motion` call
+/// (M7-07): whether the estimate was applied, the evaluated translation, and
+/// one entry per compensated track in ascending `track_id` order. Bounded by
+/// `options().max_targets` entries.
+struct MotionCompensationResult {
+    /// False when the confidence gate refused the estimate
+    /// (`shift.confidence < options().min_compensation_confidence`): an
+    /// explicit, visible refusal — the pool is untouched, nothing is dropped
+    /// silently (RULE-06).
+    bool applied = false;
+    /// The evaluated frame-space translation (echo of `shift.dx`/`shift.dy`,
+    /// also when the gate refused it).
+    float dx = 0.0F;
+    float dy = 0.0F;
+    std::vector<MotionCompensationEntry> tracks;
 };
 
 /// Bounded cross-frame target pool over fused regions (object-tracking design
@@ -577,10 +646,12 @@ public:
     /// generation (M7-02 primitive). Later observations are stamped with it;
     /// existing history entries keep the generation they were recorded under,
     /// which is what makes `observations_in_generation` grouping meaningful.
-    /// The trigger decision (global change classification) belongs to the
-    /// M7-07 pipeline, and per-track degradation on a generation switch to
-    /// the evidence-fusion state machine (`commit_track_evidence`, M7-06) —
-    /// this call only moves the deterministic counter.
+    /// The trigger decision (global change classification) is the M7-07
+    /// pipeline's, delivered as `advance_generation_for_classification`;
+    /// per-track degradation on a generation switch belongs to the
+    /// evidence-fusion state machine (`commit_track_evidence` with a
+    /// `kGenerationSwitch` scenario, M7-06) — this call only moves the
+    /// deterministic counter.
     /// Errors: kBudgetExceeded when the uint32 counter is exhausted. Never
     /// throws.
     [[nodiscard]] Result<uint32_t> advance_layout_generation() noexcept;
@@ -604,18 +675,18 @@ public:
     ///      path; the fingerprint comparison is the cost `detect_change`
     ///      already paid).
     ///   2. `kPartial` — per track, the change ROIs are tested against
-    ///      `last_bounds`, which until the motion primitives land (M7-04/
-    ///      M7-07) is exactly the extrapolated position (`predicted_center`
-    ///      is the `last_bounds` center). No intersection → `kReuse`
-    ///      (disjoint short circuit); intersection → `kVerify` carrying the
-    ///      first intersecting ROI's scan-order index. Verdicts are
-    ///      independent per track: one track's verdict never influences
-    ///      another's.
+    ///      `last_bounds`, which is exactly the extrapolated position on
+    ///      every path (`predicted_center` is the `last_bounds` center,
+    ///      maintained by the M7-07 compensation). No intersection →
+    ///      `kReuse` (disjoint short circuit); intersection → `kVerify`
+    ///      carrying the first intersecting ROI's scan-order index.
+    ///      Verdicts are independent per track: one track's verdict never
+    ///      influences another's.
     ///   3. `kGlobal` — no track short-circuits: every kTracking track is
     ///      `kVerify` (with an empty `change_region_index`). The
     ///      layout-generation advance a global classification may trigger
     ///      belongs to the M7-07 pipeline and is deliberately NOT done here
-    ///      (see `advance_layout_generation`).
+    ///      (delivered as `advance_generation_for_classification`).
     ///
     /// Adjudications ahead of the M7-06 state machine: tracks in
     /// kUncertain/kLost/kTerminated get an explicit `kInactive` entry — never
@@ -848,7 +919,8 @@ public:
     ///     kUncertain — a vetoed commit is excluded-candidate evidence, so
     ///     the appearance channel has nothing to confirm with this frame —
     ///     while kLost tracks stay kLost (loss is sticky until a confirming
-    ///     grade, caller `terminate`, or M7-07 generation exhaustion). The
+    ///     grade, caller `terminate`, or the M7-07 generation-exhaustion
+    ///     sweep `sweep_generation_lag`). The
     ///     consecutive-insufficient counter (placeholder and vetoed commits
     ///     since the last confirming one) increments per commit, and
     ///     reaching `options().uncertain_frame_limit` transitions the track
@@ -861,8 +933,10 @@ public:
     ///
     /// Committed fields on a confirming grade: `last_bounds` moves to the
     /// candidate window, `predicted_center` stays exactly the new
-    /// `last_bounds` center (frozen invariant until the M7-07 motion model),
-    /// `confidence` becomes the clamped E1 peak NCC (the prior value is
+    /// `last_bounds` center (frozen invariant — maintained, not replaced, by
+    /// the M7-07 motion path: `compensate_global_motion` translates bounds
+    /// and center equally), `confidence` becomes the clamped E1 peak NCC (the
+    /// prior value is
     /// kept on an E2-only confirmation — the structure channel has no
     /// confidence scalar), `last_verified_sequence` receives
     /// `frame_sequence`, and `layout_generation` advances to the pool's
@@ -920,6 +994,127 @@ public:
         const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view,
         uint64_t frame_sequence, const ExecutionContext& context = {}) noexcept;
 
+    /// Applies the M7-07 pipeline's frozen trigger decision that maps the
+    /// frame's global change classification onto the layout generation
+    /// (object-tracking design section 6.4; the decision the M7-03 gate
+    /// deliberately deferred — `evaluate_change_gate` stays a pure read):
+    /// `ChangeClassification::kGlobal` advances the generation by one (the
+    /// design section 6.4 global events: dialogs, page switches, theme
+    /// changes), `kNone` and `kPartial` leave it untouched. This entry only
+    /// moves the deterministic counter (through `advance_layout_generation`)
+    /// and reports the outcome — per-track degradation after a switch stays
+    /// with the evidence-fusion state machine: the caller declares
+    /// `PositionScenario::kGenerationSwitch` on this frame's
+    /// `commit_track_evidence` calls, which zeroes the position prior and
+    /// degrades a kTracking track without confirming appearance evidence to
+    /// kUncertain (M7-06). The exhaustive-evidence end state of a switch is
+    /// `sweep_generation_lag`'s contract.
+    ///
+    /// Determinism: identical inputs produce identical outcomes. Errors:
+    /// kInvalidArgument for an unknown classification value;
+    /// kBudgetExceeded passed through from `advance_layout_generation` when
+    /// the uint32 counter is exhausted (explicit failure, generation
+    /// unchanged). Never throws.
+    [[nodiscard]] Result<GenerationAdvance> advance_generation_for_classification(
+        ChangeClassification classification) noexcept;
+
+    /// Consumes one caller-produced global shift estimate (the M7-04
+    /// `estimate_global_shift` result) and applies the design section 6.3
+    /// motion compensation to the pool: every held non-terminated track's
+    /// `last_bounds` and `predicted_center` are translated by
+    /// (`shift.dx`, `shift.dy`) — the frame content moved globally, so every
+    /// live position estimate moves with it and the position prior regains
+    /// its static-period validity (design section 3, row 2). After the call
+    /// the caller declares `PositionScenario::kCompensatedScroll` on this
+    /// frame's commits (behavioral weight equals `kStationary`; the
+    /// distinction is trace and M7-09 per-scenario calibration visibility).
+    ///
+    /// Frozen contract decisions (design section 6.3 M7-07 landing):
+    ///   - Evidence trust: the estimate is the caller's evidence, exactly
+    ///     like every other input of this header — the tracker never runs
+    ///     `estimate_global_shift` itself (it holds no previous frame, the
+    ///     M7-03 freeze). One call per frame's measured shift is the
+    ///     pipeline discipline; feeding the same estimate again translates
+    ///     again.
+    ///   - Confidence gate: the estimate is applied only when
+    ///     `shift.confidence >= options().min_compensation_confidence`;
+    ///     below it the result reports `applied == false` and the pool is
+    ///     untouched — an explicit refusal, never a silent drop (RULE-06).
+    ///     The default threshold 0.0 applies every well-formed estimate;
+    ///     the knob is RISK-2026-17's compensation gate and is calibrated
+    ///     by M7-09 (DEC-019 section 5).
+    ///   - Center invariant maintained: `predicted_center` stays exactly the
+    ///     new `last_bounds` center (recomputed from the translated bounds,
+    ///     the same formula as `adopt_track` and confirming commits). The
+    ///     design's "velocity update" is realized as the translation itself:
+    ///     the frozen `TargetTrack` layout (M7-01) has no velocity state,
+    ///     and a pipeline feeding each frame's measured shift needs no
+    ///     extrapolation lead; any velocity model is M7-09 calibration's to
+    ///     propose within Experimental.
+    ///   - Scope: kTracking, kUncertain and kLost tracks translate (a kLost
+    ///     record keeps its last-known position meaningful as a redetection
+    ///     hint in current coordinates); kTerminated archives stay at their
+    ///     termination position (identity closed, M7-01). Position history,
+    ///     templates, negative templates, E2 baselines, layout generations
+    ///     and state slots are untouched — compensation is a coordinate
+    ///     update, not evidence, and never rewrites past observations.
+    ///
+    /// Precision: component-wise float addition (IEEE round-to-nearest,
+    /// deterministic); the DOD-03 matrix applies to the compensation path —
+    /// rotation and format metadata never affect the translation, it runs on
+    /// presented coordinates like every method of this header.
+    ///
+    /// Determinism: identical inputs produce bit-identical results (fixed
+    /// ascending `track_id` application order). Errors: kInvalidArgument
+    /// for a non-finite `shift.dx`/`shift.dy`, a confidence outside [0, 1],
+    /// or a translation that would drive any non-terminated track's bounds
+    /// out of the finite float range; kCancelled/kTimeout from `context` —
+    /// polled exactly once at the entry (the `commit_track_evidence`
+    /// precedent: the whole-pool pass is bounded, trivial per track and
+    /// infallible after validation, so a mid-loop poll could only abort a
+    /// half-applied pool). On any error the pool is untouched. Never throws.
+    [[nodiscard]] Result<MotionCompensationResult> compensate_global_motion(
+        const ShiftEstimate& shift, const ExecutionContext& context = {}) noexcept;
+
+    /// Generation-lag exhaustion sweep (M7-07; the design section 6.4
+    /// "generation lag beyond the threshold with exhausted evidence →
+    /// kLost" rule — the third kLost stickiness party named by
+    /// `commit_track_evidence`, beside confirming grades and caller
+    /// `terminate`). Frozen exhaustion definition — a live track is swept
+    /// to kLost exactly when BOTH hold:
+    ///   - Generation lag: `layout_generation() - track.layout_generation`
+    ///     is greater than `options().max_generation_lag`. Every commit
+    ///     stamps the track's generation with the pool's current one
+    ///     (`commit_track_evidence`), so a lagging track has received no
+    ///     commit of any grade for more than `max_generation_lag`
+    ///     generations.
+    ///   - Exhausted evidence: the track is kUncertain — the M7-06 state
+    ///     machine has already judged its frame evidence insufficient
+    ///     (position-only placeholder), and no confirming evidence arrived
+    ///     across the lag window. kTracking tracks keep their confirmed
+    ///     status: their degradation is the M7-06 commit chain (per-frame
+    ///     `kGenerationSwitch` commits), which this sweep never fabricates.
+    ///     kLost stays kLost (sticky, semantics unchanged); kTerminated
+    ///     archives are untouched.
+    ///
+    /// The transition sets `state` to kLost and records `frame_sequence` as
+    /// the loss time in the track's state slot (defensively allocated with a
+    /// budget check when absent — a kUncertain track always holds one, since
+    /// its degrading commit allocated it). The sweep is planned before
+    /// anything mutates and any failure leaves the pool untouched. Every
+    /// swept id is reported, ascending (RULE-06 visibility: degradation is
+    /// never silent). The kLost → kTracking edge stays exclusively with
+    /// confirming commits (M7-06) and the M7-08 identity review.
+    ///
+    /// Determinism: identical inputs produce identical swept sets (ascending
+    /// `track_id`; bounded by `options().max_targets`). Errors:
+    /// kCancelled/kTimeout from `context` — polled exactly once at the
+    /// entry (same rationale as `compensate_global_motion`);
+    /// kBudgetExceeded when a defensive state-slot allocation would not fit
+    /// the pool budget. Never throws.
+    [[nodiscard]] Result<std::vector<uint64_t>> sweep_generation_lag(uint64_t frame_sequence,
+                                                                     const ExecutionContext& context = {}) noexcept;
+
     /// Drops all pool state; the next adoption starts from scratch. Caller
     /// initiated — the tracker never clears itself silently.
     void reset() noexcept;
@@ -932,8 +1127,9 @@ public:
     /// Returns the track with `track_id`, or nullptr when absent. The pointer
     /// is valid until the next non-const call on this tracker.
     [[nodiscard]] const TargetTrack* find_track(uint64_t track_id) const noexcept;
-    /// Current layout generation of this tracker's source. The change-gated
-    /// pipeline (M7-07) advances it; pool-only usage keeps it at 0.
+    /// Current layout generation of this tracker's source. The M7-07
+    /// trigger (`advance_generation_for_classification`) advances it;
+    /// pool-only usage keeps it at 0.
     [[nodiscard]] uint32_t layout_generation() const noexcept { return layout_generation_; }
     /// Total bytes the pool currently accounts for, summed over tracks as:
     /// `kTrackOverheadBytes` + templates and negative templates

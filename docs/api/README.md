@@ -68,7 +68,12 @@ NCC 峰值+峰旁瓣质量与 E2 闭合结构一致性的纯逐 track 双通道�
 `commit_track_evidence`（`PositionScenario`/`TrackPositionEvidence`/
 `TrackEvidenceCommit`、`impostor_match_threshold` 选项与
 `kStateSlotOverheadBytes`，四级分级判定表 + 四态转移 + impostor 负模板
-排除，设计 §3/§4/§6.4）；
+排除，设计 §3/§4/§6.4）；M7-07 起含全局运动补偿与布局代际管线三原语
+`advance_generation_for_classification`（kGlobal 分类触发代际递增的冻结
+触发判定）、`compensate_global_motion`（消费 `estimate_global_shift` 结果
+的池级位移校正，`MotionCompensationResult`/`MotionCompensationEntry` 与
+`min_compensation_confidence` 置信度门选项）与 `sweep_generation_lag`
+（`max_generation_lag` 代际耗尽 → kLost 的显式清扫 trace，设计 §6.3/§6.4）；
 **Experimental**：随 M7 go/no-go 判定冻结，冻结前不计兼容性承诺）、
 `perception_session.hpp`（感知入口：变化分析 → 按需 Backend → 坐标恢复 → 缓存 →
 融合发布，`DEC-013`）。

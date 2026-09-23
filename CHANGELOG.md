@@ -92,6 +92,28 @@
   `StableIdTracker::advance`（`DEC-010` 第 4 节预留通道，冻结契约不破坏）：
   新增 `confirmed_associations` 参数（默认空，静态语义逐位不变），跟踪确认
   的 track↔区域配对绕过 IoU/中心门控直接 kRetained（设计 §6.5 门控直通）。
+- M7-07：`ObjectTracker` 新增全局运动补偿与布局代际管线三原语
+  （Experimental，设计 §6.3/§6.4，M7-04/M7-06 显式预留的消费侧收口；池侧
+  原语 + 调用方组合帧管线，编排形态沿用 M7-03/05/06 先例）。
+  `advance_generation_for_classification`：冻结触发判定——`kGlobal` 分类
+  触发布局代际递增（uint32 耗尽显式 `kBudgetExceeded`）、`kNone`/`kPartial`
+  不触发（M7-03 门控刻意延迟项的兑现，门控保持纯决策）；代际切换后的逐
+  track 降级（kTracking 无确认证据 → kUncertain、位置先验清零）维持 M7-06
+  状态机语义，经 `PositionScenario::kGenerationSwitch` 场景提交驱动。
+  `compensate_global_motion`：消费调用方 `estimate_global_shift` 结果
+  （tracker 不自持上一帧、不自跑原语），对全部非 `kTerminated` track 施加
+  同一位移校正（`last_bounds`/`predicted_center` 平移；位置历史/模板/E2
+  基线/代际不动），`predicted_center` 恒为 `last_bounds` 中心的冻结不变量
+  维持（无速度模型，`TargetTrack` M7-01 冻结布局不动）；置信度门
+  `min_compensation_confidence`（默认 0.0 不过滤，开发冒烟值，M7-09 校准，
+  `RISK-2026-17` 门控旋钮）不达标显式 `applied=false`、池不动；逐分量
+  float 加法 + 中心重算（`RULE-05`，DOD-03 矩阵适用）。
+  `sweep_generation_lag`：`max_generation_lag` 耗尽判定——track 代际落后
+  池当前代际大于 `max_generation_lag` 且处于 kUncertain（证据枯竭的冻结
+  双条件）→ kLost 并记录丢失时刻，逐 id 升序 trace 显式上报；kLost 粘滞
+  语义不变，kTracking 保持确认态（其降级路径是 M7-06 提交链）。三原语均
+  校验先于变异、错误路径池完全不变、入口单次取消轮询（`commit_track_evidence`
+  先例）。
 
 ### 修复
 

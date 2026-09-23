@@ -62,6 +62,18 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-07 global motion compensation and layout-generation integration: the
+# frozen kGlobal trigger, whole-pool compensation with the confidence gate and
+# atomic invalid/overflow paths, the strictly-greater generation-lag sweep with
+# its kUncertain-only exhaustion rule, the trigger -> kGenerationSwitch state
+# chain, the estimator-in-the-loop scroll round trip and the DOD-03 rotation/
+# odd-size/stride/flush matrix with bitwise determinism.
+mirador_add_test(
+    NAME mirador.fusion.object_tracker_motion_generation
+    SOURCES object_tracker_motion_generation_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp

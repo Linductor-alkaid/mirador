@@ -6,7 +6,7 @@
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
 > 建议发布点：`v0.4.0`（暂定，随判定收尾确认）
-> 更新日期：2026-09-23
+> 更新日期：2026-09-24
 
 ## 目标
 
@@ -70,7 +70,7 @@ A/B/C/D 基准发布；go/no-go 判定。
   E1/E2/位置/语义四级证据分级（确认/临时延续/占位/否决，含 impostor 负
   模板排除）；`kTracking/kUncertain/kLost/kTerminated` 转移与 `DEC-010`
   tracker 对接（已确认 track 门控直通）。
-- [ ] `M7-07` 全局运动补偿与布局代际集成：全局变化分类 → 代际递增 → 位置
+- [x] `M7-07` 全局运动补偿与布局代际集成：全局变化分类 → 代际递增 → 位置
   先验条件化（清零/降权）、track 降级与超阈值转 `kLost`；补偿后位置恢复
   验证（滚动场景往返）。
 - [ ] `M7-08` 级联重检测原语与身份复核：退避序列、最大重试、变化门控联动
@@ -746,3 +746,161 @@ Independent-Verification-Agent 独立编写与执行，实现交付与验证员�
   clang-tidy 双口径。[run 35842711760](https://github.com/Linductor-alkaid/mirador/actions/runs/35842711760)
   （head 4c905d2，覆盖实现、验证套件、验证员首轮两项处置与文档回填
   commit，33m2s）；首轮通过，无修复往返。
+
+2026-09-24：`M7-07` 全局运动补偿与布局代际集成实现交付（分支
+`feat/m7-07-global-motion-compensation`，自 master 1ace6c6 切出；实现于
+主循环，测试按分工由 Independent-Verification-Agent 独立编写与执行，工作项
+勾选随验证套件与门禁证据落地后回填）：
+
+- 交付：`ObjectTracker` 三个池侧原语（Experimental，设计 §6.3/§6.4；
+  M7-04/M7-06 显式预留消费侧收口；管线编排形态冻结为池侧原语 + 调用方
+  组合帧管线，M7-03/05/06 先例，编排不进本层，`PerceptionSession` 仍不持有
+  tracker）。(1) `advance_generation_for_classification`：冻结触发判定——
+  `kGlobal` → 代际 +1（`GenerationAdvance{advanced, generation}` 回显），
+  `kNone`/`kPartial` 不动，未知枚举值显式 `kInvalidArgument`；uint32 耗尽
+  经 `advance_layout_generation` 透传 `kBudgetExceeded`（显式失败口径维持）；
+  代际切换后逐 track 降级（kTracking 无确认证据 → kUncertain、位置先验
+  清零）维持 M7-06 状态机语义——经调用方以 `PositionScenario::
+  kGenerationSwitch` 场景提交驱动，代际递增本身不改写 track 状态（M7-06
+  冻结不动）。(2) `compensate_global_motion`：消费调用方
+  `estimate_global_shift` 结果（证据信任边界同全头，tracker 不自持上一帧、
+  不自跑原语），对全部非 `kTerminated` track 施加同一位移校正
+  （`last_bounds`/`predicted_center` 逐分量 float 平移 + 中心按既冻结公式
+  重算；kTerminated 归档留在终止位置；位置历史/模板/负模板/E2 基线/代际/
+  状态槽不动——补偿是坐标更新不是证据，不改写历史观测）；结果
+  `MotionCompensationResult`（`applied`/`dx`/`dy`/逐 track 升序 echo
+  `MotionCompensationEntry`，≤ `max_targets` 有界）；置信度门
+  `min_compensation_confidence`（新选项，[0,1]，默认 0.0 不过滤——开发
+  冒烟值，M7-09 校准，`RISK-2026-17` 补偿失效门控旋钮）不达标显式
+  `applied=false` 拒绝、池不动（RULE-06 不静默丢弃）；非有限 dx/dy、
+  置信度越界（含 NaN）、平移越 float 有限域均显式 `kInvalidArgument` 且池
+  完全不变（先验证全体后变异，原子）。`predicted_center` 恒为
+  `last_bounds` 中心的冻结不变量**维持**（取舍冻结于头注释：M7-01 布局无
+  速度字段，设计 §6.3 "更新速度估计"以逐帧平移本身实现，速度模型留 M7-09
+  在 Experimental 内提议；设计 §6.3 落点注记已同步）。补偿后调用方以
+  `PositionScenario::kCompensatedScroll` 声明场景（行为同 kStationary 全
+  权重，区别供 trace 与 M7-09 分场景校准——M7-06 冻结不动）。(3)
+  `sweep_generation_lag`：`max_generation_lag` 耗尽判定落地（M7-06 明确
+  归本项），"证据枯竭"冻结为双条件——track 代际落后池当前代际**大于**
+  `max_generation_lag`（每次提交含占位与否决都把 track 代际戳到池当前值，
+  "落后"等价于连续超限个代际未收到任何等级提交）**且** track 处于
+  kUncertain（M7-06 已判定证据不足、落后窗口内无确认证据到达）→ kLost 并
+  经状态槽记录丢失时刻（防御性分配 + 预算检查；kUncertain 恒已持槽），
+  逐 id 升序 trace 显式上报（RULE-06 降级不静默）；kLost 粘滞语义不变
+  （kLost→kTracking 仍只经确认提交或 M7-08 身份复核）；kTracking 保持
+  确认态——其降级路径是 M7-06 提交链（kGenerationSwitch 场景提交），清扫
+  不伪造证据不足。先规划后变异，任何失败池完全不变。三原语取消/超时均为
+  入口单次轮询（`commit_track_evidence` 冻结先例——全池一遍每 track 常数
+  量有界工作、验证后变异无失败路径，中途轮询只会打断半应用的池）。头注释
+  同步兑现全部 M7-06 预留钩子注记（`PositionScenario`、
+  `advance_layout_generation`、`evaluate_change_gate` kGlobal 注记、
+  `commit_track_evidence` kLost 粘滞与 predicted_center 注记、
+  `layout_generation()` getter、`TargetTrack::predicted_center`）。新增
+  头依赖仅 `<mirador/shift_estimation.hpp>`（`ShiftEstimate` 消费），
+  `mirador_fusion` 链接接口恰为 core/image/cache 不变（shift_estimation
+  属 image 模块，架构测试与链接闭包探针不受影响）。本项未引入任何关联
+  （`confirmed_associations`）构造路径，M7-06 限制段的关联数上限议题不
+  触发。
+- 本地验证（交付时点）：debug 预设构建零告警；debug 全量 ctest 48/48
+  （既有五个 fusion 套件含 `object_tracker` 72、`object_tracker_verification`
+  30、`object_tracker_evidence_fusion` 47 用例零回归）；开发冒烟自检
+  （临时脚本 `/tmp`，不入仓）九组断言全过——触发判定三分类 + 未知枚举 +
+  uint32 语义、滚动往返（合成纹理帧对 `estimate_global_shift` 得
+  (dx,dy)=(8,4)、adopt → compensate → `verify_track` 于滚动后帧 kStrong
+  峰值 NCC 1.0、偏移 (0,0)、PSR 5.27——补偿后位置先验恢复门控有效性的
+  往返闭环）、中心不变量与历史不改写、kTerminated 排除、置信度门显式
+  拒绝池不动、NaN/非有限/float 溢出显式 `kInvalidArgument`（两步越界构造
+  验证原子性）、取消上下文 kCancelled、耗尽清扫（lag=1 边界不扫、lag=2
+  扫出且 kTracking 不动、kLost 粘滞、二次清扫空）、kGenerationSwitch
+  级联（kTracking → kUncertain + 代际戳记）、双实例逐位确定性；
+  clang-format 全仓 dry-run 对两改动文件归零（首轮 3 处违规已修）；
+  clang-tidy `--warnings-as-errors='*'`（`-p build/debug`）对
+  `object_tracker.cpp` 退出码 0（首轮 3 处：include-cleaner 直接包含
+  `shift_estimation.hpp` 与 modernize-use-auto 两处 cast 自动类型后归零，
+  行为不变）。六预设 ctest、sanitizer、DOD-03 坐标矩阵、DOD-04 负向与 CI
+  证据待验证套件落地后回填。
+- 限制与衔接：补偿不产生速度状态、置信度门与耗尽判定阈值均为开发冒烟
+  初值（`DEC-019` 第 5 条，M7-09 校准，`DOD-05` 只宣称合成口径）；
+  `RISK-2026-17` 门控随 M7-09 A/B/C/D 矩阵 B/C 差值与 `*-scroll` 延续率
+  收口，回退为收紧代际判定或位置通道降权；重检测原语与身份复核归 M7-08
+  （kLost→kTerminated 预算策略不动）；基准与门槛校准归 M7-09；
+  `StableIdTracker::advance` 冻结契约零改动（DEC-010 直通通道 M7-06 已
+  落地，本项未触碰）；DOD-03 方向/奇数尺寸/非连续 stride/贴边往返矩阵、
+  DOD-04 模板失效负向与隐私负向由 Independent-Verification-Agent 验证
+  套件覆盖后回填本记录。
+
+2026-09-24：`M7-07` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-07-global-motion-compensation`；验证套件由
+Independent-Verification-Agent 独立编写与执行，实现交付见上段）：
+
+- 交付摘要：三个池侧原语（冻结触发判定/池级位移校正/`max_generation_lag`
+  耗尽清扫，语义冻结见本日实现交付段）的验证套件 19 用例
+  `tests/fusion/object_tracker_motion_generation_test.cpp` 随 test(fusion)
+  commit e231d12 落地（注册 ctest 项
+  `mirador.fusion.object_tracker_motion_generation`，LABELS unit）。验证轮
+  零实现改动：实现审查对照冻结契约逐条核对未发现缺陷，非缺陷事实经测试
+  钉住——compensate/sweep 为「入口先轮询取消、后校验」顺序（与
+  `commit_track_evidence` 冻结的校验先于取消刻意不同，与其自身头注释
+  一致，`CompensationCancellationAndTimeout` 钉住）；置信门为闭区间
+  （confidence == 阈值应予应用）。M7-06 交付段移交的五项预留义务全部有
+  构造性测试覆盖：触发判定（义务1）、kGenerationSwitch 降级链（义务2）、
+  耗尽清扫（义务3）、补偿消费（义务4）与滚动往返（义务5）。
+- 验证覆盖：`mirador.fusion.object_tracker_motion_generation` 19 用例——
+  触发判定 4 例（选项域校验、kGlobal 恰 +1 与 `evaluate_change_gate`
+  const 纯决策不递增（M7-03 延迟注记兑现验证）、未知枚举显式
+  kInvalidArgument 池不变、代际递增不改任何 track 字段与字节账）；补偿
+  8 例（全池逐字段精确平移 + kTerminated 归档不动 + 中心不变量 + 历史/
+  模板/代际/状态/字节账不动；置信门闭区间显式 `applied=false` 拒绝与
+  默认 0.0 不过滤；NaN/越界置信度/float 溢出显式失败与双轨兄弟原子性
+  （先规划后变异）；入口取消/超时冻结顺序；空池/零位移/同一估计重复喂入
+  的管线纪律；双实例逐位确定性）；耗尽清扫 5 例（严格大于边界两侧、
+  kUncertain 单条件 + kLost 粘滞不重报 + kTracking 保持确认态、清扫后
+  kLost 占位不复活直至确认提交复捕获并戳当前代际、取消/超时显式转化、
+  空清扫显式空集）；kGenerationSwitch 级联降级与恢复 1 例；估计器在环
+  滚动往返 1 例——补偿前同一 kPartial 报告 kReuse 短路且验证 kNone
+  （8px 轨道滚动 (8,4) 超出冻结验证 ROI 扩展半径 ≈ 半对角 5.7px/侧，
+  验证器完全够不到目标——`RISK-2026-17` 结构性失效与补偿存在理由的
+  实证，供 M7-09 校准参考）、补偿后同一报告 kVerify + 同帧
+  kStrong@offset(0,0) 峰值 NCC > 0.999 + `kCompensatedScroll` 提交
+  kConfirmed、bounds 恰落真位；DOD-03 坐标矩阵 1 例（0/90/180/270 旋转
+  元数据 × 奇数 21×15 × +7 非连续 stride × 贴边 × 正负两方向：平移逐位
+  与元数据无关、往返 kStrong@(0,0) 成立）。隐私（`RULE-10`/`DOD-06`）
+  按 M7-03/05/06 套件先例结构性交底：结果类型只携带 id/枚举/状态/坐标
+  矩形，无模板字节、缩略图或帧内容可泄，tracker 无日志/文件系统/网络
+  面；fusion 管线二进制由共享隐私套件覆盖（`tests/privacy`，M5-07 注册
+  口径）。DOD-04 模板失效负向无 M7-07 专属面——补偿只动坐标不触碰模板/
+  基线，失效翻转已由 M7-05/M7-06 验证套件在验证/提交缝覆盖
+  （`object_tracker_verification_test.cpp`、
+  `object_tracker_evidence_fusion_test.cpp`）。
+- 门禁（文档同步时点于分支 head e231d12 复验）：debug 预设全量 ctest
+  49/49（7 项架构/链接闭包测试随全量通过，`mirador_fusion` 链接接口恰
+  为 core/image/cache 不变，新增 `shift_estimation.hpp` 头依赖仍在既有
+  链接面内）；新套件 debug 直跑 19/19，asan/ubsan 预设直跑各 19/19 且
+  sanitizer 零报告；clang-format `--dry-run --Werror` 对三改动文件
+  （hpp/cpp/测试）归零；clang-tidy `--warnings-as-errors='*'`
+  （`-p build/debug`）对 `object_tracker.cpp` 与新测试文件退出码 0。
+  首轮 lint 往返（测试文件 10 处 format 违规与 8 处 tidy 告警：未用
+  using、补 `<mirador/pixel_format.hpp>` 与 `<optional>`、
+  EnumCastOutOfRange NOLINT（tests/core 先例）、认知复杂度 NOLINT、
+  optional 未检查访问改守卫式解引用）已随 e231d12 修复，用例语义不变。
+- 限制：uint32 代际耗尽的 `kBudgetExceeded` 透传仅经代码审查验证
+  （`src/fusion/object_tracker.cpp:1073` 守卫、`:1270` 透传；公共 API
+  需 2^32 次调用，单测不可行，同 M7-02 冻结套件先例）；sweep 防御性状态
+  槽分配的 `kBudgetExceeded` 分支经公共 API 不可达（kUncertain 轨迹必已
+  持降级提交分配的槽），套件改为验证可达行为（清扫后 `byte_size` 不
+  变）；release/tsan/warnings 预设与六预设完整复跑随编排脚本收口——
+  tsan/warnings 侧已由 CI 在分支 head 覆盖（见下方 CI 回填；CI 矩阵无
+  release 预设，同 M7-03~06 先例）；滚动往返为合成口径（`DOD-05`
+  不宣称真实场景效果），`min_compensation_confidence` 0.0 与
+  `max_generation_lag` 1 为开发冒烟初值（`DEC-019` 第 5 条，M7-09 校准
+  收口，`RISK-2026-17` 随 A/B/C/D 矩阵 B/C 差值与 `*-scroll` 延续率门
+  控）；重检测原语与身份复核归 M7-08；既有遗留（非本项引入）：头文件
+  声明的单参 `ObjectTracker::terminate(uint64_t)` 重载在 src 中无定义
+  （object_tracker.hpp:594，冒烟曾触发链接错误），建议 M7-08 或后续
+  refactor 清理。
+- CI 回填：PR #27 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35896974845](https://github.com/Linductor-alkaid/mirador/actions/runs/35896974845)
+  （head c52a200，覆盖实现、契约注册、验证套件与文档交付/勾选 commit，
+  38m1s）；首轮通过，无修复往返。
