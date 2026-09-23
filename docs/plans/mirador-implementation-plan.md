@@ -16,8 +16,9 @@
 > 同步。本地门禁：debug ctest 46/46、asan/ubsan/tsan 全量 ctest 各 45/45
 > 且 sanitizer 零报告（tsan 经 `setarch -R` 注册包装）、clang-format 全仓
 > 归零、clang-tidy `--warnings-as-errors='*'` 退出码 0；release/warnings
-> 预设与六预设完整复跑随编排脚本收口。CI 证据与 PR 回填待补；`SCOPE-13`
-> 维持未勾选（M7 进行中）。
+> 预设与六预设完整复跑随编排脚本收口。CI 证据随 PR #24 回填（run
+> 35808507168，14/14 job 全绿，PR 待合入）；`SCOPE-13` 维持未勾选（M7
+> 进行中）。
 >
 > 1.12 修订（2026-09-23）：M7 工作项 `M7-04` 全局位移估计原语实现交付于
 > 工作分支 `feat/m7-04-global-shift-estimation`——`mirador::image` 公共契约
@@ -141,8 +142,10 @@ PR #13/#14/#15/#17 合入（CI 14/14 绿）；`M6-04` 合成口径 `DEC-017` 四
 短路已交付并勾选（实现、16 用例验证套件、门控基准与门禁证据落地；CI
 证据已回填：[PR #22](https://github.com/Linductor-alkaid/mirador/pull/22)
 run 35759053505 14/14 job 全绿，待合入）；`M7-04` 全局位移估计原语已交付
-并勾选（实现、23 用例验证套件、签名重载尺寸一致性修复与本地门禁证据
-落地于分支 `feat/m7-04-global-shift-estimation`；CI 证据待回填）。
+并勾选（实现、23 用例验证套件、签名重载尺寸一致性修复与门禁证据落地于
+分支 `feat/m7-04-global-shift-estimation`；CI 证据已回填：
+[PR #24](https://github.com/Linductor-alkaid/mirador/pull/24)
+run 35808507168 14/14 job 全绿，待合入）。
 
 ## 交付边界
 

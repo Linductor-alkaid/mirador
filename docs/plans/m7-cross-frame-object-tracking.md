@@ -424,9 +424,14 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   `shift_estimation.cpp` 与 `shift_estimation_test.cpp` 退出码 0。修复前
   ASAN 探针复现与修复后双向 `kInvalidArgument` 复验见上段（探针为会话内
   复验工具未入仓，场景已由回归用例永久化）。
-- 限制：release/warnings 预设完整 ctest 未在本轮执行，六预设完整门禁随
-  编排脚本在分支 head 重跑确认（同 M7-03 先例）；位移估计质量仅合成口径
+- 限制：release/warnings 预设完整 ctest 未在本轮执行——warnings 侧已由
+  CI 在分支 head 覆盖（见下方 CI 回填；CI 矩阵无 release 预设），六预设
+  完整门禁仍随编排脚本收口（同 M7-03 先例）；位移估计质量仅合成口径
   （`DOD-05`），置信度与默认参数先验随 M7-09 校准；`resize_area` 权重表
   预算口径是否单独立项收口留待负责人决策（见上段处置记录）。
-- CI 回填：待补（分支未推送；PR 与 CI run 链接随 CI 门禁落地回填，同
-  M7-01/M7-02/M7-03 先例）。
+- CI 回填：PR #24 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35808507168](https://github.com/Linductor-alkaid/mirador/actions/runs/35808507168)
+  （head 58fabd4，覆盖实现、验证套件、签名重载尺寸一致性修复与文档回填
+  commit，30m30s）；首轮通过，无修复往返。
