@@ -559,10 +559,15 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   clang-format --dry-run --Werror 对 hpp/cpp/测试文件归零；clang-tidy
   `--warnings-as-errors='*'` 对 `object_tracker.cpp` 退出码 0。
 - 限制：release/tsan/warnings 预设与 asan/ubsan 全量 ctest 未在本轮执行
-  ——六预设完整门禁随编排脚本在分支 head 收口（同 M7-03/M7-04 先例）；
-  阈值/预算初值无真实先验（`DEC-019` 第 5 条，M7-09 校准，`DOD-05` 不
-  宣称真实场景效果）；`kUncertain`/`kLost` 态不可经公共 API 构造，其验
-  证路径随 M7-06 状态机落地补构造级测试；E2 描述量端到端联测随 M7-09
-  harness。
-- CI 回填：待补（分支未推送；PR 与 CI run 链接随 CI 门禁落地回填，同
-  M7-01/M7-02/M7-03/M7-04 先例）。
+  ——tsan/warnings/asan/ubsan 侧已由 CI 在分支 head 覆盖（见下方 CI 回
+  填；CI 矩阵无 release 预设），六预设完整门禁仍随编排脚本在分支 head
+  收口（同 M7-03/M7-04 先例）；阈值/预算初值无真实先验（`DEC-019` 第 5
+  条，M7-09 校准，`DOD-05` 不宣称真实场景效果）；`kUncertain`/`kLost`
+  态不可经公共 API 构造，其验证路径随 M7-06 状态机落地补构造级测试；
+  E2 描述量端到端联测随 M7-09 harness。
+- CI 回填：PR #25 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（focal 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、clang
+  debug/fuzz、integrations-ncnn、capture/opencv 适配与 clang-format/
+  clang-tidy 双口径。[run 35821784682](https://github.com/Linductor-alkaid/mirador/actions/runs/35821784682)
+  （head 89f210c，覆盖实现、验证套件、出处/精度注释处置与文档回填
+  commit，39m0s）；首轮通过，无修复往返。

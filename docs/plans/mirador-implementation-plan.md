@@ -18,8 +18,9 @@
 > 变）。本地门禁：debug ctest 47/47、验证套件 30 用例与既有
 > `mirador.fusion.object_tracker` 72 用例直跑通过、asan/ubsan 验证套件
 > 直跑零 sanitizer 报告、clang-format/clang-tidy 归零；release/tsan 等
-> 其余预设与六预设完整复跑随编排脚本收口。CI 证据待回填；`SCOPE-13`
-> 维持未勾选（M7 进行中）。
+> 其余预设与六预设完整复跑随编排脚本收口。CI 证据随 PR #25 回填（run
+> 35821784682，14/14 job 全绿，PR 待合入）；`SCOPE-13` 维持未勾选（M7
+> 进行中）。
 >
 > 1.14 修订（2026-09-23）：M7 工作项 `M7-05` 邻域验证器实现交付于工作分支
 > `feat/m7-05-neighborhood-verifier`——`ObjectTracker::verify_track`（纯逐
@@ -175,8 +176,10 @@ run 35759053505 14/14 job 全绿，待合入）；`M7-04` 全局位移估计原�
 分支 `feat/m7-04-global-shift-estimation`；CI 证据已回填：
 [PR #24](https://github.com/Linductor-alkaid/mirador/pull/24)
 run 35808507168 14/14 job 全绿，待合入）；`M7-05` 邻域验证器已交付并勾选
-（实现、30 用例验证套件、验证员首轮出处/精度处置与本地门禁证据落地于
-分支 `feat/m7-05-neighborhood-verifier`；CI 证据待回填）。
+（实现、30 用例验证套件、验证员首轮出处/精度处置与门禁证据落地于
+分支 `feat/m7-05-neighborhood-verifier`；CI 证据已回填：
+[PR #25](https://github.com/Linductor-alkaid/mirador/pull/25)
+run 35821784682 14/14 job 全绿，待合入）。
 
 ## 交付边界
 
