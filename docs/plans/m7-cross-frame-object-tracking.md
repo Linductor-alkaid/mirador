@@ -954,3 +954,28 @@ Independent-Verification-Agent 独立编写与执行，实现交付见上段）�
   中断事件与关联记录的有界性（RULE-06 负向）、取消/超时转化、字节
   记账与回合槽生命周期（terminate/淘汰/reset 释放）、DOD-03/04/06
   负向、双实例逐位确定性；六预设门禁与 CI 证据随验证套件落地回填。
+
+2026-09-24：`M7-08` 验证轮处置（验证套件
+`tests/fusion/object_tracker_redetection_test.cpp` 随 test(fusion)
+commit 落地；实现侧修复由验证员 scratch 复核发现的一处低severity缺陷）：
+
+- 缺陷与修复：验证员 scratch 复核证实 `record_redetection_recapture`
+  读取中断事件 `attempts` 时未施加回合视图陈旧键校验（与
+  `evaluate_redetection_gate`/`record_redetection_failure` 的键校验路径
+  不一致）——track 于 seq2 丢失、记账失败 1 次、经 `commit_track_evidence`
+  走入式复捕获（无簿记）、再丢失于 seq8 后，回合 2 的中断事件错误携带
+  已死回合 1 的计数（冻结语义应报 0：回合槽陈旧即按新回合读取，头注释
+  §M7-08 节冻结规则）。影响限于诊断记录字段失真——退避调度、门判定与
+  耗尽转移均走键校验路径，行为不受影响。修复：recapture 读取处以调用方
+  `lost_sequence` 证据为回合键施加同一陈旧规则（确认提交已清零状态槽
+  kLost 进入时刻，调用方证据是此处唯一可得键，与既有证据信任边界一致，
+  不放宽公共契约）；头注释同步精确化该键语义。验证员附注口径维持：两
+  回合 kLost 进入序列相同（调用方帧序列不前进）时陈旧性按设计不可分辨，
+  不另立缺陷。
+- 修复回归（本会话执行）：开发冒烟追加验证员复现场景（死回合计数不
+  泄漏——stale 事件 attempts==0；合法回合仍精确上报——键匹配事件
+  attempts==2）共 137 断言全过；全量 debug ctest 50/50（含验证套件
+  `mirador.fusion.object_tracker_redetection`，既有用例零改动通过——
+  套件 recapture 调用均以匹配键调用，修复不改变其断言路径）；
+  clang-format/clang-tidy 双口径在两份实现文件归零。六预设与 CI 复跑
+  随编排脚本收口。
