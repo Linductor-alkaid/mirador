@@ -663,3 +663,37 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   `RISK-2026-17` 随 A/B/C/D 矩阵门控，负模板机制不达标的回退为相似外观
   候选一律降级 kUncertain）；深度增强通道（M7-11~13）不在本项，未注入
   `TrackerBackend` 是默认态。
+
+2026-09-23：验证员首轮发现 `M7-06` 两项问题，实现侧处置（处置前以分支 head
+c5a7c82 的验证套件复现；不放宽公共契约，实现向已冻结契约文字对齐）：
+
+- minor（契约缺口）：`StableIdTracker::advance` 的 `confirmed_associations`
+  结构校验缺口——关联指向未跟踪 stable_id 时，重复 region_index 或重复
+  stable_id 不再报错而被静默忽略（src/fusion/stable_id_tracker.cpp 原
+  :297-299 未跟踪 id 在任何重复记账前 `continue`，原 :291 的重复索引检查
+  只在先前关联已 pre-match 时触发），与设计 §6.5 及 advance 头注释 Errors
+  列表（"duplicate region indexes or stable ids across associations"）的
+  冻结文字冲突；由
+  `StableIdConfirmedAssociationTest.DuplicateUntrackedAssociationsAreExplicitErrors`
+  按契约文字断言暴露。修复：重复检测改为纯结构校验——`region_claimed`
+  位图与 `claimed_ids` 线性扫描在 tracked 查找之前对每条关联执行，未跟踪
+  id 的重复同样显式 `kInvalidArgument`（状态不变）；通过校验但指向未跟踪
+  id 的关联维持既有"忽略回落常规门控"语义；原 `prev_taken` 重复分支被
+  结构校验覆盖后移除（stable_id 重复已在查找前报错），错误消息文字保持
+  原冻结措辞。头注释同步补记"结构校验先于未跟踪回落"的精确语义（同
+  M7-05 注释精度处置先例）。处置前复现：命名用例 FAILED；修复后该用例及
+  `StableIdConfirmedAssociationTest` 全部 8 用例、
+  `mirador.fusion.object_tracker_evidence_fusion` 47 用例通过。
+- low（注释措辞）：`commit_track_evidence` 头注释写明取消"polled at the
+  entry after validation and again before the patch extraction"（两次
+  轮询），实现为校验后单次轮询即进入 patch 提取（当前两者间无任何工作，
+  行为不可区分）。裁决为注释向代码对齐：改为"polled exactly once, at the
+  entry — after validation and immediately before the patch extraction,
+  the commit's only pixel work"，不补死代码二次轮询；冻结的"校验先于
+  取消"决策与单次轮询语义均不变。
+- 复验（实现侧本地证据）：debug 预设构建零告警；debug 全量 ctest 48/48
+  （含验证套件 `mirador.fusion.object_tracker_evidence_fusion` 47 用例、
+  `stable_id_tracker` 19、`object_tracker` 72、验证器套件 30、
+  `perception_session` 26 直跑全通过）；clang-format 对三改动文件归零；
+  clang-tidy `--warnings-as-errors='*'` 对 `stable_id_tracker.cpp` 退出码
+  0。六预设门禁与 CI 证据随编排脚本在分支 head 收口回填。
