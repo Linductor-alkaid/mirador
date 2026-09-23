@@ -63,7 +63,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-04` 全局位移估计原语（`mirador::image`）：低分辨率平移搜索、
   纯 CPU 确定性、预算保护；输出位移向量 + 置信度；坐标链经 `Transform2D`
   组合并通过方向/奇数尺寸/往返容差矩阵（`DOD-03`）。
-- [ ] `M7-05` 邻域验证器：验证 ROI 内模板 NCC（多模板最优 + 峰旁瓣质量）
+- [x] `M7-05` 邻域验证器：验证 ROI 内模板 NCC（多模板最优 + 峰旁瓣质量）
   与 `GeometricRegionProposal` 闭合结构一致性（描述量与池内基线偏差容差）
   双通道；模板版本/参数变化使验证结果失效（`DOD-04` 负向）。
 - [ ] `M7-06` 证据融合与状态机：静止/补偿后滚动/代际切换的条件化权重，
@@ -529,3 +529,40 @@ Independent-Verification-Agent 独立编写与执行，同日契约修正与 tsa
   `mirador.fusion.object_tracker_verification` 30 用例直跑均通过）；两
   改动文件 clang-format dry-run 归零；clang-tidy
   `--warnings-as-errors='*'` 对 `object_tracker.cpp` 退出码 0。
+
+2026-09-23：`M7-05` 测试与门禁证据落地，工作项勾选（分支
+`feat/m7-05-neighborhood-verifier`；验证套件由 Independent-Verification-Agent
+独立编写与执行，实现交付与验证员首轮四项发现的处置见上两段）：
+
+- 交付摘要：`ObjectTracker::verify_track`（纯逐 track 双通道证据决策）、
+  验证 ROI 查询 `verification_roi`、E2 基线簿记 `record_structure_baseline`
+  与新选项 `verification_work_budget_bytes`（语义冻结见本日交付段）；
+  验证员首轮处置以注释级修改落地（1210d32：校验/取消优先级出处更正为
+  本项冻结决策并显式注明与 `adopt_track` M7-02 取消优先入口的刻意对照，
+  另补不可达防御分支与工作量/ROI 计量精度注记，公共契约面零变化）；
+  30 用例验证套件 `tests/fusion/object_tracker_verification_test.cpp`
+  随 test(fusion) commit 8a2e859 落地。
+- 验证覆盖：`mirador.fusion.object_tracker_verification` 30 用例——
+  `verification_roi` 冻结扩展规则/贴边钳制/非法输入拒绝、同帧零偏移
+  kStrong、整数位移峰偏移恢复、平坦场景 PSR 拒绝与不达标峰高一律不采信、
+  弱带阈值边界翻转、小视图回退单偏移、新模板成为最优（`DOD-04` 负向）、
+  负模板零读取、E2 基线簿记与字节记账（+32/覆盖中性/terminate、track
+  淘汰与 reset 释放/放不下显式 kBudgetExceeded 且池与通道不变）、容差
+  含边界比较、双通道独立性、错误模型矩阵与非正预算拒绝、冻结工作量
+  公式边界（55432 字节：−1 拒/等于过）、校验与预算先于取消、扫描中途
+  取消不返回半份结果、双实例与重复调用逐位确定、DOD-03 坐标矩阵
+  （0/90/180/270 × 奇数 21x15 × 非连续 stride）、stride 与 gray/RGBA
+  格式不变性、纯 const 决策不改池。
+- 门禁（文档同步时点于分支 head 复验）：debug 预设构建零告警、debug
+  ctest 47/47、`mirador.fusion.object_tracker` 72 用例与验证套件 30 用例
+  直跑通过；asan/ubsan 预设直跑验证套件各 30/30 且 sanitizer 零报告；
+  clang-format --dry-run --Werror 对 hpp/cpp/测试文件归零；clang-tidy
+  `--warnings-as-errors='*'` 对 `object_tracker.cpp` 退出码 0。
+- 限制：release/tsan/warnings 预设与 asan/ubsan 全量 ctest 未在本轮执行
+  ——六预设完整门禁随编排脚本在分支 head 收口（同 M7-03/M7-04 先例）；
+  阈值/预算初值无真实先验（`DEC-019` 第 5 条，M7-09 校准，`DOD-05` 不
+  宣称真实场景效果）；`kUncertain`/`kLost` 态不可经公共 API 构造，其验
+  证路径随 M7-06 状态机落地补构造级测试；E2 描述量端到端联测随 M7-09
+  harness。
+- CI 回填：待补（分支未推送；PR 与 CI run 链接随 CI 门禁落地回填，同
+  M7-01/M7-02/M7-03/M7-04 先例）。
