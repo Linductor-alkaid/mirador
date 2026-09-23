@@ -1,11 +1,31 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.20
+> 版本：1.21
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-24
+>
+> 1.21 修订（2026-09-24）：M7 工作项 `M7-08` 级联重检测原语与身份复核
+> 测试与门禁证据落地，工作项勾选——Independent-Verification-Agent 验证
+> 套件 23 用例（静止画面 `kNone` 零触发负向、门判定矩阵、冻结倍增退避
+> 逐帧计与封顶、预算耗尽由记账入口自身执行 kTerminated 归档显式可见、
+> 回合槽/日志放不下显式 `kBudgetExceeded` 且池与回合状态不变、复捕获
+> 回合关闭与再丢失新回合、修复回归三分支——死回合计数不泄漏/键匹配
+> 精确上报/错键读作新回合且陈旧槽随回合关闭释放、关联记录纯诊断、
+> 有界日志溢出淘汰并计数、身份复核延续/新 ID 两分支、取消/超时显式
+> 转化、双实例逐位确定性、记录仅 id 与序列与 DOD-03 坐标矩阵）随
+> test(fusion) commit d8c439d + a578628 落地；验证员 scratch 复核发现的
+> recapture attempts 陈旧键缺陷已修复（0a95f79：以调用方 `lost_sequence`
+> 证据为回合键施加 stale-reads-fresh 规则，仅触诊断字段、行为零变化、
+> 契约未放宽）。本地门禁（文档同步时点于分支 head a578628 复验）：debug
+> 全量 ctest 50/50、新套件直跑 debug/asan/ubsan 各 23/23 且 sanitizer
+> 零报告、clang-format/clang-tidy 归零；release/tsan/warnings 预设与六
+> 预设完整复跑随编排脚本收口。CI 推送与 14/14 证据回填待编排脚本收口
+> （分支未推送）；调用方证据错键时诊断字段失真由调用方证据负责（头注
+> 释冻结）、相同 kLost 进入序列陈旧性按设计不可分辨；退避/预算初值随
+> M7-09 校准；`SCOPE-13` 维持未勾选（M7 进行中）。
 >
 > 1.20 修订（2026-09-24）：M7 工作项 `M7-08` 级联重检测原语与身份复核实现
 > 交付于工作分支 `feat/m7-08-cascade-redetection-identity-review`——
@@ -283,7 +303,12 @@ run 35842711760 14/14 job 全绿，待合入）；`M7-07` 全局运动补偿与�
 DOD-03 坐标矩阵——与门禁证据落地于分支
 `feat/m7-07-global-motion-compensation`；CI 证据已回填：
 [PR #27](https://github.com/Linductor-alkaid/mirador/pull/27)
-run 35896974845 14/14 job 全绿，待合入）。
+run 35896974845 14/14 job 全绿，待合入）；`M7-08` 级联重检测原语与身份
+复核已交付并勾选（实现、验证员 scratch 复核发现的 recapture attempts
+陈旧键缺陷修复、23 用例验证套件——含静止画面零触发负向、预算耗尽
+显式归档、修复回归三分支与身份复核两分支——与门禁证据落地于分支
+`feat/m7-08-cascade-redetection-identity-review`；分支未推送，CI 证据
+待编排脚本推送后回填）。
 
 ## 交付边界
 
