@@ -76,7 +76,7 @@ A/B/C/D 基准发布；go/no-go 判定。
 - [x] `M7-08` 级联重检测原语与身份复核：退避序列、最大重试、变化门控联动
   （静止画面零触发负向测试）、预算耗尽显式失败；重检测候选经池模板 + E2
   复核后延续/新分配 ID 并记录中断事件；策略决策权留给上层（`RULE-12`）。
-- [ ] `M7-09` 合成验证 harness 与基准发布：A/B/C/D 方法对比矩阵、第 3 节
+- [x] `M7-09` 合成验证 harness 与基准发布：A/B/C/D 方法对比矩阵、第 3 节
   指标全套数字、场景覆盖 `*-static-page`/`*-scroll`/`*-dialog`/
   `*-theme-switch`/`*-similar-icons`/`*-partial-anim`；数字发布于
   `docs/benchmarks/`（`DEC-011` 口径）；门槛初值逐项校准冻结。
@@ -1047,3 +1047,75 @@ Independent-Verification-Agent 独立编写与执行，实现交付与验证轮�
   clang-tidy 双口径。[run 35917953109](https://github.com/Linductor-alkaid/mirador/actions/runs/35917953109)
   （head 86c6433，覆盖实现、契约注册、验证套件与文档交付/勾选 commit，
   37m18s）；首轮通过，无修复往返。
+
+2026-09-24：`M7-09` 合成验证 harness 与基准发布交付，工作项勾选（分支
+`feat/m7-09-synthetic-harness-benchmarks` 自 master e9d9d0c 切出；harness
+实现于本工作项，测试与门禁由 Independent-Verification-Agent 按分工另行
+覆盖——既有 fusion 套件已含确定性/预算负向，harness 按 benchmarks 既有
+先例纳入编译与 lint 验证，六预设 ctest 与 CI 证据随编排脚本收口）：
+
+- 交付：`benchmarks/object_tracking_bench.cpp`（`mirador_bench_object_tracking`
+  注册于 benchmarks/CMakeLists.txt，链接 `mirador::fusion`，零新依赖）。harness
+  为调用方组合帧管线（M7-03~08 冻结形态）：每帧 `detect_change`(M1) →
+  `StableIdTracker::advance`（DEC-010，D 方法传 confirmed_associations 直通）→
+  `advance_generation_for_classification`（M7-07）→（kPartial）
+  `estimate_global_shift`(M7-04)+`compensate_global_motion`（C/D）→
+  `evaluate_change_gate`（M7-03）→ kLost 重检测（`evaluate_redetection_gate`
+  + oracle Detector 粗召回（批调用计数，RULE-12 触发策略在 harness）+
+  `verify_track` 身份复核 + `commit_track_evidence` + `record_redetection_*`）
+  → 活跃 track `verification_roi` + E2 结构测度 + `verify_track`(M7-05) +
+  `commit_track_evidence`(M7-06) → 采纳 + `record_structure_baseline` →
+  GT 对账 → `sweep_generation_lag`。A/B/C/D 为调用方策略差（A 无短路每帧
+  全验证/门控透明；B 门控无补偿；C 加补偿；D 加候选语义与融合直通），消费
+  的全部为已冻结公共契约，`object_tracker.hpp` 语义零修改。
+  六场景（`linux-static-page`/`-scroll`/`-dialog`/`-theme-switch`/
+  `-similar-icons`/`-partial-anim`，64×32 对象置于块对齐卡片使 M1 块差分
+  可见亚块运动）：滚动步长 48 px 刻意超出冻结验证 ROI 半径 ±36 px（B/C
+  分离的结构来源）；dialog 为模态面板 + 全帧棋盘格环境（kGlobal + 静态
+  开启期零触发负向）；similar-icons 为孪生纹理 + 亮色弹出面板（交叉 NCC
+  0.712 落弱带、弹出物 +24 px 在 ROI 内——swap 机制）；theme-switch 全帧
+  luma 反转（E1 反相失效、E2 边缘测度不变）；partial-anim 动画窗覆盖
+  4 帧（占位 → kUncertain → 恢复）。
+- 基准发布：[linux-x64-object-tracking-2026-09](../benchmarks/linux-x64-object-tracking-2026-09.md)
+  （`DEC-011` 口径：Linux x64 release、3 次重复非计时指标逐位一致、场景
+  清单与合成口径限定、同日 M1 基线对照、复现命令）。§8 八项指标 × 24 cell
+  全套数字；`DEC-019` 第 5 条门槛逐项判定：static-page 延续 1.000 ≥ 0.95 ✓、
+  scroll 补偿后 1.000 ≥ 0.90 ✓、similar-icons swap 仅 D = 0 ≤ 0.05 ✓、
+  假阳性延续仅 D = 0 ≤ 0.02 ✓、静止帧短路对 M1 同日基线无可测回归 ✓、
+  kLost 后静止画面零 Detector 触发（内建断言全过）✓。`RISK-2026-17` 证据：
+  B/C 差值（scroll 静止期延续 0.333 vs 1.000、Detector 120/min vs 0、
+  B 四对象 new-ID 替换 vs C 零丢失）；`RISK-2026-16` 证据：A/B/C 各 2 次
+  身份交换 vs D 经语义否决（5 次）+ impostor 命中（4 次）零交换（代价：
+  D 该对象 2 帧误判丢后 2 帧重捕获）。
+- 门槛初值逐项校准（`DEC-019` 第 5 条，库默认全部以测量依据维持，无一处
+  变更）：详见报告校准表。要点：`peak_sidelobe_ratio_min` 5.0 热点——初版
+  合成纹理实测真匹配 PSR 4.96 < 5.0（同 M7-08 冒烟 4.6 现象），归因于贫纹理
+  刺激而非阈值，场景纹理富化后真匹配 PSR ≥ 6.95、杂峰 ≤ 3.5，维持 5.0 并
+  记录真实数据复核条件；`min_compensation_confidence` 库默认 0.0 维持
+  （M7-07 套件钉住），测量依据支持调用方配置 0.7——真滚动置信 [0.93, 0.95]
+  vs 局部变化帧 [0.46, 0.55]（0.0 门下 C/D 曾对局部变化帧以伪位移平移整池，
+  0.7 后全部显式 `applied=false` 拒绝），harness 采用 0.7 并在此记录，库默认
+  是否上调留 M7-10 判定；其余逐项测量证据见报告。
+- 本地验证（交付时点）：release/debug 构建零告警；release 全矩阵 3 次重复
+  非计时指标逐位一致（内建确定性断言）、kLost 静止零触发断言全过、池
+  `byte_size ≤ pool_budget_bytes` 逐帧断言全过（峰值 39,960 B = 1 MiB 预算
+  的 3.8%）；静止帧短路：detect 单独 p50 3455.7 µs vs 完整前缀 p50 3448.2 µs、
+  M1 同日复测 unchanged p50 3501.6 µs——无可测回归；clang-format 全仓 dry-run
+  对改动文件归零、clang-tidy `--warnings-as-errors='*'`（-p build/release）
+  对 `object_tracking_bench.cpp` 归零。debug 冒烟六场景跑通（详见下段）。
+  六预设 ctest、sanitizer 与 CI 证据由 Independent-Verification-Agent 与编排
+  脚本收口。
+
+同日 debug 冒烟（debug 预设构建零告警后
+`./build/debug/benchmarks/mirador_bench_object_tracking 2`，2 次重复）：
+24 cell 全部跑通、场景分类自断言/零静态触发/池预算/逐位确定性断言全过、
+退出码 0——debug 口径下定性结论与 release 一致（如 static 短路 detect
+p50 22496.9 µs vs 完整前缀 p50 22411.8 µs，无可测回归），计时数字仅具
+release 口径效力（`DEC-011`）。
+- 限制：全部为合成口径（`DOD-05`），真实截图评估（`RISK-2026-14` /
+  `DEC-018` 阶段 2 共享采集）是转正前置不属本项，M7-10 判定须显式记录
+  "仅有合成证据"；E2 结构测度由 harness 测量而非真实 `propose_regions`
+  输出（E2 描述量消费契约的端到端联测以此口径覆盖）；oracle Detector 按
+  GT 粗召回（设计 §7"按语义标签过滤候选的通用组件"不属本项，未实现）；
+  A 方法的"仅外观"在决策层隔离，E1 搜索仍受冻结 ROI 机械约束（契约无
+  全帧搜索面）；swap 率量纲为"每对象交换次数"（分母随场景定义冻结）。

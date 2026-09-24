@@ -7,6 +7,27 @@
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-24
 >
+> 1.22 修订（2026-09-24）：M7 工作项 `M7-09` 合成验证 harness 与基准发布
+> 交付，工作项勾选——`benchmarks/object_tracking_bench.cpp`（调用方组合
+> 帧管线：M1 变化检测 + DEC-010 融合直通 + M7-03~08 全部冻结池原语 +
+> oracle Detector 粗召回，A/B/C/D 调用方策略差 × 六合成场景
+> `linux-static-page`/`-scroll`/`-dialog`/`-theme-switch`/`-similar-icons`/
+> `-partial-anim`），§8 八项指标 × 24 cell 全套数字与 `DEC-019` 第 5 条
+> 门槛逐项判定发布于
+> [linux-x64-object-tracking-2026-09](../benchmarks/linux-x64-object-tracking-2026-09.md)
+> （`DEC-011` 口径，Linux x64 release，3 次重复逐位确定）。门槛判定：
+> static-page 延续 1.000、scroll 补偿后 1.000、similar-icons swap 与假阳性
+> 延续仅语义口径 D 达标（`RISK-2026-16`/`RISK-2026-17` 门控证据：B/C
+> 滚动延续 0.333 vs 1.000、A/B/C swap 2 次 vs D 零）、静止帧短路对 M1
+> 同日基线无可测回归、kLost 后静止画面零 Detector 触发（内建断言）。
+> 门槛初值逐项校准：库默认全部以测量依据维持（含 `peak_sidelobe_ratio_min`
+> 5.0 热点：贫纹理合成 patch 真匹配 PSR 4.96 被拒归因于刺激，富化后
+> ≥ 6.95，真实数据复核条件已记录）；`min_compensation_confidence` 库默认
+> 0.0 维持、harness 调用方配置 0.7（真滚动置信 [0.93, 0.95] vs 局部变化
+> [0.46, 0.55]，是否上调库默认留 M7-10）。全部为合成口径（`DOD-05`），
+> 真实截图评估（`RISK-2026-14`/`DEC-018` 阶段 2）仍为转正前置；
+> `SCOPE-13` 维持未勾选（M7 进行中）。
+>
 > 1.21 修订（2026-09-24）：M7 工作项 `M7-08` 级联重检测原语与身份复核
 > 测试与门禁证据落地，工作项勾选——Independent-Verification-Agent 验证
 > 套件 23 用例（静止画面 `kNone` 零触发负向、门判定矩阵、冻结倍增退避
