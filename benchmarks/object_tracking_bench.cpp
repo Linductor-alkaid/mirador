@@ -1228,6 +1228,19 @@ void continuation_scan(CellRun& run, const FrameTruth& truth, const bool phase_s
     scan_missed_losses(run, truth);
 }
 
+// M7-07 lag sweep: every swept id is a kUncertain -> kLost transition, so it
+// enters the same loss ledger as commit-path losses. Without this, a later
+// recapture of a swept track would compute its latency against a missing
+// kLost entry (0) and silently inflate the published delay — and the
+// interruption event would carry lost_sequence 0.
+void sweep_step(CellRun& run, const uint64_t sequence) {
+    const std::vector<uint64_t> swept = take_ok(run.tracker.sweep_generation_lag(sequence), "sweep_generation_lag");
+    for (const uint64_t id : swept) {
+        cell_set_lost_sequence(run, id, sequence);
+        ++run.m.loss_events;
+    }
+}
+
 void frame_step(CellRun& run, const int frame) {
     const FrameTruth truth = truth_of(run.scene, frame);
     if (!run.has_prev) {
@@ -1263,7 +1276,7 @@ void frame_step(CellRun& run, const int frame) {
     verification_step(run, report, gates, comp_applied, truth, sequence);
     adopt_visible_objects(run, truth, sequence);
     continuation_scan(run, truth, phase_is_static(run.scene, frame));
-    expect_ok(run.tracker.sweep_generation_lag(sequence), "sweep_generation_lag");
+    sweep_step(run, sequence);
     expect_true("pool budget exceeded", run.tracker.byte_size() <= run.tracker.options().pool_budget_bytes);
     run.m.frames = frame + 1;
     run.m.pool_peak_bytes = std::max(run.m.pool_peak_bytes, run.tracker.byte_size());
@@ -1409,7 +1422,9 @@ int main(int argc, char** argv) {
     reps = std::max(reps, 2);  // the second repetition doubles as the determinism check
     std::printf("mirador_bench_object_tracking %dx%d RGBA, A/B/C/D x 6 scenes, %d reps (determinism checked)\n", kWidth,
                 kHeight, reps);
-    std::printf("tracker options: frozen M7 defaults (calibration surface untouched)\n\n");
+    std::printf(
+        "tracker options: frozen M7 library defaults; C/D additionally configure the\n"
+        "calibrated caller policy min_compensation_confidence=0.7 (library default 0.0 kept)\n\n");
     self_check_background_y_invariance();
     self_check_theme_edges_invariant();
     self_check_scroll_shift_recovery();
