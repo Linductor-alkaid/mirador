@@ -114,6 +114,21 @@
   语义不变，kTracking 保持确认态（其降级路径是 M7-06 提交链）。三原语均
   校验先于变异、错误路径池完全不变、入口单次取消轮询（`commit_track_evidence`
   先例）。
+- M7-09：合成验证 harness 与基准发布——`benchmarks/mirador_bench_object_tracking`
+  （链接 `mirador::fusion`，零新依赖）：调用方组合帧管线（M1 变化检测 +
+  `StableIdTracker` 融合直通 + M7-03~08 全部冻结池原语 + oracle Detector
+  粗召回）× A/B/C/D 方法矩阵（仅外观 / 外观+位置门控 / +运动补偿 /
+  +语义与融合直通）× 六合成场景（`linux-static-page`/`-scroll`/`-dialog`/
+  `-theme-switch`/`-similar-icons`/`-partial-anim`，播种整数哈希逐位确定、
+  内存生成不落盘）。§8 八项指标全套数字与 `DEC-019` 第 5 条门槛逐项判定
+  发布于 [linux-x64-object-tracking-2026-09](docs/benchmarks/linux-x64-object-tracking-2026-09.md)
+  （`DEC-011` 口径）：static-page 延续 1.000、scroll 补偿后 1.000、
+  similar-icons swap 与假阳性延续仅 D 达标（`RISK-2026-16`/`RISK-2026-17`
+  门控证据入报告）、静止帧短路对 M1 同日基线无可测回归、kLost 后静止
+  画面零 Detector 触发。门槛初值逐项校准：库默认全部以测量依据维持
+  （PSR 5.0 热点附真实数据复核条件）；harness 调用方配置补偿置信门 0.7
+  （测量：真滚动 [0.93, 0.95] vs 局部变化 [0.46, 0.55]）。全部为合成口径，
+  真实截图评估仍为转正前置。
 - M7-08：`ObjectTracker` 新增级联重检测原语与身份复核簿记（Experimental，
   设计 §7，`RULE-12` 策略决策权留上层——tracker 只参数化退避与预算状态、
   不做内部调度、不创建线程/定时器；池侧原语 + 调用方组合管线沿用既有形态）。
