@@ -12,6 +12,15 @@ add_executable(mirador_bench_change_gate change_gate_bench.cpp)
 target_link_libraries(mirador_bench_change_gate PRIVATE mirador::fusion)
 mirador_apply_warnings(mirador_bench_change_gate)
 
+# M7-09 (DEC-019 section 4): synthetic verification harness and A/B/C/D method
+# matrix for the cross-frame object tracker. Links fusion: the harness is the
+# caller-composed frame pipeline over the frozen M7-03..08 pool primitives
+# (detect_change and estimate_global_shift reach it through fusion's public
+# link interface).
+add_executable(mirador_bench_object_tracking object_tracking_bench.cpp)
+target_link_libraries(mirador_bench_object_tracking PRIVATE mirador::fusion)
+mirador_apply_warnings(mirador_bench_object_tracking)
+
 # M5-06 (SCOPE-08): cache hit path and backend outer cost. Links the fusion
 # module because PerceptionSession composes image and cache (DEC-013).
 add_executable(mirador_bench_cache_backend cache_backend_bench.cpp)
