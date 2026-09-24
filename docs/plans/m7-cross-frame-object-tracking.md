@@ -1166,6 +1166,13 @@ commit f8926a2 落地）：
   与已发布基线文档逐项对照 323 项断言零漂移（ID 延续率、swap/假阳性、
   丢失误判与重捕获、Detector 触发、池内存、融合保留率与叙事数字全量
   覆盖 24 cell）。
-- 待办：CI 14/14 回填随 PR 收口（文档表格中的 M1 同日计时对照属运行日
-  墙钟样本，按 `DEC-011` 口径不入零漂移判定，本轮 harness 计时行定性
-  一致——前缀 ≤ detect 单独，无可测回归）。
+- CI 回填：PR #29 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（ubuntu-20.04 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、
+  clang debug/fuzz、integrations-ncnn、capture/opencv 适配与
+  clang-format/clang-tidy 双口径（lint job 排队后 38m39s 完成）。
+  [run 35963460642](https://github.com/Linductor-alkaid/mirador/actions/runs/35963460642)
+  （head 75f8ee8，覆盖实现、校准测试、验证轮处置与门禁证据 commit，
+  全程 38m43s）；首轮通过，无修复往返，上条"待办：CI 14/14 回填随 PR
+  收口"就此闭合（文档表格中的 M1 同日计时对照属运行日墙钟样本，按
+  `DEC-011` 口径不入零漂移判定，本轮 harness 计时行定性一致——前缀
+  ≤ detect 单独，无可测回归）。
