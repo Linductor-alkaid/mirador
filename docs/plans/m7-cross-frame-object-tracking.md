@@ -1146,3 +1146,26 @@ commit f8926a2 落地）：
   GT 粗召回（设计 §7"按语义标签过滤候选的通用组件"不属本项，未实现）；
   A 方法的"仅外观"在决策层隔离，E1 搜索仍受冻结 ROI 机械约束（契约无
   全帧搜索面）；swap 率量纲为"每对象交换次数"（分母随场景定义冻结）。
+
+2026-09-24：`M7-09` 本地全量门禁收口（Independent-Verification-Agent
+补跑上一条处置记录中挂起的六预设与 lint 项，验证轮 ready 未决状态就此
+闭合——全部测试通过、无未处置缺陷）：
+
+- 六预设构建 + ctest 全部退出码 0：debug 51/51（多出 1 项为 debug 预设
+  独有的 OpenCV 可选模块测试 `mirador.adapters.opencv`，与本分支无关，
+  经 `ctest -N` 列表比对确认）、release/warnings/asan/ubsan/tsan 各
+  50/50；分支新增 `mirador.fusion.object_tracker_calibration` 在全部
+  预设通过。
+- lint 归零：`clang-format --dry-run --Werror` 与
+  `clang-tidy --warnings-as-errors='*'`（-p build/debug）对两处变更
+  C++ 文件（`benchmarks/object_tracking_bench.cpp`、
+  `tests/fusion/object_tracker_calibration_test.cpp`）零告警。
+- harness 复跑零漂移：release 口径 `mirador_bench_object_tracking 2`
+  两次运行退出码 0、首行 `self-checks ok`（零静态触发/池预算/逐位
+  确定性内建断言全过）；两次运行非计时行归一计时字段后 `diff` 为空；
+  与已发布基线文档逐项对照 323 项断言零漂移（ID 延续率、swap/假阳性、
+  丢失误判与重捕获、Detector 触发、池内存、融合保留率与叙事数字全量
+  覆盖 24 cell）。
+- 待办：CI 14/14 回填随 PR 收口（文档表格中的 M1 同日计时对照属运行日
+  墙钟样本，按 `DEC-011` 口径不入零漂移判定，本轮 harness 计时行定性
+  一致——前缀 ≤ detect 单独，无可测回归）。
