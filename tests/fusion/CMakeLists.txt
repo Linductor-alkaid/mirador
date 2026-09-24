@@ -87,6 +87,18 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-09 calibration freeze (DEC-019 section 5): the ObjectTrackerOptions and
+# ShiftEstimationParams defaults pinned to the values the M7-09 harness
+# published in docs/benchmarks/linux-x64-object-tracking-2026-09.md, the
+# frozen verification-ROI reach that separates the 48 px scroll step from the
+# +24 px popup displacement, and the harness caller's 0.7 compensation-gate
+# boundary behavior.
+mirador_add_test(
+    NAME mirador.fusion.object_tracker_calibration
+    SOURCES object_tracker_calibration_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp
