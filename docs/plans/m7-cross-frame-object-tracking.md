@@ -1112,6 +1112,33 @@ Independent-Verification-Agent 独立编写与执行，实现交付与验证轮�
 退出码 0——debug 口径下定性结论与 release 一致（如 static 短路 detect
 p50 22496.9 µs vs 完整前缀 p50 22411.8 µs，无可测回归），计时数字仅具
 release 口径效力（`DEC-011`）。
+
+2026-09-24：`M7-09` 验证轮处置（验证员复核未发现阻碍验收的缺陷，两项
+实现侧处置随 fix commit be68658 落地；验证套件由验证员随 test(fusion)
+commit f8926a2 落地）：
+
+- 轻微·潜在：重捕获延迟账本只覆盖 commit 路径丢失——`cell_set_lost_sequence`
+  仅由 `reconcile_commit` 调用，而 `sweep_generation_lag` 也能把 kUncertain
+  track 判为 kLost 且被清扫 id 列表被丢弃；该路径丢失的 track 若日后重捕获，
+  延迟会按缺失的 kLost 记录（0）计算并静默发布虚高值，中断事件也会携带
+  `lost_sequence=0`。处置：`frame_step` 经新增 `sweep_step` 消费 sweep 返回
+  的被清扫 id，进入与 commit 路径同一丢失账本（丢失序列 + loss_events）。
+  当前矩阵无 sweep 丢失，发布数字不受影响——修复后全矩阵复跑与已发布
+  3 次重复采集逐行一致（非计时差异行数 0，实测命令
+  `diff` 于两份 stdout，exit 0）。
+- 外观：harness 横幅声称 "frozen M7 defaults" 而 C/D 实配
+  `min_compensation_confidence=0.7`（库默认 0.0 维持）——措辞改为如实
+  说明库默认与调用方策略两部分；报告与验证记录原表述本已准确。
+- 观察（非缺陷，无需改动）：调用方以 float 传入 confidence、门为 double
+  时的表示精度边界由契约冻结（M7-07 套件已在可精确表示的 0.5 钉住闭区间），
+  harness 实测置信带 [0.93, 0.95] / [0.46, 0.55] 远离 0.7 边界，已发布结论
+  不受影响；验证员已在其测试注释中说明。
+- 复验（本会话执行）：修复后 debug/release 构建零告警、clang-format 全仓
+  dry-run 归零、clang-tidy `--warnings-as-errors='*'`（-p build/release）
+  对 `object_tracking_bench.cpp` 归零；release 全矩阵（2 次重复）退出码 0、
+  全部内建断言（零静态触发/池预算/逐位确定性）通过，24 cell 非计时指标与
+  已发布数字逐行一致。未运行项：六预设完整 ctest 与 CI 14/14 回填
+  （不推送/不合并，属编排脚本收口）。
 - 限制：全部为合成口径（`DOD-05`），真实截图评估（`RISK-2026-14` /
   `DEC-018` 阶段 2 共享采集）是转正前置不属本项，M7-10 判定须显式记录
   "仅有合成证据"；E2 结构测度由 harness 测量而非真实 `propose_regions`
