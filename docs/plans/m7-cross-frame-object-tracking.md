@@ -102,8 +102,8 @@ A/B/C/D 基准发布；go/no-go 判定。
   处置（`RISK-2026-18` 门控）、高置信模板更新仅取双通道一致帧、未注入
   退化路径零变化验证、上层启用开关（`RULE-12`）；`A/B/C/D` 基准追加
   "D+深度增强"口径列报（不阻塞 M7-10 传统口径判定）。（验证套件、
-  验证轮两项发现收口与门禁证据见下方"验证记录"2026-09-29 条；CI 回填
-  待补。）
+  验证轮两项发现收口与门禁证据及 CI 回填（run 36459822707，14/14 job
+  全绿）见下方"验证记录"2026-09-29 条。）
 
 ## 风险与阻塞
 
@@ -1878,9 +1878,11 @@ Independent-Verification-Agent 按分工交付，实现轮交付见上方 2026-0
   PASS；bench release 复跑（2 次重复）退出码 0、`self-checks ok`
   （零静态触发/池预算/逐位确定性内建断言通过），D+ 列六场景
   deep/corr/confl/withheld 与池峰值数字与发布报告逐位一致。
-- 限制：(1) tsan 预设与六预设完整复跑、sanitizer 全量 ctest、CI
-  14/14 与推送/PR 归编排脚本在分支 head 统一收口（同
-  `M7-03`~`M7-12` 先例；本分支实际执行面以上两条门禁段为准）。
+- 限制：(1) 六预设完整复跑不在本轮（编排脚本职责，同
+  `M7-03`~`M7-12` 先例；CI 矩阵无 release 预设，release 侧仍属未执行
+  范围）；tsan 预设与 asan/ubsan 全量 ctest 侧已由 PR CI 在分支 head
+  覆盖（见下方 CI 回填）；CI 14/14 与推送/PR 已随回填收口；本分支
+  实际执行面以上两条门禁段为准。
   (2) release ctest 53 vs debug 54 之差为 debug-only
   `mirador.adapters.opencv` 既有条目（`M7-01` 记录口径），非本轮
   差异。(3) /tmp 探针文件与二进制未入仓（工程验证证据非测试资产），
@@ -1888,5 +1890,14 @@ Independent-Verification-Agent 按分工交付，实现轮交付见上方 2026-0
   验证员复核如需可纳管。(4) 验证员侧的验证轮处置记录（df63c17 式
   docs(plans) 记录）与哨兵两态演进说明归验证员/编排脚本收口；本条
   为实现侧修复与文档同步轮记录。
-- CI 回填：待补——分支未推送，推送与 PR/CI 14/14 证据随编排脚本在
-  分支 head 收口后回填（同 `M7-03`~`M7-12` 先例）。
+- CI 回填：PR #33 单轮 run 全绿，14/14 job——msvc/ninja、
+  ndk/arm64-v8a、gcc10（ubuntu-20.04 容器）、gcc
+  debug/asan/ubsan/tsan/warnings 五预设、clang debug/fuzz、
+  integrations-ncnn（6m52s）、capture/opencv 适配与
+  clang-format/clang-tidy 双口径（lint job 43m22s 完成，主导全程）。
+  [run 36459822707](https://github.com/Linductor-alkaid/mirador/actions/runs/36459822707)
+  （head 004298c，覆盖实现、bench、文档注册、基准报告、验证套件、
+  验证轮修复与勾选/文档同步全部 7 个 commit，全程 43m26s）；首轮
+  通过，无修复往返，上条"CI 回填：待补——分支未推送，推送与 PR/CI
+  14/14 证据随编排脚本在分支 head 收口后回填（同 `M7-03`~`M7-12`
+  先例）"就此闭合。
