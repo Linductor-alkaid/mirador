@@ -258,6 +258,41 @@ Apache-2.0 许可证与兼容核对登记 `docs/supply-chain/nanotrack.md`，零
 1（逐序列位确定性，契约块 8）；`work_budget_bytes` 逐内部分配请求检查
 （超限显式 `kBudgetExceeded`）。合成模型冒烟只验证管线与解码正确性，不
 代表跟踪质量（`DOD-05`：质量证据归 M7-13 D+ 列报与后续真实评估）。
+冻结钳制语义的 M7-13 对齐裁决：NanoTrack 报告框为预测框钳入 prepared 图、
+参考尺寸刻意以钳制后尺寸为目标（`nanotrack_backend.hpp` 冻结段）——M7-13
+接线**维持钳制语义零行为变更**：fusion 侧组合规则只消费上报框与置信度
+（`DEC-021` 采纳点校验），不触碰后端内部尺度状态；"未钳制预测尺寸入
+状态"的替代方案若实施属行为变更，须验证轮复验并另行裁决，本里程碑不做。
+
+M7-13 交付落点：深度增强通道条件化融合交付于 `ObjectTracker`
+（Experimental，`object_tracker.hpp`）——注入点原语
+（`attach_tracker_session`/`detach_tracker_session`/`tracker_session`：池侧
+并行单槽存调用方初始化的会话句柄，每 track 至多一槽、重建原地替换、
+`kTrackerHandleSlotOverheadBytes` 计入 `byte_size()`/`pool_budget_bytes`
+放不下显式 `kBudgetExceeded`、terminate/池淘汰/reset 同步析构句柄，兑现
+M7-11 契约块 2 的「槽常量随 M7-13 落地」注记；池从不驱动后端——
+initialize/update 与 prepared 视图制备、坐标恢复均归调用方，`RULE-12`
+上层同时拥有注入与 `deep_channel_enabled` 启用开关，默认关闭即传统管线
+逐位零变化）与 `commit_track_evidence` 深度证据重载（`DeepChannelEvidence`
+按 `DEC-021` 作不可信输出在采纳点校验拒绝而非钳制）。组合规则显式确定性
+冻结于头注释：深度框与 E1 候选窗（M7-06 冻结候选规则）IoU ≥
+`deep_agreement_min_iou` 且深度置信 ≥ `deep_min_confidence` 为同位一致互证
+——确认级置信升级为「传统来源与深度置信的不下取最大值」；否则按保守侧
+处置（`RISK-2026-18`）：冲突把确认级降为占位级（冻结状态机随之
+kTracking → kUncertain，不动位置/置信/模板），非确认级不受影响（否决
+语义保留）；深度通道永不单独确认（漂移的深度 tracker 无法伪造确认，模板
+补丁恒取自 E1 候选窗——漂移结构性不可达外观存储）；高置信模板更新仅取
+双通道一致帧——开关开启且 track 持有注入会话时，kConfirmed 提交的正模板
+捕获要求本帧互证成立，缺失深度证据（后端失败/取消/调用方跳过）仍确认
+身份但模板捕获被扣留并显式上报（`template_withheld_by_deep_channel`，
+`RULE-06` 不静默）；`kBackendFailure` 弃置会话（detach 即丢弃）经既有
+占位提交路径降级、当前帧确认 bounds 重建（无新 API，M7-11 冻结钩子的
+兑现）。提交回显新增 `deep_disposition`。组合规则作用于设计本节的邻域
+验证路径；M7-08 重检测身份复核维持冻结形态（其提交不携带深度证据，在
+开关开启且持会话的 track 上同样落入模板防护）。合成口径隔离测量：bench
+D+ 列（`D+deep`）经注入点接确定性伪深度后端（像素回声、零学习状态），
+只度量接线与组合规则机制，不做质量声明（`DOD-05`）；NanoTrack 真实权重
+质量列报走 `DEC-015`/`RISK-2026-13` 用户显式路径。
 
 M7-05 冻结落点：邻域验证器交付于 `ObjectTracker::verify_track`（Experimental，
 `object_tracker.hpp`）与配套类型 `TrackStructureDescriptors`/
@@ -391,6 +426,12 @@ M7-06 冻结落点：门控直通交付于 `StableIdTracker::advance` 的
 越界、零 id、重复索引/重复 id 为显式 `kInvalidArgument`（状态不变）。
 "跟踪确认"的判定权在调用方会话管线（消费 `ObjectTracker` 状态），本层只
 接受显式关联声明，不反向读取 tracker。
+
+M7-13 注记：深度增强通道（§6.2，可选注入）完全作用于 `ObjectTracker` 的
+证据分级与提交阶段，位于本节直通的上游——`confirmed_associations` 的
+判据仍是"提交确认后 kTracking 态"，深度互证/冲突处置只改变该判据之前的
+提交结果（冲突保守降级产生的 kUncertain track 本帧不产生确认配对，与
+M7-06 既有语义一致），本节冻结契约零变化。
 
 ## 7. 级联重检测（丢失后高负载路径)
 

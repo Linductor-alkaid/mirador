@@ -12,6 +12,7 @@
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/shift_estimation.hpp>
 #include <mirador/status.hpp>
+#include <mirador/tracker_backend.hpp>
 #include <mirador/visual_fingerprint.hpp>
 
 #include "rect_math.h"
@@ -21,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -580,6 +582,19 @@ struct TemplateCapturePlan {
     return Status::success();
 }
 
+/// The frozen M7-06 candidate window rule, shared by the patch extraction,
+/// the deep co-location check and the confirming-commit position update:
+/// track bounds translated by the E1 best offset when the appearance channel
+/// has an outcome, else the unchanged bounds — an E2-only confirmation has no
+/// position of its own.
+[[nodiscard]] RectF candidate_window_of(const TargetTrack& track, bool has_candidate,
+                                        const TrackVerification& verification) noexcept {
+    const float offset_x = has_candidate ? static_cast<float>(verification.appearance.best_offset_dx) : 0.0F;
+    const float offset_y = has_candidate ? static_cast<float>(verification.appearance.best_offset_dy) : 0.0F;
+    return RectF{track.last_bounds.x + offset_x, track.last_bounds.y + offset_y, track.last_bounds.width,
+                 track.last_bounds.height};
+}
+
 /// Candidate window and its patch (frozen rule): the E1 best offset when the
 /// appearance channel has an outcome, else the unchanged bounds — an E2-only
 /// confirmation has no position of its own. One extraction with the adoption
@@ -588,10 +603,7 @@ struct TemplateCapturePlan {
                                                                      const TrackVerification& verification,
                                                                      const ImageView& presented_view,
                                                                      const ObjectTrackerOptions& options) noexcept {
-    const float offset_x = has_candidate ? static_cast<float>(verification.appearance.best_offset_dx) : 0.0F;
-    const float offset_y = has_candidate ? static_cast<float>(verification.appearance.best_offset_dy) : 0.0F;
-    const RectF candidate_window{track.last_bounds.x + offset_x, track.last_bounds.y + offset_y,
-                                 track.last_bounds.width, track.last_bounds.height};
+    const RectF candidate_window = candidate_window_of(track, has_candidate, verification);
     const auto candidate_roi = covering_roi(candidate_window, presented_view);
     if (!candidate_roi.has_value()) {
         return Status{ErrorCode::kInvalidArgument,
@@ -622,6 +634,50 @@ void apply_template_capture(std::vector<TrackTemplate>& set, size_t evict_index,
     used_bytes += template_bytes;
 }
 
+// ---- M7-13 deep-channel combination helpers ----
+
+/// Deep-channel combination disposition of one commit (frozen M7-13 table,
+/// see the section note in object_tracker.hpp): co-location with the E1
+/// candidate window (IoU >= `deep_agreement_min_iou`) plus the confidence
+/// floor is mutual corroboration; anything else takes the conservative
+/// conflict side (RISK-2026-18). Evaluated in double from the float rects
+/// (the E2 deviation precedent) — deterministic, no platform variance paths.
+[[nodiscard]] DeepChannelDisposition deep_disposition_of(const DeepChannelEvidence& deep, const RectF& candidate_window,
+                                                         const ObjectTrackerOptions& options) noexcept {
+    const double iou = fusion_internal::rect_iou(deep.bounds, candidate_window);
+    const bool colocated = iou >= options.deep_agreement_min_iou;
+    const bool confident = static_cast<double>(deep.confidence) >= options.deep_min_confidence;
+    return colocated && confident ? DeepChannelDisposition::kCorroborated : DeepChannelDisposition::kConflict;
+}
+
+/// DEC-021 adoption-point validation of the deep evidence (frozen M7-13):
+/// rejected, never clamped — non-finite or non-positive bounds, bounds
+/// outside the presented view, or a confidence outside [0, 1] fail the whole
+/// commit with kInvalidArgument and leave the pool untouched. Supplying deep
+/// evidence while the switch is off is a caller programming error (the
+/// zero-change contract — never silently ignored).
+[[nodiscard]] Status validate_deep_evidence(const DeepChannelEvidence& deep, const ImageView& presented_view,
+                                            const ObjectTrackerOptions& options) noexcept {
+    if (!options.deep_channel_enabled) {
+        return Status{ErrorCode::kInvalidArgument, "commit_track_evidence: deep channel is disabled"};
+    }
+    if (!all_finite(deep.bounds) || deep.bounds.width <= 0.0F || deep.bounds.height <= 0.0F) {
+        return Status{ErrorCode::kInvalidArgument,
+                      "commit_track_evidence: deep evidence bounds must be finite and non-empty"};
+    }
+    if (deep.bounds.x < 0.0F || deep.bounds.y < 0.0F ||
+        deep.bounds.x + deep.bounds.width > static_cast<float>(presented_view.width) ||
+        deep.bounds.y + deep.bounds.height > static_cast<float>(presented_view.height)) {
+        return Status{ErrorCode::kInvalidArgument,
+                      "commit_track_evidence: deep evidence bounds must lie inside the presented view"};
+    }
+    if (!std::isfinite(deep.confidence) || deep.confidence < 0.0F || deep.confidence > 1.0F) {
+        return Status{ErrorCode::kInvalidArgument,
+                      "commit_track_evidence: deep evidence confidence must be finite and in [0, 1]"};
+    }
+    return Status::success();
+}
+
 // ---- M7-07 global-motion and generation-pipeline helpers ----
 
 /// Planned finiteness of one track's compensation (evaluated before any
@@ -642,7 +698,8 @@ void apply_compensation(TargetTrack& track, float dx, float dy) noexcept {
 }
 
 /// Everything one commit computes before any mutation (frozen table and
-/// capture policies; see the `commit_track_evidence` class contract).
+/// capture policies; see the `commit_track_evidence` class contract; the
+/// M7-13 fields carry the deep-channel combination outcome).
 struct CommitPlan {
     EvidenceGrade grade = EvidenceGrade::kPlaceholder;
     bool impostor = false;
@@ -655,14 +712,21 @@ struct CommitPlan {
     TemplateCapturePlan negative_plan;
     bool want_positive = false;
     bool want_negative = false;
+    /// Deep-channel disposition (kNotSupplied when no evidence was supplied).
+    DeepChannelDisposition deep = DeepChannelDisposition::kNotSupplied;
+    /// Deep confidence of this frame's evidence (0 when not supplied); feeds
+    /// the corroboration confidence upgrade.
+    float deep_confidence = 0.0F;
+    /// True when the template protection withheld the positive capture of an
+    /// otherwise-capturing kConfirmed commit (RULE-06 visibility).
+    bool template_withheld = false;
 };
 
-[[nodiscard]] CommitPlan plan_track_commit(const TargetTrack& track, const TrackVerification& verification,
-                                           const TrackPositionEvidence& position,
-                                           const std::optional<TrackSemantics>& candidate_semantics,
-                                           const VisualPatchFingerprint& patch, bool slot_exists,
-                                           uint32_t current_streak, uint64_t current_lost_sequence,
-                                           uint64_t frame_sequence, const ObjectTrackerOptions& options) noexcept {
+[[nodiscard]] CommitPlan plan_track_commit(
+    const TargetTrack& track, const TrackVerification& verification, const TrackPositionEvidence& position,
+    const std::optional<TrackSemantics>& candidate_semantics, const VisualPatchFingerprint& patch, bool slot_exists,
+    uint32_t current_streak, uint64_t current_lost_sequence, uint64_t frame_sequence, bool handle_present,
+    const DeepChannelEvidence* deep, const ObjectTrackerOptions& options) noexcept {
     CommitPlan plan;
     plan.has_candidate = verification.appearance.outcome != AppearanceChannelOutcome::kNone;
     const AppearanceLevel level = appearance_level(verification.appearance, verification.structure);
@@ -671,16 +735,44 @@ struct CommitPlan {
                     impostor_match(patch, track.negative_templates, options.impostor_match_threshold);
     const bool gate_ok = gate_admitted(track.state, position.scenario, position.inside_gate);
     plan.grade = fusion_grade(level, gate_ok, plan.impostor, plan.conflict);
+
+    // Frozen M7-13 deep-channel combination (see the section note): the
+    // disposition classifies first; a conflict then demotes every confirming
+    // grade to the placeholder grade — the conservative side of
+    // RISK-2026-18, and the frozen state machine degrades kTracking to
+    // kUncertain from it. Non-confirming grades stay untouched (a veto keeps
+    // its impostor/semantics semantics). Corroborated evidence never lifts a
+    // non-confirming grade: the deep channel never confirms by itself.
+    if (deep != nullptr) {
+        plan.deep_confidence = deep->confidence;
+        plan.deep = deep_disposition_of(*deep, candidate_window_of(track, plan.has_candidate, verification), options);
+        if (plan.deep == DeepChannelDisposition::kConflict &&
+            (plan.grade == EvidenceGrade::kConfirmed || plan.grade == EvidenceGrade::kTentative)) {
+            plan.grade = EvidenceGrade::kPlaceholder;
+        }
+    }
     plan.transition = track_transition(track.state, plan.grade, current_streak, current_lost_sequence,
                                        options.uncertain_frame_limit, frame_sequence);
     plan.slot_exists = slot_exists;
     plan.slot_allocation_needed =
         !slot_exists && (plan.transition.insufficient_streak != 0 || plan.transition.lost_sequence != 0);
     plan.positive_plan = positive_capture_plan(track.templates.size(), options.max_templates);
-    plan.want_positive = plan.grade == EvidenceGrade::kConfirmed && plan.positive_plan.capture;
     plan.negative_plan = negative_capture_plan(track.negative_templates.size(), options.max_negative_templates);
     plan.want_negative =
         plan.grade == EvidenceGrade::kVetoed && plan.conflict && !plan.impostor && plan.negative_plan.capture;
+    // Frozen M7-13 template protection (高置信模板更新仅取双通道一致帧): on a
+    // session-holding track under an enabled switch, the positive capture of
+    // a kConfirmed commit requires a corroborated frame; missing deep
+    // evidence (backend failure, cancel/timeout, caller skip) still confirms
+    // identity — the graceful-degradation rule — but the capture is withheld
+    // and reported. Tracks without an attached session and trackers with the
+    // switch off keep the frozen M7-06 capture policy. (A conflicted commit
+    // is demoted above, so "confirmed but not corroborated under the
+    // protection" is exactly the withheld shape.)
+    const bool deep_protection =
+        options.deep_channel_enabled && handle_present && plan.deep != DeepChannelDisposition::kCorroborated;
+    plan.want_positive = plan.grade == EvidenceGrade::kConfirmed && plan.positive_plan.capture && !deep_protection;
+    plan.template_withheld = plan.grade == EvidenceGrade::kConfirmed && plan.positive_plan.capture && deep_protection;
     return plan;
 }
 
@@ -717,15 +809,25 @@ void apply_commit_stores(TargetTrack& track, const CommitPlan& plan, const Track
                                template_bytes, evicted_negative_templates, used_bytes);
     }
     if (plan.grade == EvidenceGrade::kConfirmed || plan.grade == EvidenceGrade::kTentative) {
-        const float offset_x = plan.has_candidate ? static_cast<float>(verification.appearance.best_offset_dx) : 0.0F;
-        const float offset_y = plan.has_candidate ? static_cast<float>(verification.appearance.best_offset_dy) : 0.0F;
-        const RectF candidate_window{track.last_bounds.x + offset_x, track.last_bounds.y + offset_y,
-                                     track.last_bounds.width, track.last_bounds.height};
+        const RectF candidate_window = candidate_window_of(track, plan.has_candidate, verification);
         track.last_bounds = candidate_window;
         track.predicted_center = PointF{candidate_window.x + candidate_window.width / 2.0F,
                                         candidate_window.y + candidate_window.height / 2.0F};
         if (plan.has_candidate) {
-            track.confidence = std::clamp(static_cast<float>(verification.appearance.peak_ncc), 0.0F, 1.0F);
+            // Frozen M7-13 corroboration (同位一致互证): a corroborated frame
+            // upgrades the confidence to the max of the traditional source
+            // (the clamped E1 peak NCC) and the deep confidence — never
+            // lowered.
+            auto upgraded = static_cast<float>(verification.appearance.peak_ncc);
+            if (plan.deep == DeepChannelDisposition::kCorroborated) {
+                upgraded = std::max(upgraded, plan.deep_confidence);
+            }
+            track.confidence = std::clamp(upgraded, 0.0F, 1.0F);
+        } else if (plan.deep == DeepChannelDisposition::kCorroborated) {
+            // E2-only confirmation keeps the prior confidence on the
+            // traditional path (frozen M7-06); corroboration upgrades it the
+            // same never-lowering way.
+            track.confidence = std::clamp(std::max(track.confidence, plan.deep_confidence), 0.0F, 1.0F);
         }
         track.last_verified_sequence = frame_sequence;
     }
@@ -841,6 +943,33 @@ int64_t ObjectTracker::erase_redetect_slot(uint64_t track_id) noexcept {
     return kRedetectSlotOverheadBytes;
 }
 
+ObjectTracker::HandleSlots::iterator ObjectTracker::find_tracker_handle(uint64_t track_id) noexcept {
+    return std::lower_bound(
+        tracker_handles_.begin(), tracker_handles_.end(), track_id,
+        [](const std::pair<uint64_t, std::unique_ptr<TrackerSession>>& slot, uint64_t id) { return slot.first < id; });
+}
+
+ObjectTracker::HandleSlots::const_iterator ObjectTracker::find_tracker_handle(uint64_t track_id) const noexcept {
+    return std::lower_bound(
+        tracker_handles_.cbegin(), tracker_handles_.cend(), track_id,
+        [](const std::pair<uint64_t, std::unique_ptr<TrackerSession>>& slot, uint64_t id) { return slot.first < id; });
+}
+
+int64_t ObjectTracker::tracker_handle_bytes(uint64_t track_id) const noexcept {
+    return find_tracker_handle(track_id) != tracker_handles_.cend() ? kTrackerHandleSlotOverheadBytes : 0;
+}
+
+int64_t ObjectTracker::erase_tracker_handle(uint64_t track_id) noexcept {
+    const auto slot = find_tracker_handle(track_id);
+    if (slot == tracker_handles_.end() || slot->first != track_id) {
+        return 0;
+    }
+    // The unique_ptr's destruction is the synchronous discard of the backend
+    // session state (tracker_backend.hpp contract block 2).
+    tracker_handles_.erase(slot);
+    return kTrackerHandleSlotOverheadBytes;
+}
+
 void ObjectTracker::archive_track(TargetTrack& track, uint64_t frame_sequence) noexcept {
     const int64_t before = track_bytes(track);
     track.state = TrackState::kTerminated;
@@ -854,10 +983,13 @@ void ObjectTracker::archive_track(TargetTrack& track, uint64_t frame_sequence) n
     used_bytes_ -= before - track_bytes(track);
     // The pool-side E2 baseline slot is released with the track's evidence
     // data (archives stay cheap, M7-01 freeze semantics), and so are the
-    // M7-06 state-machine slot and the M7-08 redetection-episode slot.
+    // M7-06 state-machine slot, the M7-08 redetection-episode slot and the
+    // M7-13 deep-channel session-handle slot (the session state is destroyed
+    // with the handle).
     used_bytes_ -= erase_structure_baseline(track.track_id);
     used_bytes_ -= erase_state_slot(track.track_id);
     used_bytes_ -= erase_redetect_slot(track.track_id);
+    used_bytes_ -= erase_tracker_handle(track.track_id);
 }
 
 ObjectTracker::EvictionPlan ObjectTracker::plan_eviction(int64_t insertion_bytes) const noexcept {
@@ -879,7 +1011,8 @@ ObjectTracker::EvictionPlan ObjectTracker::plan_eviction(int64_t insertion_bytes
         }
         plan.victim_ids.push_back(victim->track_id);
         plan.freed_bytes += track_bytes(*victim) + baseline_slot_bytes(victim->track_id) +
-                            state_slot_bytes(victim->track_id) + redetect_slot_bytes(victim->track_id);
+                            state_slot_bytes(victim->track_id) + redetect_slot_bytes(victim->track_id) +
+                            tracker_handle_bytes(victim->track_id);
     }
     return plan;
 }
@@ -895,19 +1028,31 @@ Result<ObjectTracker> ObjectTracker::create(const ObjectTrackerOptions& options)
     if (!ranges_ok) {
         return Status{ErrorCode::kInvalidArgument, "ObjectTrackerOptions value outside its documented range"};
     }
-    if (options.ncc_weak_threshold < 0.0 || options.ncc_weak_threshold > 1.0 ||
+    // Every double option documents a finite domain ([0, 1] etc.); a NaN
+    // would otherwise pass every range comparison and reach the decision
+    // paths as a silently-invalid configuration (verification-round finding
+    // on the M7-13 deep-channel thresholds — fixed for the whole
+    // double-option family at once, the verifier's calibration-surface
+    // recommendation). A pure tightening: no previously-valid value is
+    // rejected.
+    if (!std::isfinite(options.ncc_weak_threshold) || !std::isfinite(options.ncc_strong_threshold) ||
+        options.ncc_weak_threshold < 0.0 || options.ncc_weak_threshold > 1.0 ||
         options.ncc_strong_threshold < options.ncc_weak_threshold || options.ncc_strong_threshold > 1.0) {
         return Status{ErrorCode::kInvalidArgument, "ncc thresholds must satisfy 0 <= weak <= strong <= 1"};
     }
-    if (options.peak_sidelobe_ratio_min < 1.0 || options.structure_deviation_tolerance < 0.0 ||
-        options.structure_deviation_tolerance > 1.0 || options.verification_roi_diagonal_ratio <= 0.0 ||
-        options.verification_roi_diagonal_ratio > 8.0 || options.verification_work_budget_bytes <= 0) {
+    if (!std::isfinite(options.peak_sidelobe_ratio_min) || !std::isfinite(options.structure_deviation_tolerance) ||
+        !std::isfinite(options.verification_roi_diagonal_ratio) || options.peak_sidelobe_ratio_min < 1.0 ||
+        options.structure_deviation_tolerance < 0.0 || options.structure_deviation_tolerance > 1.0 ||
+        options.verification_roi_diagonal_ratio <= 0.0 || options.verification_roi_diagonal_ratio > 8.0 ||
+        options.verification_work_budget_bytes <= 0) {
         return Status{ErrorCode::kInvalidArgument, "verification threshold outside its documented range"};
     }
-    if (options.impostor_match_threshold < 0.0 || options.impostor_match_threshold > 1.0) {
+    if (!std::isfinite(options.impostor_match_threshold) || options.impostor_match_threshold < 0.0 ||
+        options.impostor_match_threshold > 1.0) {
         return Status{ErrorCode::kInvalidArgument, "impostor_match_threshold must be in [0, 1]"};
     }
-    if (options.min_compensation_confidence < 0.0 || options.min_compensation_confidence > 1.0) {
+    if (!std::isfinite(options.min_compensation_confidence) || options.min_compensation_confidence < 0.0 ||
+        options.min_compensation_confidence > 1.0) {
         return Status{ErrorCode::kInvalidArgument, "min_compensation_confidence must be in [0, 1]"};
     }
     if (options.redetect_backoff_base_frames < 1 ||
@@ -917,6 +1062,12 @@ Result<ObjectTracker> ObjectTracker::create(const ObjectTrackerOptions& options)
     }
     if (options.max_redetection_records < 1 || options.max_redetection_records > 4096) {
         return Status{ErrorCode::kInvalidArgument, "max_redetection_records outside its documented range"};
+    }
+    if (!std::isfinite(options.deep_agreement_min_iou) || !std::isfinite(options.deep_min_confidence) ||
+        options.deep_agreement_min_iou <= 0.0 || options.deep_agreement_min_iou > 1.0 ||
+        options.deep_min_confidence < 0.0 || options.deep_min_confidence > 1.0) {
+        return Status{ErrorCode::kInvalidArgument,
+                      "deep-channel thresholds invalid: agreement_min_iou in (0, 1], min_confidence in [0, 1]"};
     }
     ObjectTracker tracker;
     tracker.options_ = options;
@@ -970,8 +1121,9 @@ Result<TrackAdoption> ObjectTracker::adopt_track(const VisualRegion& region, con
     // Plan the eviction (count pressure, then byte pressure) without mutating
     // the pool: terminated tracks first, then oldest by (last_verified_sequence,
     // track_id); every victim id is reported (RULE-06 explicit eviction).
-    // A victim's pool-side E2 baseline (M7-05), state-machine (M7-06) and
-    // redetection-episode (M7-08) slots are freed with it.
+    // A victim's pool-side E2 baseline (M7-05), state-machine (M7-06),
+    // redetection-episode (M7-08) and deep-channel session-handle (M7-13)
+    // slots are freed with it.
     const EvictionPlan plan = plan_eviction(insertion_bytes);
 
     // Capture the adoption template before any eviction commits: the capture
@@ -998,6 +1150,7 @@ Result<TrackAdoption> ObjectTracker::adopt_track(const VisualRegion& region, con
         erase_structure_baseline(victim_id);
         erase_state_slot(victim_id);
         erase_redetect_slot(victim_id);
+        erase_tracker_handle(victim_id);
         const auto it = std::find_if(tracks_.begin(), tracks_.end(),
                                      [victim_id](const TargetTrack& track) { return track.track_id == victim_id; });
         tracks_.erase(it);
@@ -1249,15 +1402,22 @@ Result<void> ObjectTracker::record_structure_baseline(uint64_t track_id, const T
     return Status::success();
 }
 
-Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
-    uint64_t track_id, const TrackVerification& verification, const TrackPositionEvidence& position,
-    const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view, uint64_t frame_sequence,
-    const ExecutionContext& context) noexcept {
+Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence_impl(
+    const uint64_t track_id, const TrackVerification& verification, const TrackPositionEvidence& position,
+    const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view,
+    const uint64_t frame_sequence, const DeepChannelEvidence* deep, const ExecutionContext& context) noexcept {
     // Validation precedes cancellation (frozen M7-06 decision, see the
-    // class contract); every error below leaves the pool untouched.
+    // class contract); every error below leaves the pool untouched. The
+    // M7-13 deep evidence is validated at the same adoption point (DEC-021:
+    // rejected, never clamped), still before cancellation.
     TargetTrack* track = find_track_mutable(track_id);
     if (const Status valid = validate_commit_inputs(presented_view, track, verification); !valid.ok()) {
         return valid;
+    }
+    if (deep != nullptr) {
+        if (const Status deep_valid = validate_deep_evidence(*deep, presented_view, options_); !deep_valid.ok()) {
+            return deep_valid;
+        }
     }
     if (is_cancelled(context)) {
         return Status{ErrorCode::kCancelled, "commit_track_evidence cancelled"};
@@ -1273,12 +1433,17 @@ Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
     }
 
     // Evidence evaluation, transition and store planning (frozen; nothing
-    // mutated yet).
+    // mutated yet). The M7-13 combination runs inside the plan: the
+    // disposition, the conflict demotion and the template protection are
+    // decided before any budget question, so a withheld capture changes no
+    // byte account.
     const auto slot = find_state_slot(track_id);
     const bool slot_exists = slot != state_slots_.end() && slot->first == track_id;
-    const CommitPlan plan = plan_track_commit(*track, verification, position, candidate_semantics, patch.value(),
-                                              slot_exists, slot_exists ? slot->second.insufficient_streak : 0,
-                                              slot_exists ? slot->second.lost_sequence : 0, frame_sequence, options_);
+    const bool handle_present = tracker_handle_bytes(track_id) != 0;
+    const CommitPlan plan =
+        plan_track_commit(*track, verification, position, candidate_semantics, patch.value(), slot_exists,
+                          slot_exists ? slot->second.insufficient_streak : 0,
+                          slot_exists ? slot->second.lost_sequence : 0, frame_sequence, handle_present, deep, options_);
 
     // Atomicity: the whole store plan is budget-checked together before any
     // mutation; full template sets swap byte-neutrally (uniform pinned
@@ -1301,6 +1466,8 @@ Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
     commit.semantics_conflict = plan.conflict;
     commit.template_captured = plan.want_positive;
     commit.negative_template_captured = plan.want_negative;
+    commit.deep_disposition = plan.deep;
+    commit.template_withheld_by_deep_channel = plan.template_withheld;
     apply_commit_stores(*track, plan, verification, patch.value(), frame_sequence, layout_generation_, template_bytes,
                         evicted_templates_, evicted_negative_templates_, used_bytes_);
     if (plan.slot_allocation_needed) {
@@ -1313,6 +1480,78 @@ Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
     track->state = plan.transition.state;
     track->layout_generation = std::max(track->layout_generation, layout_generation_);
     return commit;
+}
+
+Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
+    const uint64_t track_id, const TrackVerification& verification, const TrackPositionEvidence& position,
+    const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view,
+    const uint64_t frame_sequence, const ExecutionContext& context) noexcept {
+    return commit_track_evidence_impl(track_id, verification, position, candidate_semantics, presented_view,
+                                      frame_sequence, nullptr, context);
+}
+
+Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
+    const uint64_t track_id, const TrackVerification& verification, const TrackPositionEvidence& position,
+    const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view,
+    const uint64_t frame_sequence, const DeepChannelEvidence& deep_evidence, const ExecutionContext& context) noexcept {
+    return commit_track_evidence_impl(track_id, verification, position, candidate_semantics, presented_view,
+                                      frame_sequence, &deep_evidence, context);
+}
+
+Result<void> ObjectTracker::attach_tracker_session(const uint64_t track_id,
+                                                   std::unique_ptr<TrackerSession>& session) noexcept {
+    if (session == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "attach_tracker_session requires a non-null session"};
+    }
+    const TargetTrack* track = find_track(track_id);
+    if (track == nullptr) {
+        return Status{ErrorCode::kInvalidArgument, "attach_tracker_session: unknown track id"};
+    }
+    if (track->state == TrackState::kTerminated) {
+        return Status{ErrorCode::kInvalidArgument, "attach_tracker_session: track already terminated"};
+    }
+    const auto slot = find_tracker_handle(track_id);
+    const bool exists = slot != tracker_handles_.end() && slot->first == track_id;
+    // At most one slot per track: a rebuild replaces the handle in place
+    // (byte-neutral); a new slot is budget-checked (RULE-06). The parameter
+    // is an owning reference precisely so that ANY error return — including
+    // the budget rejection below — leaves the caller's unique_ptr owning the
+    // session (verification-round ruling: a by-value parameter would destroy
+    // the session in its own destructor on the error path, silently
+    // discarding a just-initialized session).
+    if (!exists && used_bytes_ + kTrackerHandleSlotOverheadBytes > options_.pool_budget_bytes) {
+        return Status{ErrorCode::kBudgetExceeded, "attach_tracker_session does not fit the pool budget"};
+    }
+    // Consume on success only: moving from the reference leaves the caller's
+    // unique_ptr null (the handle now lives in the slot).
+    if (exists) {
+        slot->second = std::move(session);
+    } else {
+        tracker_handles_.insert(slot, {track_id, std::move(session)});
+        used_bytes_ += kTrackerHandleSlotOverheadBytes;
+    }
+    return Status::success();
+}
+
+std::unique_ptr<TrackerSession> ObjectTracker::detach_tracker_session(const uint64_t track_id) noexcept {
+    const auto slot = find_tracker_handle(track_id);
+    if (slot == tracker_handles_.end() || slot->first != track_id) {
+        return nullptr;
+    }
+    std::unique_ptr<TrackerSession> session = std::move(slot->second);
+    tracker_handles_.erase(slot);
+    used_bytes_ -= kTrackerHandleSlotOverheadBytes;
+    return session;
+}
+
+TrackerSession* ObjectTracker::tracker_session(const uint64_t track_id) noexcept {
+    const auto slot = find_tracker_handle(track_id);
+    return slot != tracker_handles_.end() && slot->first == track_id ? slot->second.get() : nullptr;
+}
+
+const TrackerSession* ObjectTracker::tracker_session(const uint64_t track_id) const noexcept {
+    const auto slot = find_tracker_handle(track_id);
+    return slot != tracker_handles_.cend() && slot->first == track_id ? slot->second.get() : nullptr;
 }
 
 Result<GenerationAdvance> ObjectTracker::advance_generation_for_classification(
@@ -1804,6 +2043,9 @@ void ObjectTracker::reset() noexcept {
     structure_baselines_.clear();
     state_slots_.clear();
     redetect_slots_.clear();
+    // Destroying the handles discards the backend session states
+    // synchronously (M7-13, tracker_backend.hpp contract block 2).
+    tracker_handles_.clear();
     redetection_records_.clear();
     layout_generation_ = 0;
     used_bytes_ = 0;

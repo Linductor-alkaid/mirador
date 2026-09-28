@@ -1,11 +1,59 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.26
+> 版本：1.28
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-28
+> 更新日期：2026-09-29
+>
+> 1.28 修订（2026-09-29）：M7 工作项 `M7-13` 勾选——验证套件
+> `mirador.fusion.object_tracker_deep_channel` 25 用例落地
+> （Independent-Verification-Agent 交付，test(fusion) 585cefa：`RULE-12`
+> 开关矩阵与仅开开关零变化、`DEC-021` 拒绝矩阵、`RISK-2026-18` 同位
+> 互证/冲突保守降级矩阵、高置信模板防护与扣留上报、注入生命周期字节
+> 记账、DOD-03 坐标矩阵、逐位确定性与隐私负向）；验证轮两项发现随
+> fix(fusion) 1d8234a 逐项收口（4 文件 +68/−25，沿 M7-12 48de7db
+> 先例）：[中] `attach_tracker_session` 签名改 owning-reference
+> （池仅成功路径消费句柄，任何错误路径调用方 `unique_ptr` 仍拥有存活
+> 会话——头契约「错误路径不消费」由假变真，采纳验证员「归还会话」
+> 方向非契约放宽）；[低] `create()` 对 double 选项家族补 isfinite
+> 守卫（NaN 显式 `kInvalidArgument`，纯收紧）。bench deep_step 与
+> 套件五处 attach 调用点机械适配，断言零删除、净增 4 条（预算拒绝
+> 用例就地补三条会话存活断言，增强非弱化）。门禁（修复会话报告 +
+> 文档同步轮复验于分支 head 1d8234a）：debug ctest 54/54、release
+> 53/53（差 1 为 debug-only `mirador.adapters.opencv` 既有条目）、
+> 验证套件直跑 debug/asan/ubsan/warnings 各 25/25 且 asan/ubsan 全量
+> ctest 53/53 零 sanitizer 报告、lint 双口径对触及文件归零；缺陷探针
+> 19/19 与 NaN 家族拒绝复验通过；bench release 复跑 D+ 列与传统
+> 24 cell 对发布报告逐位零漂移（剥离计时字段 diff 为空，`DEC-011`
+> 口径）。API 索引与兼容性登记补记注入句柄 owning-reference 语义
+> （登记文本原不载签名细节，语义以头注释为权威）；CHANGELOG Unreleased
+> 补验证轮收口句。限制：六预设完整复跑（CI 矩阵无 release 预设，
+> release 侧仍属未执行范围）与 sanitizer 全量 ctest 归编排脚本收口；
+> tsan 预设与 asan/ubsan 全量 ctest 侧已由 PR CI 在分支 head 覆盖，
+> CI 证据随 PR #33 回填（run 36459822707，14/14 job 全绿，PR 待合入）；
+> `SCOPE-13` 维持未勾选（`M7-01`~`M7-13` 全部工作项已勾选，里程碑
+> 退出条件——六预设完整门禁与收尾文档项——随编排脚本收口；CI 回填
+> 已于 2026-09-29 随回填完成）。
+>
+> 1.27 修订（2026-09-28）：M7 工作项 `M7-13` **实现交付**（工作项未勾选
+> ——验证套件由 Independent-Verification-Agent 独立编写与执行，勾选与
+> CI 证据回填随其收口）。`ObjectTracker` 新增深度增强通道条件化融合
+> （Experimental，设计 §6.2 增强通道，`DEC-020`/`DEC-021`，`RISK-2026-18`
+> 门控）：注入点原语（池侧并行单槽会话句柄、
+> `kTrackerHandleSlotOverheadBytes=32` 计入字节预算、三路同步析构）+
+> `commit_track_evidence` 深度证据重载（`DEC-021` 采纳点校验拒绝、同位
+> 一致互证升级置信、冲突保守降级 kUncertain、高置信模板更新仅取双通道
+> 一致帧、缺失证据模板扣留显式上报）+ `deep_channel_enabled` 上层启用
+> 开关（`RULE-12`，默认关闭即传统管线逐位零变化——debug 全量 ctest
+> 53/53 含架构 7/7 在实现 commit 404d339 上验证）。bench 追加 `D+deep`
+> 确定性伪深度后端列（commit 696bf48，隔离组合规则机制贡献，`DOD-05`
+> 无质量声明）。NanoTrack 钳制语义对齐点裁决：维持钳制语义零行为变更
+> （组合规则只消费上报框与置信度，不触碰后端内部尺度状态）。A/B/C/D
+> 传统口径 24 cell 零回归与 D+ 列数字随基准报告 D+ 节发布；门禁
+> （六预设/sanitizer/lint/CI 14/14）由编排脚本在分支 head 统一收口。
+> `SCOPE-13` 维持未勾选（M7-13 验证轮进行中）。
 >
 > 1.26 修订（2026-09-28）：M7 工作项 `M7-12` 勾选——合成模型冒烟套件
 > `mirador.integrations.tracker_nanotrack_smoke` 落地（Independent-

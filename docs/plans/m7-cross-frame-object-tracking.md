@@ -6,7 +6,7 @@
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
 > 建议发布点：`v0.4.0`（暂定，随判定收尾确认）
-> 更新日期：2026-09-28
+> 更新日期：2026-09-29
 
 ## 目标
 
@@ -98,10 +98,12 @@ A/B/C/D 基准发布；go/no-go 判定。
   `DEC-015` 分层走用户显式路径（`RISK-2026-13` 口径）。（审查**通过**并
   登记 [docs/supply-chain/nanotrack.md](../supply-chain/nanotrack.md)，
   未触发备选更换；交付与验证轮记录见下方"验证记录"2026-09-28 三条。）
-- [ ] `M7-13` 深度增强通道条件化融合：注入时 E1/深度组合与置信冲突保守
+- [x] `M7-13` 深度增强通道条件化融合：注入时 E1/深度组合与置信冲突保守
   处置（`RISK-2026-18` 门控）、高置信模板更新仅取双通道一致帧、未注入
   退化路径零变化验证、上层启用开关（`RULE-12`）；`A/B/C/D` 基准追加
-  "D+深度增强"口径列报（不阻塞 M7-10 传统口径判定）。
+  "D+深度增强"口径列报（不阻塞 M7-10 传统口径判定）。（验证套件、
+  验证轮两项发现收口与门禁证据及 CI 回填（run 36459822707，14/14 job
+  全绿）见下方"验证记录"2026-09-29 条。）
 
 ## 风险与阻塞
 
@@ -1713,4 +1715,189 @@ df63c17；验证套件由 Independent-Verification-Agent 按分工交付，实�
   38m52s）；首轮通过，无修复往返，上条"CI 回填：待补——分支未推送，
   推送与 PR/CI 14/14 证据（integrations-ncnn job 的 ctest 自动捕获
   冒烟套件）随编排脚本在分支 head 收口后回填（同 `M7-03`~`M7-11`
+  先例）"就此闭合。
+
+2026-09-28：`M7-13` 深度增强通道条件化融合**实现交付**（分支
+`feat/m7-13-deep-channel-conditional-fusion` 自 master bde1c6a 切出；工作项
+未勾选——验证套件按分工由 Independent-Verification-Agent 独立编写与执行，
+勾选、验证轮记录与 CI 证据随其收口）：
+
+- 交付（实现 feat(fusion) commit 404d339 + bench feat(benchmarks)
+  commit 696bf48 + 文档同步）：`ObjectTracker` 新增注入点原语
+  `attach_tracker_session`/`detach_tracker_session`/`tracker_session`
+  （池侧并行单槽存调用方初始化的 `TrackerSession` 句柄，兑现 M7-11
+  契约块 2「槽常量随 M7-13 注入接线落地」注记）——每 track 至多一槽、
+  重建原地替换（destroy 旧存新、字节中性）、`kTrackerHandleSlotOverheadBytes=32`
+  计入 `byte_size()`/`pool_budget_bytes` 放不下显式 `kBudgetExceeded`
+  （错误路径池与会话均不动）、terminate/池淘汰/reset 三路同步析构句柄、
+  `plan_eviction`/adopt 淘汰提交/归档路径同步释放槽字节；池从不驱动
+  后端（initialize/update、prepared 视图制备、坐标恢复全归调用方，
+  `RULE-12` 上层同时拥有注入与 `deep_channel_enabled` 启用开关）。
+  `commit_track_evidence` 深度证据重载（`DeepChannelEvidence`）：
+  `DEC-021` 采纳点校验——非有限/零面积/出图 bounds、非有限/出 [0,1]
+  置信度、开关关闭时供证，一律显式 `kInvalidArgument` 拒绝而非钳制，
+  校验先于取消（M7-05/06 冻结顺序）；冻结组合规则（头注释权威）：
+  深度框与 E1 候选窗（M7-06 冻结候选规则）IoU ≥
+  `deep_agreement_min_iou`（默认 0.5）且深度置信 ≥
+  `deep_min_confidence`（默认 0.5，均为开发冒烟值）为同位一致互证
+  ——确认级置信升级为传统来源（E1 峰值 NCC 或 E2-only 维持原值）与
+  深度置信的不下取最大值；否则冲突按保守侧处置（`RISK-2026-18`）——
+  确认级降为占位级（冻结状态机 kTracking → kUncertain，不动位置/置信/
+  模板），非确认级不受影响（否决语义保留）；深度通道永不单独确认
+  （漂移深度 tracker 无法伪造确认，模板补丁恒取自 E1 候选窗——漂移
+  结构性不可达外观存储）；高置信模板更新仅取双通道一致帧——开关开启
+  且 track 持有注入会话时 kConfirmed 正模板捕获要求本帧互证成立，缺失
+  深度证据（后端失败/取消/调用方跳过）仍确认身份但模板捕获扣留并
+  显式上报 `template_withheld_by_deep_channel`（`RULE-06` 不静默）；
+  提交回显新增 `deep_disposition`；`kBackendFailure` 弃置会话经既有
+  占位提交路径降级、当前帧确认 bounds 重建（无新降级 API，M7-11
+  冻结钩子兑现）；组合规则作用于 §6.2 邻域验证路径，M7-08 重检测身份
+  复核维持冻结形态（其提交不带深度证据，持会话 track 同落模板防护）。
+  bench 追加 `D+deep` 第五方法列：确定性伪深度后端（bench-deep 像素
+  回声、零学习状态、逐序列位确定）经注入点接入，deep update 在
+  verify_track 计时器之外保证 p50/p95 与 D 可比；deep=/corr=/confl=/
+  withheld= 计数入逐 cell 指标与确定性摘要；A/B/C/D 打印格式未动。
+- 零变化对照（本会话执行，实现 commit 404d339 上）：debug 预设全量
+  `ctest --preset debug` 53/53 通过（含 7 个既有 fusion 跟踪套件与
+  架构 7/7：源码扫描 + 全链接闭包探针——`mirador_fusion` 链接接口恰为
+  core/image/cache 不变，`tracker_backend.hpp` 纯接口零新链接依赖）；
+  M7-09 harness 24 个传统 cell 的非计时数字逐 cell 对照已发布报告
+  逐位一致（延续率、swap、fp、误判丢/失、verify 调用数、池峰值字节、
+  track 峰值——如 A-static 234/234 33,252B、B-static verify=0 7,716B、
+  A-scroll 39,960B ×12 等，计时列为墙钟口径不逐位比对）。
+- 文档同步：API 索引 object_tracker 条目、兼容性登记 object_tracker
+  行扩展、CHANGELOG Unreleased、设计 §6.2 新增 M7-13 交付落点与
+  NanoTrack 钳制语义对齐裁决（**维持钳制语义零行为变更**：组合规则只
+  消费上报框与置信度，不触碰后端内部尺度状态——`nanotrack_backend.hpp`
+  冻结段注记同步收口）、设计 §6.5 M7-13 注记（直通契约零变化）、
+  总计划 1.27 修订。
+- 待收口：验证套件（验收矩阵 1-11：注入生命周期与字节记账、DEC-021
+  校验拒绝矩阵、同位互证/冲突降级/模板防护/失败弃置重建、未注入与
+  关闭开关零变化负向、DOD-03 坐标矩阵、DOD-04 不放宽、确定性、隐私、
+  D+ 列报口径）由 Independent-Verification-Agent 独立交付；六预设
+  构建+ctest、sanitizer、lint 双口径与 CI 14/14 由编排脚本在分支 head
+  统一收口；基准 D+ 节已随实现轮列报于
+  [linux-x64-object-tracking-2026-09.md](../benchmarks/linux-x64-object-tracking-2026-09.md)
+  （合成口径限定、A/B/C/D 传统 24 cell 零回归对照与列报口径依据随附，
+  本机 release 复跑 3 次重复非计时指标逐位一致）。
+
+2026-09-29：`M7-13` 验证套件交付、验证轮两项发现收口与工作项勾选（分支
+`feat/m7-13-deep-channel-conditional-fusion`，自 master bde1c6a 切出，六个
+commit：实现 d92adf5 → bench deb18e6 → 文档注册 f135d70 → 基准报告
+5f36942 → 验证套件 585cefa → 验证轮修复 1d8234a；验证套件由
+Independent-Verification-Agent 按分工交付，实现轮交付见上方 2026-09-28
+记录）：
+
+- 交付摘要：验证套件 `tests/fusion/object_tracker_deep_channel_test.cpp`
+  （`ObjectTrackerDeepChannelTest` 25 用例，注册 ctest 项
+  `mirador.fusion.object_tracker_deep_channel`）随 test(fusion) commit
+  585cefa 落地；验证轮两项发现随 fix(fusion) commit 1d8234a 逐项收口
+  （4 文件 +68/−25，沿 `M7-12` fix(integrations) 48de7db 验证轮修复
+  先例；未推送、未放宽公共契约）：
+  - [中] `attach_tracker_session` 签名由按值 `unique_ptr` 改为
+    owning-reference（`std::unique_ptr<TrackerSession>&`，
+    object_tracker.hpp:1438-1440）：原签名下任何错误返回都会在参数析构
+    中销毁调用方会话——与头契约「unique_ptr 不在任何错误路径被消费」
+    直接冲突（`kBudgetExceeded` 静默丢弃刚初始化的会话，按头契约继续
+    持有则 use-after-free）。修复后池仅在成功路径消费句柄（move 后
+    调用方指针为 null，src/fusion/object_tracker.cpp:1527-1530）；任何
+    错误路径——`kInvalidArgument`（null/unknown/terminated）与
+    `kBudgetExceeded`——调用方 `unique_ptr` 仍拥有存活会话，可重试/
+    销毁/复用。修复方向采纳验证员两选项中的 (a) 归还会话而非 (b)
+    修订契约为「失败即销毁」——前者保留更优语义（预算拒绝不强迫调用
+    方重初始化刚建好的会话）且使头契约注释与设计 §6.2「错误路径池与
+    会话均不动」口径无需改写即为真；失败可见性不变（显式 Status）。
+    验证轮裁决理由写入头契约注释（object_tracker.hpp:1416-1424）与
+    cpp 注记（src/fusion/object_tracker.cpp:1515-1521）。
+  - [低] `create()` 新增 isfinite 守卫：NaN `deep_agreement_min_iou`/
+    `deep_min_confidence` 现报 `kInvalidArgument`；按验证员校准面建议
+    一次性修复全部 double 选项家族（ncc 弱/强阈值、
+    `peak_sidelobe_ratio_min`、`structure_deviation_tolerance`、
+    `verification_roi_diagonal_ratio`、`impostor_match_threshold`、
+    `min_compensation_confidence` 与两个深度阈值，
+    src/fusion/object_tracker.cpp:1038-1070）——纯收紧：全部文档域
+    （[0,1]、(0,1]、≥1）本就排除 NaN，isfinite 是对文档域的实现对齐，
+    无任何原合法值被新拒；int/bool 选项不受 NaN 影响。
+  - 机械适配：bench `deep_step` 与验证套件五处 attach 调用点改为具名
+    句柄形式；断言语义零改动——审计（`git diff 585cefa..1d8234a --
+    tests/fusion/object_tracker_deep_channel_test.cpp`）确认零
+    EXPECT/ASSERT 删除（3 行为同一断言的具名句柄机械改写），净增
+    4 条：`attach_or_fail` 成功后 `EXPECT_EQ(handle, nullptr)`；预算
+    拒绝用例以三条会话存活断言（`EXPECT_NE(rejected_handle, nullptr)`/
+    同对象/`counters->alive == 1`）替换原 `(void)rejected_session`
+    占位——上轮未断言的探针行为固化为回归覆盖，属增强非弱化。测试债
+    记录（哨兵两态演进）由套件
+    `SentinelNotInjectedZeroBytesInjectedSlotBytes` 补齐，实现侧无
+    动作。
+- 验证覆盖（25 用例，伪 `TrackerBackend` 注入）：`RULE-12` 开关矩阵
+  （开关关闭时供证 `kInvalidArgument` 池不动；仅开开关与
+  传统管线孪生对照逐位零变化）；`DEC-021` 不可信输出校验拒绝矩阵与
+  校验先于取消；`RISK-2026-18` 组合矩阵（同位互证置信升级为不下取
+  最大值且维持确认级——strong/weak/E2-only 三入口；位置/置信冲突把
+  确认级降占位级，kTracking → kUncertain 且位置/置信/模板不动；低
+  置信冲突同处置；深度通道永不单独确认；否决语义保留）；高置信模板
+  防护（持会话 track 缺深度证据仍确认身份但模板捕获扣留并显式上报
+  `template_withheld_by_deep_channel`、扣留帧不污染模板集、无会话
+  track 不受防护、M7-08 重检测复核提交同落防护）；`kBackendFailure`
+  弃置降级与确认 bounds 重建恢复；注入生命周期（槽字节记账与显式
+  预算拒绝——拒绝后调用方会话存活三断言、原地重建字节中性并析构旧
+  会话、terminate/池淘汰/reset 三路同步析构、校验矩阵、未注入零
+  字节/注入 +`kTrackerHandleSlotOverheadBytes` 哨兵）；`DOD-04`
+  不放宽（组合规则不改模板/参数失效语义）；逐位确定性；DOD-03 坐标
+  矩阵（0/90/180/270 旋转 × 奇数尺寸 × 非连续 stride × 贴边）；隐私
+  （零落盘、Status 消息无像素标记，`RULE-10`/`DOD-06`）。
+- 门禁（验证轮修复会话报告，分支 head 1d8234a）：缺陷探针（/tmp，
+  不入仓）19/19 ALL PASS——预算差 1 字节 attach → `kBudgetExceeded`
+  且池字节不变、无池会话、调用方指针仍持同一存活会话（destroyed=0，
+  调用方侧丢弃后 destroyed=1）；NaN 双深度阈值/NaN ncc_weak/NaN
+  impostor 均拒绝、合法配置通过。debug 预设 ctest 54/54（含验证套件
+  与架构 7/7）、release 53/53（差 1 为 debug-only
+  `mirador.adapters.opencv` 既有条目，`M7-01` 记录口径）；asan/ubsan
+  预设套件直跑各 25/25 且全量 ctest 各 53/53、sanitizer 零报告；
+  warnings 预设构建 + 套件 25/25；clang-format `--dry-run --Werror`
+  对触及四文件归零、clang-tidy `--warnings-as-errors='*'`
+  （`-p build/debug`）对测试文件与 fusion 实现归零。基准复跑（release、
+  3 次重复内建逐位确定性断言通过）：
+  D+ 列 deep/corr/confl/withheld = 0/0/0/0、30/30/0/0、18/18/0/1、
+  6/6/0/0、5/0/5/1、5/5/0/0，池峰值 7716/25156/16923/14628/6303/6312 B
+  ——与发布报告及上轮 585cefa 运行逐位一致；全 30 cell 剥离计时字段
+  后 diff 为空（唯一差异为 header 一行 short-circuit p50/p95 计时
+  噪声，`DEC-011` 口径）——修复对传统 24 cell 与 D+ 列零行为漂移。
+- 门禁（文档同步轮复验，本会话执行，分支 head 1d8234a）：
+  `cmake --build --preset debug` 与 `--preset release` 增量均
+  `ninja: no work to do`；`ctest --preset debug` 54/54（architecture
+  7 / property 1 / unit 46）、`ctest --preset release` 53/53；验证
+  套件直跑 debug/asan/ubsan/warnings 各 25/25（asan/ubsan 零
+  sanitizer 报告）；clang-format `--dry-run --Werror` 对触及四文件
+  退出码 0；clang-tidy `--warnings-as-errors='*'`（`-p build/debug`）
+  对三份触及 .cpp（fusion 实现、验证套件、bench）0 errors——头文件
+  经 .cpp 翻译单元一并分析（CI lint 口径只扫 .cpp；对头文件独立合成
+  TU 跑 tidy 会在 `M7-06` 起的 `std::pair` 使用上报 include-cleaner
+  假阳性，非本分支引入、非任何门入口径）；三个缺陷探针二进制（/tmp）
+  原样复跑：19/19 ok、attach 存活 VERDICT PASS、NaN 家族 VERDICT
+  PASS；bench release 复跑（2 次重复）退出码 0、`self-checks ok`
+  （零静态触发/池预算/逐位确定性内建断言通过），D+ 列六场景
+  deep/corr/confl/withheld 与池峰值数字与发布报告逐位一致。
+- 限制：(1) 六预设完整复跑不在本轮（编排脚本职责，同
+  `M7-03`~`M7-12` 先例；CI 矩阵无 release 预设，release 侧仍属未执行
+  范围）；tsan 预设与 asan/ubsan 全量 ctest 侧已由 PR CI 在分支 head
+  覆盖（见下方 CI 回填）；CI 14/14 与推送/PR 已随回填收口；本分支
+  实际执行面以上两条门禁段为准。
+  (2) release ctest 53 vs debug 54 之差为 debug-only
+  `mirador.adapters.opencv` 既有条目（`M7-01` 记录口径），非本轮
+  差异。(3) /tmp 探针文件与二进制未入仓（工程验证证据非测试资产），
+  正式负向覆盖由套件就地增强的存活断言与全家族 isfinite 拒绝承接，
+  验证员复核如需可纳管。(4) 验证员侧的验证轮处置记录（df63c17 式
+  docs(plans) 记录）与哨兵两态演进说明归验证员/编排脚本收口；本条
+  为实现侧修复与文档同步轮记录。
+- CI 回填：PR #33 单轮 run 全绿，14/14 job——msvc/ninja、
+  ndk/arm64-v8a、gcc10（ubuntu-20.04 容器）、gcc
+  debug/asan/ubsan/tsan/warnings 五预设、clang debug/fuzz、
+  integrations-ncnn（6m52s）、capture/opencv 适配与
+  clang-format/clang-tidy 双口径（lint job 43m22s 完成，主导全程）。
+  [run 36459822707](https://github.com/Linductor-alkaid/mirador/actions/runs/36459822707)
+  （head 004298c，覆盖实现、bench、文档注册、基准报告、验证套件、
+  验证轮修复与勾选/文档同步全部 7 个 commit，全程 43m26s）；首轮
+  通过，无修复往返，上条"CI 回填：待补——分支未推送，推送与 PR/CI
+  14/14 证据随编排脚本在分支 head 收口后回填（同 `M7-03`~`M7-12`
   先例）"就此闭合。
