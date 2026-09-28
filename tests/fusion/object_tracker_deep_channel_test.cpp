@@ -368,8 +368,12 @@ void attach_or_fail(ObjectTracker& tracker, FakeTrackerBackend& backend, const I
     ASSERT_NE(track, nullptr);
     auto initialized = backend.initialize(view, TrackerInitRequest{track->last_bounds, {}}, clean_context());
     ASSERT_TRUE(initialized.ok()) << initialized.status().message();
-    const auto attached = tracker.attach_tracker_session(track_id, initialized.take_value());
+    // Owning-reference attach (verification-round fix): the pool consumes the
+    // handle on success.
+    std::unique_ptr<TrackerSession> handle = initialized.take_value();
+    const auto attached = tracker.attach_tracker_session(track_id, handle);
     ASSERT_TRUE(attached.ok()) << attached.status().message();
+    EXPECT_EQ(handle, nullptr);
 }
 
 /// Hand-built caller evidence (the commit is contractually forbidden from
@@ -1076,14 +1080,20 @@ TEST(ObjectTrackerDeepChannelTest, HandleSlotAccountingAndExplicitBudgetRejectio
     auto rejected_init =
         tight_backend.initialize(view, TrackerInitRequest{tight_track->last_bounds, {}}, clean_context());
     ASSERT_TRUE(rejected_init.ok()) << rejected_init.status().message();
-    TrackerSession* rejected_session = rejected_init.value().get();
-    const auto rejected = tight.attach_tracker_session(7U, rejected_init.take_value());
+    // Owning-reference attach (verification-round fix): the rejection must
+    // hand the session back — the caller's unique_ptr still owns it.
+    std::unique_ptr<TrackerSession> rejected_handle = rejected_init.take_value();
+    TrackerSession* rejected_session = rejected_handle.get();
+    const auto rejected = tight.attach_tracker_session(7U, rejected_handle);
     ASSERT_FALSE(rejected.ok());
     EXPECT_EQ(rejected.status().code(), ErrorCode::kBudgetExceeded);
     EXPECT_EQ(tight.byte_size(), base_bytes);
     EXPECT_EQ(tight.tracker_session(7U), nullptr);
     EXPECT_EQ(tight.detach_tracker_session(7U), nullptr);
-    (void)rejected_session;  // fate probed separately; see the issue report
+    // The session survived the failed attach: still owned, still alive.
+    EXPECT_NE(rejected_handle, nullptr);
+    EXPECT_EQ(rejected_handle.get(), rejected_session);
+    EXPECT_EQ(tight_backend.counters->alive, 1);
 
     // Exactly the slot constant: the attach fits.
     ObjectTrackerOptions fits_options = tight_options;
@@ -1207,12 +1217,14 @@ TEST(ObjectTrackerDeepChannelTest, AttachValidationMatrix) {
     ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7U, bounds));
     FakeTrackerBackend backend;
 
-    // Null session.
-    EXPECT_EQ(tracker.attach_tracker_session(7U, nullptr).status().code(), ErrorCode::kInvalidArgument);
+    // Null session (owning-reference form: pass a named empty handle).
+    std::unique_ptr<TrackerSession> null_handle;
+    EXPECT_EQ(tracker.attach_tracker_session(7U, null_handle).status().code(), ErrorCode::kInvalidArgument);
     // Unknown track id.
     auto unknown = backend.initialize(view, TrackerInitRequest{bounds, {}}, clean_context());
     ASSERT_TRUE(unknown.ok());
-    EXPECT_EQ(tracker.attach_tracker_session(99U, unknown.take_value()).status().code(), ErrorCode::kInvalidArgument);
+    std::unique_ptr<TrackerSession> unknown_handle = unknown.take_value();
+    EXPECT_EQ(tracker.attach_tracker_session(99U, unknown_handle).status().code(), ErrorCode::kInvalidArgument);
     // A terminated track cannot hold a session (identity closed).
     auto for_terminated = backend.initialize(view, TrackerInitRequest{bounds, {}}, clean_context());
     ASSERT_TRUE(for_terminated.ok());
@@ -1220,8 +1232,8 @@ TEST(ObjectTrackerDeepChannelTest, AttachValidationMatrix) {
     ASSERT_NO_FATAL_FAILURE(adopt_or_fail(archive, view, 7U, bounds));
     const auto ended = archive.terminate(7U, 2);
     ASSERT_TRUE(ended.ok()) << ended.status().message();
-    EXPECT_EQ(archive.attach_tracker_session(7U, for_terminated.take_value()).status().code(),
-              ErrorCode::kInvalidArgument);
+    std::unique_ptr<TrackerSession> terminated_handle = for_terminated.take_value();
+    EXPECT_EQ(archive.attach_tracker_session(7U, terminated_handle).status().code(), ErrorCode::kInvalidArgument);
     // Absent handles read as nullptr, const and non-const alike.
     EXPECT_EQ(tracker.tracker_session(99U), nullptr);
     const ObjectTracker& const_tracker = tracker;

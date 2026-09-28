@@ -1301,7 +1301,10 @@ std::optional<DeepChannelEvidence> deep_step(CellRun& run, const uint64_t id, co
     if (run.tracker.tracker_session(id) == nullptr) {
         auto initialized = run.deep_backend->initialize(run.curr.view, TrackerInitRequest{prior, {}}, {});
         expect_ok(initialized, "deep initialize");
-        expect_ok(run.tracker.attach_tracker_session(id, initialized.take_value()), "deep attach");
+        // Owning-reference form: the pool consumes the handle on success
+        // (leaving it null); on any error the handle would stay here.
+        std::unique_ptr<TrackerSession> handle = initialized.take_value();
+        expect_ok(run.tracker.attach_tracker_session(id, handle), "deep attach");
     }
     TrackerSession* session = run.tracker.tracker_session(id);
     const Result<TrackerUpdateResult> updated = session->update(run.curr.view, TrackerUpdateRequest{prior, {}}, {});

@@ -1028,19 +1028,31 @@ Result<ObjectTracker> ObjectTracker::create(const ObjectTrackerOptions& options)
     if (!ranges_ok) {
         return Status{ErrorCode::kInvalidArgument, "ObjectTrackerOptions value outside its documented range"};
     }
-    if (options.ncc_weak_threshold < 0.0 || options.ncc_weak_threshold > 1.0 ||
+    // Every double option documents a finite domain ([0, 1] etc.); a NaN
+    // would otherwise pass every range comparison and reach the decision
+    // paths as a silently-invalid configuration (verification-round finding
+    // on the M7-13 deep-channel thresholds — fixed for the whole
+    // double-option family at once, the verifier's calibration-surface
+    // recommendation). A pure tightening: no previously-valid value is
+    // rejected.
+    if (!std::isfinite(options.ncc_weak_threshold) || !std::isfinite(options.ncc_strong_threshold) ||
+        options.ncc_weak_threshold < 0.0 || options.ncc_weak_threshold > 1.0 ||
         options.ncc_strong_threshold < options.ncc_weak_threshold || options.ncc_strong_threshold > 1.0) {
         return Status{ErrorCode::kInvalidArgument, "ncc thresholds must satisfy 0 <= weak <= strong <= 1"};
     }
-    if (options.peak_sidelobe_ratio_min < 1.0 || options.structure_deviation_tolerance < 0.0 ||
-        options.structure_deviation_tolerance > 1.0 || options.verification_roi_diagonal_ratio <= 0.0 ||
-        options.verification_roi_diagonal_ratio > 8.0 || options.verification_work_budget_bytes <= 0) {
+    if (!std::isfinite(options.peak_sidelobe_ratio_min) || !std::isfinite(options.structure_deviation_tolerance) ||
+        !std::isfinite(options.verification_roi_diagonal_ratio) || options.peak_sidelobe_ratio_min < 1.0 ||
+        options.structure_deviation_tolerance < 0.0 || options.structure_deviation_tolerance > 1.0 ||
+        options.verification_roi_diagonal_ratio <= 0.0 || options.verification_roi_diagonal_ratio > 8.0 ||
+        options.verification_work_budget_bytes <= 0) {
         return Status{ErrorCode::kInvalidArgument, "verification threshold outside its documented range"};
     }
-    if (options.impostor_match_threshold < 0.0 || options.impostor_match_threshold > 1.0) {
+    if (!std::isfinite(options.impostor_match_threshold) || options.impostor_match_threshold < 0.0 ||
+        options.impostor_match_threshold > 1.0) {
         return Status{ErrorCode::kInvalidArgument, "impostor_match_threshold must be in [0, 1]"};
     }
-    if (options.min_compensation_confidence < 0.0 || options.min_compensation_confidence > 1.0) {
+    if (!std::isfinite(options.min_compensation_confidence) || options.min_compensation_confidence < 0.0 ||
+        options.min_compensation_confidence > 1.0) {
         return Status{ErrorCode::kInvalidArgument, "min_compensation_confidence must be in [0, 1]"};
     }
     if (options.redetect_backoff_base_frames < 1 ||
@@ -1051,7 +1063,8 @@ Result<ObjectTracker> ObjectTracker::create(const ObjectTrackerOptions& options)
     if (options.max_redetection_records < 1 || options.max_redetection_records > 4096) {
         return Status{ErrorCode::kInvalidArgument, "max_redetection_records outside its documented range"};
     }
-    if (options.deep_agreement_min_iou <= 0.0 || options.deep_agreement_min_iou > 1.0 ||
+    if (!std::isfinite(options.deep_agreement_min_iou) || !std::isfinite(options.deep_min_confidence) ||
+        options.deep_agreement_min_iou <= 0.0 || options.deep_agreement_min_iou > 1.0 ||
         options.deep_min_confidence < 0.0 || options.deep_min_confidence > 1.0) {
         return Status{ErrorCode::kInvalidArgument,
                       "deep-channel thresholds invalid: agreement_min_iou in (0, 1], min_confidence in [0, 1]"};
@@ -1486,7 +1499,7 @@ Result<TrackEvidenceCommit> ObjectTracker::commit_track_evidence(
 }
 
 Result<void> ObjectTracker::attach_tracker_session(const uint64_t track_id,
-                                                   std::unique_ptr<TrackerSession> session) noexcept {
+                                                   std::unique_ptr<TrackerSession>& session) noexcept {
     if (session == nullptr) {
         return Status{ErrorCode::kInvalidArgument, "attach_tracker_session requires a non-null session"};
     }
@@ -1500,12 +1513,17 @@ Result<void> ObjectTracker::attach_tracker_session(const uint64_t track_id,
     const auto slot = find_tracker_handle(track_id);
     const bool exists = slot != tracker_handles_.end() && slot->first == track_id;
     // At most one slot per track: a rebuild replaces the handle in place
-    // (byte-neutral); a new slot is budget-checked (RULE-06) — on any error
-    // the pool AND the caller's session are untouched (the unique_ptr is not
-    // consumed).
+    // (byte-neutral); a new slot is budget-checked (RULE-06). The parameter
+    // is an owning reference precisely so that ANY error return — including
+    // the budget rejection below — leaves the caller's unique_ptr owning the
+    // session (verification-round ruling: a by-value parameter would destroy
+    // the session in its own destructor on the error path, silently
+    // discarding a just-initialized session).
     if (!exists && used_bytes_ + kTrackerHandleSlotOverheadBytes > options_.pool_budget_bytes) {
         return Status{ErrorCode::kBudgetExceeded, "attach_tracker_session does not fit the pool budget"};
     }
+    // Consume on success only: moving from the reference leaves the caller's
+    // unique_ptr null (the handle now lives in the slot).
     if (exists) {
         slot->second = std::move(session);
     } else {

@@ -1413,20 +1413,30 @@ public:
     /// cross-handle concurrency, calls on one handle stay strictly serial
     /// (RULE-03; the pool adds no scheduling of its own).
     ///
+    /// `session` is an in/out owning reference. On success the pool takes
+    /// ownership and `session` is left null (the handle now lives in the
+    /// slot). On ANY error the call is a no-op for the caller's state:
+    /// `session` still owns the handle — the unique_ptr is never consumed on
+    /// an error path, so the session can be retried, destroyed or reused by
+    /// the caller (verification-round ruling: a by-value parameter would
+    /// destroy the session in the parameter's destructor on the error return,
+    /// silently discarding a just-initialized session on kBudgetExceeded and
+    /// contradicting this contract).
+    ///
     /// At most one slot exists per track: attaching over an existing slot
     /// replaces the handle in place (destroy old, store new — the session-
     /// rebuild shape; byte-neutral). A new slot is budget-checked
     /// (`kTrackerHandleSlotOverheadBytes`, RULE-06): an insertion that cannot
     /// fit fails explicitly with kBudgetExceeded and leaves the pool —
-    /// including the caller's session — untouched (the unique_ptr is not
-    /// consumed on any error path). The handle is destroyed synchronously by
-    /// `detach_tracker_session`, `terminate`, track eviction and `reset`.
+    /// including the caller's session — untouched. The stored handle is
+    /// destroyed synchronously by `detach_tracker_session`, `terminate`,
+    /// track eviction and `reset`.
     ///
     /// Errors: kInvalidArgument for a null session, an unknown track id or an
     /// already-terminated track (identity closed — a session cannot
     /// outlive its identity); kBudgetExceeded as above. Never throws.
     [[nodiscard]] Result<void> attach_tracker_session(uint64_t track_id,
-                                                      std::unique_ptr<TrackerSession> session) noexcept;
+                                                      std::unique_ptr<TrackerSession>& session) noexcept;
 
     /// Extracts the track's injected session handle, releasing the slot (M7-13):
     /// the returned unique_ptr owns the session; letting it go out of scope is
