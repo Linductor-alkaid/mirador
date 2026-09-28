@@ -27,7 +27,9 @@ Mirador 的公共 API 即 [`include/mirador/`](../../include/mirador/) 下的头
 `transform.hpp`（图像级重采样入口）、`fingerprint.hpp`、`patch_fingerprint.hpp`、
 `visual_fingerprint.hpp`、`change_detection.hpp`（分层变化检测与忽略区域，设计 §11）、
 `shift_estimation.hpp`（全局位移估计原语：灰度缩略图低分辨率平移搜索 → 位移向量 +
-置信度，跟踪设计 §6.3、`DEC-019`；**Experimental**：随 M7 go/no-go 判定冻结）、
+置信度，跟踪设计 §6.3、`DEC-019`；**Experimental**：M7-10 判定 GO（合成口径），
+契约冻结评审草案 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+（Proposed）待批——批准前不计兼容性承诺）、
 `detection_postprocess.hpp`（NMS/类别过滤）、`text_postprocess.hpp`（DB 后处理、
 轮廓框恢复）、`text_normalize.hpp`、`grid_partition.hpp`、`frame_cache.hpp`（有界帧级缓存）。
 
@@ -53,7 +55,8 @@ SPI 的过滤/共线合并自由函数（`filter_segments`、`merge_collinear`�
 `DEC-016`）、`semantic_snapshot.hpp`（`RegionSource` 位掩码、`VisualRegion`、
 `SemanticSnapshot`、generation 校验）、`stable_id_tracker.hpp`（`DEC-010`；
 M7-06 起含跟踪确认配对的门控直通 `ConfirmedAssociation` 与 `advance` 的
-`confirmed_associations` 参数，设计 §6.5）、
+`confirmed_associations` 参数，设计 §6.5；直通扩展按 Experimental 登记，
+随 `ObjectTracker` 面一同冻结，见 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)）、
 `object_tracker.hpp`（跨帧目标跟踪：`TrackState`/`TargetTrack` 有界目标池与
 `ObjectTracker` 生命周期，设计 §24 M7、`DEC-019`；M7-02 起含池有界变更原语
 `record_observation`/`add_template`/`add_negative_template`/
@@ -86,7 +89,10 @@ kLost → kTerminated 归档转移——预算耗尽显式失败）、
 `max_redetection_records` 选项与 `kRedetectSlotOverheadBytes`/
 `kRedetectionRecordOverheadBytes`，身份复核本体复用 `verify_track` +
 `commit_track_evidence` 冻结契约，设计 §7）；
-**Experimental**：随 M7 go/no-go 判定冻结，冻结前不计兼容性承诺）、
+**Experimental**：M7-10 判定 GO（合成口径，判定记录见
+[M7 里程碑](../plans/m7-cross-frame-object-tracking.md)）；契约冻结评审草案
+[DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+（Proposed）待批——批准前不计兼容性承诺）、
 `perception_session.hpp`（感知入口：变化分析 → 按需 Backend → 坐标恢复 → 缓存 →
 融合发布，`DEC-013`）。
 

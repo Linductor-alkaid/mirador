@@ -6,7 +6,7 @@
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
 > 建议发布点：`v0.4.0`（暂定，随判定收尾确认）
-> 更新日期：2026-09-24
+> 更新日期：2026-09-28
 
 ## 目标
 
@@ -80,10 +80,13 @@ A/B/C/D 基准发布；go/no-go 判定。
   指标全套数字、场景覆盖 `*-static-page`/`*-scroll`/`*-dialog`/
   `*-theme-switch`/`*-similar-icons`/`*-partial-anim`；数字发布于
   `docs/benchmarks/`（`DEC-011` 口径）；门槛初值逐项校准冻结。
-- [ ] `M7-10` go/no-go 判定与转正决策草案：依 M7-09 数字对照 `DEC-019`
+- [x] `M7-10` go/no-go 判定与转正决策草案：依 M7-09 数字对照 `DEC-019`
   门槛逐项判定并记录于本里程碑"验证记录"；GO 另立决策冻结
   `ObjectTracker` 契约并纳入兼容性承诺；NO-GO 记录结论、归因与重跑或关闭
-  建议（`DEC-017` 模式）。
+  建议（`DEC-017` 模式）。判定为**GO（合成口径）**（2026-09-28，判定记录
+  见下方"Go/No-Go 判定记录"节）；转正草案
+  [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+  （Proposed，待负责人评审）。
 - [ ] `M7-11` `TrackerBackend` SPI 契约冻结（`DEC-020`）：接口形态、状态
   归属与生命周期、同步/取消语义、缓存豁免界定；Fake `TrackerBackend`
   （固定轨迹注入）完成 fusion 侧编排测试；架构测试证明 core 链接闭包
@@ -114,6 +117,113 @@ A/B/C/D 基准发布；go/no-go 判定。
   更换候选（LightTrack/Ocean ncnn 移植），契约不变，不阻塞 M7 主线。
 - 阈值初值无先验：以 M7-09 校准为准，初值仅用于开发冒烟（`DEC-019` 第 5 条）。
 
+## Go/No-Go 判定记录（`M7-10`，2026-09-28）
+
+**结论：GO（合成口径）。** `DEC-019` 第 5 条六项晋升门槛初值依
+`M7-09` 发布基准逐项判定全部达标（判定口径与归因见下表；门槛初值无一处
+变更，`min_compensation_confidence` 库默认维持 0.0 的裁定见下）。转正路径
+按 `DEC-019` 第 4 条另立决策草案
+[DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+（Proposed，待负责人评审），**M7 Experimental 面（`object_tracker.hpp`、
+`shift_estimation.hpp`、`stable_id_tracker.hpp` 直通扩展）在其批准前保持
+Experimental 标记与"不计兼容性承诺"登记不变**（同 M6-06 → `DEC-018`
+先例）。
+
+| 门槛（`DEC-019` 第 5 条初值，无变更） | 判定口径 | 测量（`M7-09` 发布） | 判定与归因 |
+| --- | --- | --- | --- |
+| `*-static-page` ID 延续正确率 ≥ 0.95 | 四方法全部 | 1.000（234/234，三方法短路零验证调用；A 全验证路径亦 1.000） | **通过** |
+| `*-scroll`（补偿后）ID 延续正确率 ≥ 0.90 | 补偿后方法（C/D） | C/D = 1.000（138/138 静止期 + 36/36 滚动期）；B（无补偿）静止期 0.333 | **通过**。门槛口径即"补偿后"：B/C 差值（延续 0.333 vs 1.000、Detector 触发 120/min vs 0/min）源于滚动步长 48 px 刻意超出冻结验证 ROI 半径 ±36 px，C 经补偿于 (0,−3) px 恢复强匹配（实测置信度 [0.93, 0.95]）——`RISK-2026-17` 门控证据（证明补偿通道必要性），不构成门槛失败 |
+| `*-similar-icons` swap 率 ≤ 0.05 | D（全通道语义口径） | D = 0（0 次交换 / 4 对象）；A/B/C = 0.5（2 次 / 4 对象） | **通过（D 口径）**。归因见下方"口径论证" |
+| 假阳性延续率 ≤ 0.02 | D（全通道语义口径） | D = 0/1 确认提交 = 0.000；A = 2/116 ≈ 0.017（名义达标但同方法 swap 不达标）；B/C = 2/2 = 1.0 | **通过（D 口径，严格）**。归因见下方"口径论证" |
+| 静止帧跟踪短路相对 M1 变化检测基线无可测回归 | 同机同日 M1 复测对照 | detect 单独 p50 3455.7 µs vs 管线前缀 p50 3448.2 µs；M1 同日 unchanged p50 3501.6 µs | **通过**（差值在运行噪声内，与 M7-03 发布的 gate-only 0.09–0.34 µs 一致） |
+| `kLost` 后静止画面零 Detector 触发 | 全部 24 cell（A/B/C/D × 六场景） | 内建断言：任一 cell 在 kNone 帧出现 Detector 调用即非零退出，全部通过 | **通过**（`evaluate_redetection_gate` kHoldStaticFrame 路径的实际效果） |
+
+**"仅 D 通过"两项的口径论证**（不构成静默放宽）：
+
+- **门槛值未变更**：`DEC-019` 第 5 条对 swap/假阳性两项按场景
+  （`*-similar-icons`）定义达标线（≤ 0.05 / ≤ 0.02），未按方法定义达标线；
+  本判定沿用 `M7-09` 报告已发布的判定口径（结论表"仅 D 通过/仅 D 严格
+  通过"），不调低门槛数值、不改写任何测量。
+- **判定口径 = D 的依据**：`DEC-019` 第 2 条冻结的证据模型是"外观
+  （E1/E2）+ 位置-时间门控（含全局运动补偿）+ 语义兼容谓词 + impostor
+  负模板"的全通道组合；harness 的 A/B/C 是为隔离各证据通道贡献而定义的
+  调用方消融策略（基准报告"方法口径"节：A 无短路每帧全验证、B/C 无语义
+  通道与 impostor 机制），不是可交付的能力配置。产品语义的跟踪能力 = D。
+- **swap 差值归因**（基准报告核心发现 2）：孪生图标 E1 交叉 NCC 0.712
+  落弱带 [0.6, 0.8)——无语义否决与负模板时（A/B/C）外观通道对同形异义
+  对象结构性无判别力，各发生 2 次交换；D 经语义冲突否决（5 次）+ impostor
+  负模板命中（4 次）实现零交换，代价为该对象 2 帧误判丢失后 2 帧内重捕获
+  （`uncertain_frame_limit` 预算内）。A/B/C 的 0.5 恰好证明语义通道是
+  被测的唯一防交换手段——机制按设计工作，而非门槛失败（`RISK-2026-16`
+  门控证据）。
+- **假阳性延续差值归因**：B/C 的 2/2 = 1.0 与 A 的 2/116 同源——无语义
+  通道时弹出物被确认提交；D 的 0/1 为严格零。
+- **回退现状**：两项风险在 D 配置下实测受控（零 swap、零假阳性延续），
+  `RISK-2026-16`/`RISK-2026-17` 的回退（相似候选一律降级 `kUncertain`、
+  收紧代际判定或位置通道降权）**不启用**；"是否将回退写入库默认"列为
+  [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+  开放项 3 交负责人裁决。
+
+**库默认 `min_compensation_confidence` 裁定：维持 0.0，不随本判定上调
+（无代码变更）。** 测量依据：
+
+1. 判定范围：六项门槛的全部已发布判定数字（C/D 全部场景）均在 harness
+   调用方配置 0.7 下采集（`M7-09` 校准表）；库默认 0.0 不出现在任何门槛
+   判定路径，维持 0.0 不改变任何判定结论。
+2. 置信度度量无真实数据先验（`DOD-05`）：实测分离带——真滚动 [0.93,
+   0.95] vs 局部变化伪位移 [0.46, 0.55]、门 0.7 落宽分离带内——全部来自
+   合成场景；`estimate_global_shift` 置信度在真实内容上的分布未测量
+   （M7-04 交付记录："置信度与默认参数无真实数据先验"）。库默认是
+   `DEC-022` 拟冻结的契约面：在仅有合成证据的时点把 0.7 固化为库默认，
+   与"证据强度与承诺深度对齐"（`DEC-019` 第 4 条、`DEC-018` 立项逻辑）
+   不一致——0.0（不过滤）是不虚构分离边界的无先验值，门控行为由调用方
+   按其内容域配置。
+3. 契约定位：`min_compensation_confidence` 的冻结语义是 `RISK-2026-17`
+   的门控旋钮（M7-07）；跟踪管线为调用方组合帧管线，调用方持有
+   `estimate_global_shift` 结果流并了解自身内容域。参考调用方策略
+   （harness 0.7）已发布并被校准套件钉住
+   （`HarnessCallerCompensationGate07SeparatesMeasuredBands`），集成方照
+   配置即获得全部实测收益。
+4. 如实记录不利面（维持 0.0 的代价）：0.0 门下 C/D 曾对局部变化帧（置信
+   [0.46, 0.55] 伴随非零伪位移）平移整池（anim verify 归零异常，`M7-09`
+   校准表实测）——未配置该旋钮的调用方存在已测量的伪位移暴露。处置：记
+   为 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+   开放项 1——负责人可在其评审时裁决随真实数据评估一并复核库默认（与
+   `peak_sidelobe_ratio_min` 5.0 复核同批），或在真实数据评估前以集成
+   文档约定"调用方必配 0.7"。
+
+判定限定（随结论一并留档，不得拆开引用）：
+
+- **仅有合成证据**（`DOD-05`）：场景、纹理、遮挡与运动均为播种合成，E2
+  结构测度由 harness 测量而非真实 `propose_regions` 输出、oracle Detector
+  按 GT 粗召回。本判定证明"双通道 + 语义组合在合成场景可实现且达门槛"，
+  不证明真实场景价值。
+- **真实截图评估为转正前置**（`RISK-2026-14`）：与 `DEC-018` 阶段 2 共享
+  `~/mirador-eval/` 采集（一次采集两用）；数据未采集不阻塞本合成口径
+  判定，阻塞转正收口（`DEC-022` 阶段 2）。
+- **`peak_sidelobe_ratio_min` 5.0 复核条件转记**：贫纹理合成 patch 实测
+  真匹配 PSR 4.96 < 5.0 被拒（归因于刺激），场景纹理富化后真匹配 ≥ 6.95、
+  杂峰 ≤ 3.5——真实数据评估必须复核该裕度（转记为
+  [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md) 开放
+  项 2）。
+- **环境口径**（`DEC-011`）：单机 Linux x64 release；物理 Android 设备与
+  Windows 桌面缺失，补跑前结论限定 Linux x64。
+- **swap 率量纲**为"每对象交换次数"（分母 = 场景对象数，随场景定义冻结，
+  `evaluation-scenes` 约定）。
+
+后续动作：
+
+- [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+  （Proposed）由负责人评审；批准前 M7 Experimental 面登记与标记不变。
+- 本判定不改变 M7-11~13 的计划性交付路径（`DEC-019` 第 6 条、
+  [DEC-020](../decisions/DEC-020-tracker-backend-spi.md) 已 Accepted：深度
+  增强通道为可选注入，`A/B/C/D` 基准追加"D+深度增强"口径列报，不阻塞
+  亦不被本判定约束）。
+- 兼容性登记与 API 索引已按两阶段模式注记（本判定 + `DEC-022` Proposed；
+  批准前 Experimental 口径不变）；CHANGELOG Unreleased 已登记本判定条目
+  （2026-09-28），`v0.4.0` 发布说明整理仍随 M7 收尾统一处理。
+- 真实截图评估采集与三项开放项裁决随 `DEC-018` 阶段 2 协调排期。
+
 ## 测试与退出条件
 
 - [ ] 全部工作项完成，6 预设（debug/release/warnings/asan/ubsan/tsan）构建
@@ -135,7 +245,10 @@ A/B/C/D 基准发布；go/no-go 判定。
   supply-chain/` 许可证与来源登记完成；默认构建零获取口径核实。
 - [ ] 隐私负向（`DOD-06`/`RULE-10`）：跟踪路径不落盘、不联网、trace/日志
   不含模板内容与原始帧。
-- [ ] M7-09 基准发布且门槛逐项判定；M7-10 判定记录完成。
+- [x] M7-09 基准发布且门槛逐项判定；M7-10 判定记录完成（**GO（合成口径）**，
+  见上方"Go/No-Go 判定记录"节；转正草案
+  [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+  Proposed）。
 - [ ] 文档同步：API 索引（Experimental 节）、兼容性登记、CHANGELOG、总计划
   `SCOPE-13`、设计文档 §24 M7 状态。
 
@@ -1176,3 +1289,113 @@ commit f8926a2 落地）：
   收口"就此闭合（文档表格中的 M1 同日计时对照属运行日墙钟样本，按
   `DEC-011` 口径不入零漂移判定，本轮 harness 计时行定性一致——前缀
   ≤ detect 单独，无可测回归）。
+
+2026-09-28：`M7-10` go/no-go 判定与转正决策草案交付，工作项勾选（分支
+`feat/m7-10-gonogo-verdict-promotion-draft` 自 master fb0dc3f 切出；纯文档
+变更——判定依据为 `M7-09` 已发布基准数字，不重跑、不改写）：
+
+- 判定：**GO（合成口径）**——判定记录见上方"Go/No-Go 判定记录"节
+  （六门槛逐项判定表、"仅 D 通过"两项的口径论证与归因、
+  `min_compensation_confidence` 库默认维持 0.0 的裁定与测量依据、五项
+  判定限定）。门槛初值无一处变更（`DEC-019` 第 5 条）。
+- 转正草案：[DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+  （Proposed，待负责人评审）——两阶段拆分（阶段 1 三处 Experimental 面
+  契约冻结 / 阶段 2 真实截图评估与转正收口）、证据登记（仅有合成证据、
+  不回滚语义）与三项开放项（补偿置信度库默认、PSR 5.0 真实裕度复核
+  ——`M7-09` 校准表转记、`RISK-2026-16` 回退是否入库默认）；
+  [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) 头部补
+  反向注记。
+- 登记：[兼容性登记](../compatibility/compatibility.md) 与
+  [API 索引](../api/README.md) 按两阶段模式注记（M7-10 判定 GO +
+  `DEC-022` Proposed；批准前 Experimental 标记与"不计兼容性承诺"登记
+  不变，同 M6-06 → `DEC-018` 先例）；总计划 1.23 修订。
+- 限制与移交：CHANGELOG 留 M7 收尾（`v0.4.0`）统一处理；本项无代码/测试
+  改动，六预设门禁与 CI 证据随编排脚本在分支 head 收口回填；
+  `DEC-022` 评审批准、三项开放项裁决与真实截图评估（`RISK-2026-14`，与
+  `DEC-018` 阶段 2 共享 `~/mirador-eval/` 采集）待负责人排期。
+
+同日 `M7-10` 验证轮处置（验证员复核判定记录与提交纪律：一项 minor、一项
+info 观察，**均无需改动**；判定 commit 与全部文档交付内容维持不变）：
+
+- minor（commit 格式，按先例处置、无需返工）：判定 commit 067f913 的
+  subject 为 `docs: …` 无 `(scope)`，字面上不满足 AC5 的
+  `<type>(<scope>): <subject>`；但与本工作项同型先例 b05f783（M6-06 判定
+  commit，已合入 master）及 master 上至少 8 条 scope-less `docs:` 提交完全
+  一致——AGENTS.md 的 scope 枚举亦无 plans/decisions 对应项，验证员判定
+  为按仓库既定惯例执行，无需返工。实现侧不重写已交付 commit（改写历史
+  无逻辑收益且违背提交纪律），本处置记录及后续提交沿用同一先例格式。
+- info（非缺陷观察，留档备查）：判定记录已如实声明"六预设门禁与 CI 证据
+  随编排脚本在分支 head 收口回填"（未执行验证已按 AC5 记录原因与补跑
+  条件）；验证员本轮按其 ask 范围仅抽查 asan/ubsan、未跑 TSAN——与纯
+  文档变更及本项范围一致，留档备查。
+- 验证员测试交付：`test(fusion)` commit 8e95371 新增
+  `mirador.fusion.object_tracker_verdict_ruling` 套件，钉住本判定
+  `min_compensation_confidence` 裁定的行为面——局部变化伪位移带
+  [0.46, 0.55] 在库默认 0.0 门下应用（判定记录如实登记的未配置调用方
+  暴露面）、在 0.7 调用方策略下显式拒绝（估计回显、池不动）；真滚动带
+  [0.93, 0.95] 两种配置下均应用；显式 0.0 配置与库默认行为逐位一致
+  （默认值本身仍由 `M7-09` 校准套件钉住）。变异校验（临时上调库默认
+  0.7 后两测失败、头文件还原）证实钉住有效。
+- 复验（实现侧本地证据，本会话执行）：`cmake --build --preset debug`
+  增量 up-to-date（`ninja: no work to do`，验证员测试二进制已构建零告警）；
+  debug 全量 ctest 52/52 通过（architecture 7 / property 1 / unit 44，含
+  新套件直跑 `mirador.fusion.object_tracker_verdict_ruling` 2/2 通过，
+  既有套件零回归）；工作树仅本条处置记录文档变更。六预设完整门禁与
+  CI 证据仍随编排脚本收口。
+
+同日 `M7-10` lint 门禁修复与本地门禁证据收口（验证员随验证轮交付的裁定
+钉住套件（8e95371）在 CI lint 口径 `clang-tidy --warnings-as-errors='*'`
+下报 3 处 error，按仓库测试文件先例修复——`test(fusion)` commit da8af43，
+用例名称、数量与断言语义零变化；验证员同步复核处置 commit 840d833：
+`git diff 8e95371..840d833 --stat` 仅本里程碑文档 +29 行、零代码/契约
+变更，契约面 `min_compensation_confidence` 库默认 0.0
+（`object_tracker.hpp:198`）未被触碰）：
+
+- 修复（全部限定在 `tests/fusion/object_tracker_verdict_ruling_test.cpp`，
+  5 insertions / 3 deletions，不触碰库实现与公共契约，三类均直接套用仓库
+  既有先例而非引入新处置风格）：(1) `misc-unused-using-decls`——移除未
+  使用的 `using mirador::MotionCompensationResult`（全文件仅此一处出现，
+  结果类型均经 `auto` 消费）；(2)
+  `readability-function-cognitive-complexity`（TestBody 182 > 25）——TEST
+  行上方 `NOLINTNEXTLINE`（gtest 宏展开主导该指标；
+  `object_tracker_motion_generation_test.cpp` 同款先例措辞与位置，M7-07
+  验证套件已确立此处置——表驱动用例拆散断言归属反而伤可读性，拆分
+  helper 后各 helper 仍超阈值且改变 ASSERT 中止语义归属）；(3)
+  `modernize-avoid-c-arrays`——`cases` 表 `BandCase[]` 改
+  `std::array<BandCase, 4>`（`object_tracker_redetection_test.cpp` 先例，
+  双花括号聚合初始化）并补 `<array>` 头。首轮修复的 NOLINT 注释超 120 列
+  被 clang-format 拦截，已缩短为先例原句。
+- 门禁证据（修复会话执行，均为修复后复跑）：`clang-tidy
+  --warnings-as-errors='*'`（-p build/debug）对该文件修复前复现退出码 1
+  （恰为报出的 3 处 error）、修复后退出码 0（Suppressed 43961 warnings、
+  18 NOLINT、无 error）；`clang-format --dry-run --Werror` 对该文件退出码 0
+  （首轮 166:121 超长违规已修），全仓格式清扫（CI lint job 同口径
+  `git ls-files '*.cpp' '*.cc' '*.h' '*.hpp' | xargs`）退出码 0；
+  `cmake --build --preset debug` 零告警；debug 全量 ctest 52/52、新套件
+  直跑 2/2 PASSED（断言路径与修复前一致）。
+- 复跑（文档同步轮，本会话执行，分支 head da8af43）：debug 增量构建
+  `ninja: no work to do`；`ctest --preset debug` 52/52 通过
+  （architecture 7 / property 1 / unit 44）；新套件直跑 2/2 PASSED；
+  clang-format 单文件与全仓 dry-run 均退出码 0；clang-tidy
+  `--warnings-as-errors='*'`（-p build/debug）对该文件退出码 0；asan/
+  ubsan 目标增量 `no work to do` 后直跑各 2/2 PASSED、sanitizer 零报告。
+- 限制：release/warnings/tsan 预设与 asan/ubsan 全量 ctest 未执行——本
+  失败面为 debug 可编译纯测试文件的 lint 口径，lint 双口径与 debug ctest
+  已覆盖；warnings/tsan 预设与 asan/ubsan 全量 ctest 侧已由 CI 在分支
+  head 覆盖（见下方 CI 回填；CI 矩阵无 release 预设，release 侧仍属未
+  执行范围，上条验证轮留档的 TSAN 范围限定就此闭合）；tidy 全仓扫描仅
+  对 da8af43 所改文件执行，其余文件由 CI lint job 全仓口径覆盖。
+- CI 回填：PR #30 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（ubuntu-20.04 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、
+  clang debug/fuzz、integrations-ncnn、capture/opencv 适配与
+  clang-format/clang-tidy 双口径（lint job 排队后 26m12s 完成）。
+  [run 36377952484](https://github.com/Linductor-alkaid/mirador/actions/runs/36377952484)
+  （head 8934bee，覆盖判定与转正草案、验证员裁定钉住套件、验证轮处置、
+  lint 修复与门禁证据/文档同步 commit，全程 26m16s）；首轮通过，无修复
+  往返，上条"CI 回填：待补——六预设完整门禁与 CI 14/14 随编排脚本在
+  分支 head 收口后回填（同 `M7-09` 先例）"就此闭合。
+- 同步：CHANGELOG Unreleased 补登记 M7-10 判定条目（提前于原定 M7 收尾
+  时点；`v0.4.0` 发布说明整理职责不变），判定记录"后续动作"随改；总计划
+  `SCOPE-13` 状态标记纠偏——`DEC-019`/`DEC-020` 已于 2026-09-21 经负责人
+  批准转 Accepted（1.8 修订已录），正文标记仍为 Proposed，本轮更正；
+  API 索引与兼容性登记维持两阶段注记不变（本轮零公共契约变更）。

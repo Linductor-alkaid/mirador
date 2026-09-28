@@ -99,6 +99,17 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-10 go/no-go verdict pin: the compensation-confidence bands the verdict
+# record ruled on — the library default 0.0 applies the measured local-change
+# pseudo-shift band (the recorded exposure) while the 0.7 caller reference
+# policy refuses it, the true-scroll band applies at both, and an explicit 0.0
+# configuration is behaviorally identical to the library default.
+mirador_add_test(
+    NAME mirador.fusion.object_tracker_verdict_ruling
+    SOURCES object_tracker_verdict_ruling_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp

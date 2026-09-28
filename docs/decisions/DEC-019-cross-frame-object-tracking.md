@@ -10,6 +10,12 @@
 > 修订：2026-09-21 按负责人指示改写决策第 6 条——轻量深度 tracker
 > （`TrackerBackend` SPI + NanoTrack 参考后端）由"触发后演进"升级为计划性
 > 交付，新增关联 [DEC-020](DEC-020-tracker-backend-spi.md) 与 `RISK-2026-18`
+> 修订：2026-09-28 M7-10 go/no-go 判定为 **GO（合成口径）**（判定记录见
+> [M7 里程碑](../plans/m7-cross-frame-object-tracking.md)）；第 4 条预留的
+> "GO 后另立决策冻结契约"通道由
+> [DEC-022](DEC-022-object-tracker-contract-freeze.md)（Proposed，待评审）
+> 草案执行；第 5 条六项门槛初值经 M7-09 校准全部维持原值（无变更），
+> `min_compensation_confidence` 库默认维持 0.0 的裁定见判定记录
 > 关联：[跟踪设计](../design/object-tracking-design.md)、
 > [M7 里程碑](../plans/m7-cross-frame-object-tracking.md)、
 > [DEC-017](DEC-017-geometric-region-proposal-experiment.md)、

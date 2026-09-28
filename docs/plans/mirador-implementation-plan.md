@@ -5,7 +5,27 @@
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-24
+> 更新日期：2026-09-28
+>
+> 1.23 修订（2026-09-28）：M7 工作项 `M7-10` go/no-go 判定与转正决策草案
+> 交付，工作项勾选——依 `M7-09` 发布数字对照 `DEC-019` 第 5 条六项门槛
+> 逐项判定，结论 **GO（合成口径）**（判定记录见
+> [M7 里程碑](m7-cross-frame-object-tracking.md)"Go/No-Go 判定记录"节）：
+> static-page 延续 1.000 ≥ 0.95、scroll 补偿后 1.000 ≥ 0.90、similar-icons
+> swap 与假阳性延续以 D 全通道语义口径达标（A/B/C 差值归因为通道贡献隔离
+> 的预期结果，挂 `RISK-2026-16`/`RISK-2026-17` 门控证据；门槛值无一处
+> 变更）、静止帧短路对 M1 同日基线无可测回归、kLost 后静止画面零 Detector
+> 触发。`min_compensation_confidence` 库默认裁定**维持 0.0**（测量依据与
+> 不利面记录于判定记录；调用方参考策略 0.7 维持）。转正路径另立决策草案
+> [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+> （Proposed，待负责人评审）：阶段 1 三处 Experimental 面契约冻结 / 阶段 2
+> 真实截图评估与转正收口，开放项三项（补偿置信度库默认、
+> `peak_sidelobe_ratio_min` 5.0 真实裕度复核——M7-09 校准表转记、
+> `RISK-2026-16` 回退是否入库默认）；批准前 M7 Experimental 登记与
+> "不计兼容性承诺"口径不变（同 M6-06 → `DEC-018` 先例）。判定限定：
+> 仅有合成证据（`DOD-05`），真实截图评估（`RISK-2026-14`/`DEC-018` 阶段 2
+> 共享 `~/mirador-eval/` 采集）为转正前置；单机 Linux x64 release 口径
+> （`DEC-011`）。`SCOPE-13` 维持未勾选（M7-11~13 进行中）。
 >
 > 1.22 修订（2026-09-24）：M7 工作项 `M7-09` 合成验证 harness 与基准发布
 > 交付，工作项勾选——`benchmarks/object_tracking_bench.cpp`（调用方组合
@@ -378,9 +398,10 @@ run 35917953109 14/14 job 全绿，待合入）。
   kTerminated`）与有界目标池、变化检测门控三级短路、邻域验证（模板 NCC +
   闭合结构一致性）、全局运动补偿与布局代际、丢失判定与级联重检测原语及
   身份复核、`TrackerBackend` SPI（[DEC-020](../decisions/DEC-020-tracker-backend-spi.md)，
-  Proposed）与 NanoTrack ncnn 参考后端（`integrations/`，`DEC-015` 机制）
+  Accepted，接口最迟 M7-11 契约冻结定稿）与 NanoTrack ncnn 参考后端
+  （`integrations/`，`DEC-015` 机制）
   及深度增强通道条件化融合（设计 §24 M7、[跟踪设计](../design/object-tracking-design.md)、
-  [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)（Proposed）；
+  [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)（Accepted）；
   合成验证先行，`ObjectTracker`/`TrackerBackend` 契约 Experimental 至
   go/no-go 判定后经决策冻结）。
 
