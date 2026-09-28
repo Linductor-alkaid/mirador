@@ -61,6 +61,14 @@ Result<NcnnRuntime> NcnnRuntime::create(const NcnnRuntimeOptions& options) {
     auto impl = std::make_unique<Impl>();
     impl->num_threads = options.num_threads;
     impl->net.opt.num_threads = options.num_threads;
+    // The documented tensor surface of this wrapper is planar CHW float
+    // (cstep copied out compactly). ncnn's packing layout would fold small
+    // channel counts into fewer, wider channels (elempack), which the plain
+    // tensor cannot represent — a multi-blob chain (M7-12 NanoTrack head) fed
+    // from such a folded tensor reinterprets the interleaved planes as a
+    // different channel count. Unpacked blobs keep the tensor surface exact;
+    // the reference backends trade ncnn's packed kernels for that fidelity.
+    impl->net.opt.use_packing_layout = false;
     // Models must come from explicit caller paths (DEC-015); a failed load is
     // surfaced, never retried from another source.
     if (const int ret = impl->net.load_param(options.param_path.c_str()); ret != 0) {
@@ -76,18 +84,69 @@ int NcnnRuntime::num_threads() const noexcept {
     return impl_ != nullptr ? impl_->num_threads : 0;
 }
 
-Result<NcnnTensor> NcnnRuntime::run(const std::string& input_blob, const NcnnTensor& input,
-                                    const std::string& output_blob, const ExecutionContext& context) {
-    if (impl_ == nullptr) {
-        return Status{ErrorCode::kBackendUnavailable, "runtime moved-from"};
+namespace {
+
+/// Per-entry input validation: non-empty blob name and tensor shape/data
+/// consistency.
+Status check_input_tensors(const std::vector<NcnnNamedTensor>& inputs) {
+    for (const NcnnNamedTensor& entry : inputs) {
+        if (entry.blob.empty()) {
+            return Status{ErrorCode::kInvalidArgument, "blob names are required"};
+        }
+        const size_t input_plane = static_cast<size_t>(entry.tensor.width) * entry.tensor.height;
+        if (entry.tensor.width <= 0 || entry.tensor.height <= 0 || entry.tensor.channels <= 0 ||
+            entry.tensor.data.size() != input_plane * static_cast<size_t>(entry.tensor.channels)) {
+            return Status{ErrorCode::kInvalidArgument, "input tensor shape and data size mismatch"};
+        }
     }
-    if (input_blob.empty() || output_blob.empty()) {
-        return Status{ErrorCode::kInvalidArgument, "blob names are required"};
+    return Status::success();
+}
+
+bool has_duplicate(const std::vector<std::string>& names) {
+    for (size_t i = 0; i < names.size(); ++i) {
+        for (size_t j = i + 1; j < names.size(); ++j) {
+            if (names[i] == names[j]) {
+                return true;
+            }
+        }
     }
-    const size_t input_plane = static_cast<size_t>(input.width) * input.height;
-    if (input.width <= 0 || input.height <= 0 || input.channels <= 0 ||
-        input.data.size() != input_plane * static_cast<size_t>(input.channels)) {
-        return Status{ErrorCode::kInvalidArgument, "input tensor shape and data size mismatch"};
+    return false;
+}
+
+/// Blob-existence check through the public accessor.
+Status check_blobs_exist(const ncnn::Net& net, const std::vector<std::string>& input_names,
+                         const std::vector<std::string>& output_blobs) {
+    for (const std::string& name : input_names) {
+        if (!has_blob(net, name)) {
+            return Status{ErrorCode::kInvalidArgument, "unknown input blob '" + name + "'"};
+        }
+    }
+    for (const std::string& name : output_blobs) {
+        if (!has_blob(net, name)) {
+            return Status{ErrorCode::kInvalidArgument, "unknown output blob '" + name + "'"};
+        }
+    }
+    return Status::success();
+}
+
+/// Checks every run_multi argument before any forward work: non-empty blob
+/// names, tensor shape/data consistency, uniqueness within the call, blob
+/// existence in the net, and the entry cancellation/deadline checks.
+Status check_run_multi_args(const ncnn::Net& net, const std::vector<NcnnNamedTensor>& inputs,
+                            const std::vector<std::string>& output_blobs, const ExecutionContext& context) {
+    if (inputs.empty() || output_blobs.empty()) {
+        return Status{ErrorCode::kInvalidArgument, "at least one input and output blob are required"};
+    }
+    if (const Status checked = check_input_tensors(inputs); !checked.ok()) {
+        return checked;
+    }
+    std::vector<std::string> input_names;
+    input_names.reserve(inputs.size());
+    for (const NcnnNamedTensor& entry : inputs) {
+        input_names.push_back(entry.blob);
+    }
+    if (has_duplicate(input_names) || has_duplicate(output_blobs)) {
+        return Status{ErrorCode::kInvalidArgument, "blob names must be unique within one call"};
     }
     if (is_cancelled(context)) {
         return Status{ErrorCode::kCancelled, "cancelled before ncnn forward"};
@@ -95,53 +154,104 @@ Result<NcnnTensor> NcnnRuntime::run(const std::string& input_blob, const NcnnTen
     if (deadline_reached(context)) {
         return Status{ErrorCode::kTimeout, "deadline reached before ncnn forward"};
     }
-    if (!has_blob(impl_->net, input_blob)) {
-        return Status{ErrorCode::kInvalidArgument, "unknown input blob '" + input_blob + "'"};
+    return check_blobs_exist(net, input_names, output_blobs);
+}
+
+/// Copies the caller tensors into ncnn-owned Mats so plane layout (cstep
+/// alignment) is ncnn's own choice; the caller tensors stay planar-packed and
+/// untouched.
+std::vector<ncnn::Mat> build_input_mats(const std::vector<NcnnNamedTensor>& inputs) {
+    std::vector<ncnn::Mat> in_mats;
+    in_mats.reserve(inputs.size());
+    for (const NcnnNamedTensor& entry : inputs) {
+        const size_t input_plane = static_cast<size_t>(entry.tensor.width) * entry.tensor.height;
+        ncnn::Mat mat(entry.tensor.width, entry.tensor.height, entry.tensor.channels);
+        const auto* src = entry.tensor.data.data();
+        auto* dst_base = static_cast<float*>(mat.data);
+        for (int c = 0; c < entry.tensor.channels; ++c) {
+            std::memcpy(dst_base + static_cast<size_t>(c) * mat.cstep, src + static_cast<size_t>(c) * input_plane,
+                        input_plane * sizeof(float));
+        }
+        in_mats.push_back(std::move(mat));
     }
-    if (!has_blob(impl_->net, output_blob)) {
-        return Status{ErrorCode::kInvalidArgument, "unknown output blob '" + output_blob + "'"};
+    return in_mats;
+}
+
+/// Copies planes back compactly (plane-major, no cstep padding gaps).
+std::vector<NcnnTensor> copy_output_planes(const std::vector<ncnn::Mat>& out_mats) {
+    std::vector<NcnnTensor> outputs;
+    outputs.reserve(out_mats.size());
+    for (const ncnn::Mat& out_mat : out_mats) {
+        const size_t output_plane = static_cast<size_t>(out_mat.w) * out_mat.h;
+        NcnnTensor output;
+        output.width = out_mat.w;
+        output.height = out_mat.h;
+        output.channels = out_mat.c;
+        output.data.resize(output_plane * static_cast<size_t>(out_mat.c));
+        const auto* out_base = static_cast<const float*>(out_mat.data);
+        for (int c = 0; c < out_mat.c; ++c) {
+            std::memcpy(output.data.data() + static_cast<size_t>(c) * output_plane,
+                        out_base + static_cast<size_t>(c) * out_mat.cstep, output_plane * sizeof(float));
+        }
+        outputs.push_back(std::move(output));
+    }
+    return outputs;
+}
+
+}  // namespace
+
+Result<NcnnTensor> NcnnRuntime::run(const std::string& input_blob, const NcnnTensor& input,
+                                    const std::string& output_blob, const ExecutionContext& context) const {
+    auto outputs = run_multi({{input_blob, input}}, {output_blob}, context);
+    if (!outputs.ok()) {
+        return outputs.status();
+    }
+    auto values = std::move(outputs).take_value();
+    return std::move(values.at(0));
+}
+
+Result<std::vector<NcnnTensor>> NcnnRuntime::run_multi(const std::vector<NcnnNamedTensor>& inputs,
+                                                       const std::vector<std::string>& output_blobs,
+                                                       const ExecutionContext& context) const {
+    if (impl_ == nullptr) {
+        return Status{ErrorCode::kBackendUnavailable, "runtime moved-from"};
+    }
+    if (const Status checked = check_run_multi_args(impl_->net, inputs, output_blobs, context); !checked.ok()) {
+        return checked;
     }
 
-    // Copy into an ncnn-owned Mat so plane layout (cstep alignment) is ncnn's
-    // own choice; the caller tensor stays planar-packed and untouched.
-    const ncnn::Mat in_mat(input.width, input.height, input.channels);
-    const size_t input_plane_bytes = input_plane * sizeof(float);
-    auto* in_base = static_cast<float*>(in_mat.data);
-    for (int c = 0; c < input.channels; ++c) {
-        std::memcpy(in_base + static_cast<size_t>(c) * in_mat.cstep,
-                    input.data.data() + static_cast<size_t>(c) * input_plane, input_plane_bytes);
+    const std::vector<ncnn::Mat> in_mats = build_input_mats(inputs);
+    // One extractor per output blob: the pinned ncnn extractor resolves a
+    // single graph output per extract call (a second extract on the same
+    // extractor fails with -100 once another blob has been produced). Inputs
+    // are re-set on every extractor, so each forward sees identical bytes and
+    // the outputs stay mutually consistent. Each forward is atomic and cannot
+    // honor cancellation mid-flight; bounds are the caller's responsibility
+    // (class contract).
+    std::vector<ncnn::Mat> out_mats;
+    out_mats.reserve(output_blobs.size());
+    for (const std::string& name : output_blobs) {
+        ncnn::Extractor output_extractor = impl_->net.create_extractor();
+        for (size_t j = 0; j < inputs.size(); ++j) {
+            if (const int ret = output_extractor.input(inputs[j].blob.c_str(), in_mats[j]); ret != 0) {
+                return ncnn_status(ErrorCode::kBackendFailure, "setting input blob failed", ret);
+            }
+        }
+        ncnn::Mat out_mat;
+        if (const int ret = output_extractor.extract(name.c_str(), out_mat); ret != 0) {
+            return ncnn_status(ErrorCode::kBackendFailure, "extracting output blob failed", ret);
+        }
+        out_mats.push_back(std::move(out_mat));
     }
 
-    ncnn::Extractor extractor = impl_->net.create_extractor();
-    if (const int ret = extractor.input(input_blob.c_str(), in_mat); ret != 0) {
-        return ncnn_status(ErrorCode::kBackendFailure, "setting input blob failed", ret);
-    }
-    // Single forward: atomic, cannot honor cancellation mid-flight; bounds are
-    // the caller's responsibility (class contract).
-    ncnn::Mat out_mat;
-    if (const int ret = extractor.extract(output_blob.c_str(), out_mat); ret != 0) {
-        return ncnn_status(ErrorCode::kBackendFailure, "extracting output blob failed", ret);
-    }
-
-    // Copy planes back compactly (plane-major, no cstep padding gaps).
-    const size_t output_plane = static_cast<size_t>(out_mat.w) * out_mat.h;
-    NcnnTensor output;
-    output.width = out_mat.w;
-    output.height = out_mat.h;
-    output.channels = out_mat.c;
-    output.data.resize(output_plane * static_cast<size_t>(out_mat.c));
-    const auto* out_base = static_cast<const float*>(out_mat.data);
-    for (int c = 0; c < out_mat.c; ++c) {
-        std::memcpy(output.data.data() + static_cast<size_t>(c) * output_plane,
-                    out_base + static_cast<size_t>(c) * out_mat.cstep, output_plane * sizeof(float));
-    }
+    auto outputs = copy_output_planes(out_mats);
     if (is_cancelled(context)) {
         return Status{ErrorCode::kCancelled, "cancelled after ncnn forward"};
     }
     if (deadline_reached(context)) {
         return Status{ErrorCode::kTimeout, "deadline reached after ncnn forward"};
     }
-    return output;
+    return outputs;
 }
 
 Result<NcnnTensor> pack_image(const ImageView& image, const ExecutionContext& context) {
