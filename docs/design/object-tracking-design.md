@@ -243,6 +243,22 @@ M7-02 取消优先入口相对）；缓存豁免界定（会话状态不进能�
 只冻结契约与 Fake 后端 fusion 侧编排测试面；组合规则本体（同位互证/
 冲突保守降级/未注入零变化对照）归 M7-13，参考后端实现归 M7-12。
 
+M7-12 交付落点：NanoTrack ncnn 参考后端交付于
+`integrations/tracker_nanotrack/`（`mirador::integrations::NanoTrackerBackend`，
+`MIRADOR_BUILD_INTEGRATIONS=ON` 专属，默认构建零获取）——M7-11 契约的
+首个参考实现，复用 M5-02 `NcnnRuntime`（新增多输入/多输出 `run_multi`，
+`opt.use_packing_layout` 关闭保平面 CHW 张量面）。冻结 NanoTrack 双模型
+契约（backbone `input`→`output` 全卷积共享、head `input1`+`input2`→
+`output1`+`output2`，仅标准 ncnn 层）对齐已审查候选 port（来源、
+Apache-2.0 许可证与兼容核对登记 `docs/supply-chain/nanotrack.md`，零
+构建期依赖、`deps.lock.json` 无新条目）。会话状态 = 模板特征 + 参考尺寸
+（外观模型）；位置先验逐帧来自 `prior_bounds`，后端不自造位置；冻结参考
+解码（尺寸/比率惩罚 + cosine 窗 + 行主序首最大 + ltrb 映射回 prepared
+空间，单次尺寸学习率规范化）以后端头注释为权威。`num_threads` 显式限定
+1（逐序列位确定性，契约块 8）；`work_budget_bytes` 逐内部分配请求检查
+（超限显式 `kBudgetExceeded`）。合成模型冒烟只验证管线与解码正确性，不
+代表跟踪质量（`DOD-05`：质量证据归 M7-13 D+ 列报与后续真实评估）。
+
 M7-05 冻结落点：邻域验证器交付于 `ObjectTracker::verify_track`（Experimental，
 `object_tracker.hpp`）与配套类型 `TrackStructureDescriptors`/
 `AppearanceVerification`/`StructureVerification`/`TrackVerification`。验证器

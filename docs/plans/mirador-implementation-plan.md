@@ -7,6 +7,28 @@
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-28
 >
+> 1.25 修订（2026-09-28）：M7 工作项 `M7-12` NanoTrack ncnn 参考后端
+> **实现与审查轮交付**（工作项未勾选——合成模型冒烟套件由独立验证工程师
+> 随后续 commit 交付，勾选与 CI 证据回填随其收口）。许可证与模型来源审查
+> 通过并登记 `docs/supply-chain/nanotrack.md`：候选 port
+> HonglinChu/NanoTrack @ `76b1c67`（Apache-2.0，允许再分发与构建树获取），
+> 模型权重不入仓不下载、经用户显式路径（`DEC-015` 分层、`RISK-2026-13`）；
+> 实现路线照 M5-04 先例取冻结模型契约对齐而非构建期引入（`integrations/`
+> 代码自研，port 零 FetchContent/零编译/零链接），`deps.lock.json` 无新
+> 条目（工作项条件文本未触发）；对 pinned ncnn `e54f7b1f` 兼容核对通过，
+> 未升级 pin。交付 `integrations/tracker_nanotrack/`：首个 `TrackerBackend`
+> SPI（M7-11，`DEC-020`）参考实现，逐契约块 1-9 对照（校验先于取消、
+> update 全有或全无、`kBackendFailure` 失败可见、`accepted_formats` 门控、
+> rotation 元数据不解读、输出落 prepared 空间）；`num_threads` 显式限定 1
+> （逐序列位确定性）、`work_budget_bytes` 逐内部分配请求检查；复用 M5-02
+> `NcnnRuntime` 新增 `run_multi`（多输入/多输出；对 pinned ncnn 实测
+> extractor 单输出语义，逐输出独立 extractor；`use_packing_layout` 关闭保
+> 平面 CHW 张量面），`run` 转 const，既有三冒烟原样通过。本地门禁：
+> integrations 构建 + ctest 55/55、debug 默认构建图零获取 + ctest 53/53
+> 零回归、lint 双口径（clang-format/clang-tidy）对新增与改动 integrations
+> 文件归零；合成双模型 43 项实现自证断言通过。限制：质量与性能声明不做
+> （`DOD-05`，归 M7-13 D+ 列报与后续真实评估）；CI 证据随验证套件轮回填。
+>
 > 1.24 修订（2026-09-28）：M7 工作项 `M7-11` `TrackerBackend` SPI 契约冻结
 > 交付，工作项勾选——`include/mirador/tracker_backend.hpp`（Experimental，
 > `DEC-020`，纯接口头文件零新增链接依赖）：`TrackerBackend::initialize` →

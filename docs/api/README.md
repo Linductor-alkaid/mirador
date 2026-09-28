@@ -111,6 +111,7 @@ kLost → kTerminated 归档转移——预算耗尽显式失败）、
 | `adapters/capture-windows/` | GDI 采集适配示例（编译验证级） | `MIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS` |
 | `adapters/capture-android/` | MediaProjection + Accessibility 适配示例（NDK 部分编译验证级） | `MIRADOR_BUILD_ADAPTERS_CAPTURE_ANDROID` |
 | `integrations/ocr_ppocr/`、`integrations/detector_yolo/` | ncnn 参考能力后端（冒烟层无权重可运行；`DEC-015`） | `MIRADOR_BUILD_INTEGRATIONS` |
+| `integrations/tracker_nanotrack/` | NanoTrack ncnn 参考跟踪后端——`TrackerBackend` SPI（`tracker_backend.hpp`，Experimental，`DEC-020`）的首个参考实现；冻结双模型契约、逐序列位确定性、字节预算；合成模型冒烟可运行，真实权重经用户显式路径（`RISK-2026-13`） | `MIRADOR_BUILD_INTEGRATIONS` |
 
 ## 使用示例索引
 

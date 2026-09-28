@@ -1505,3 +1505,75 @@ info 观察，**均无需改动**；判定 commit 与全部文档交付内容维
   门禁证据/文档同步全部 5 个 commit，全程 40m7s）；首轮通过，无修复
   往返，上条"CI 回填：待补（分支未推送，推送与 14/14 证据回填随编排
   脚本收口，同 `M7-09`/`M7-10` 先例）"就此闭合。
+
+2026-09-28：`M7-12` NanoTrack ncnn 参考后端**实现与审查轮交付**（分支
+`feat/m7-12-nanotrack-ncnn-reference-backend`，工作项保持未勾选——合成
+模型冒烟套件按分工由独立验证工程师随后续 commit 交付，勾选随其落地与
+CI 证据回填一并处置）。本会话（实现工程师）记录：
+
+- 许可证与模型来源审查（工作项第一步与门槛）：**通过**。候选 port
+  HonglinChu/NanoTrack @ `76b1c6711ae11958ec592e525163826d357d5db5`
+  （master head，2023-06-08，GitHub API 核对），仓库根 `LICENSE` 为
+  Apache-2.0（允许再分发与构建树获取，含专利授权）；模型权重为 port
+  仓库内 assets（port 作者转换、随仓库同许可分发），本仓库不入仓、不
+  下载、不随任何机制分发，真实权重由使用者显式路径提供（`DEC-015`
+  分层、`RISK-2026-13` 口径）。对 pinned ncnn `e54f7b1f`（20260526）
+  兼容核对：候选模型仅标准层（Input/Convolution/Pooling/Concat，无自定义
+  层），pin 参数字典完整覆盖，**未升级 ncnn pin**。实现路线照 M5-04
+  YOLO 先例取"冻结模型输出契约"而非构建期引入 port：`integrations/`
+  代码为自研，对 port 零 FetchContent/零编译/零链接——因此
+  `deps.lock.json` 无新条目（工作项文本"若以上游仓库 FetchContent 获取"
+  条件未触发），登记为文档性对齐 + 供应链审计记录。审查未触发
+  `DEC-020` 备选更换（LightTrack/Ocean），候选维持 NanoTrack。审计
+  记录 `docs/supply-chain/nanotrack.md`（来源/精确 commit/许可证/获取
+  方式/使用范围/兼容核对/验证/更换流程）+ `dependency-policy.md`
+  依赖清单行。
+- 交付：`integrations/tracker_nanotrack/`（`mirador_tracker_nanotrack`
+  库，链接 `mirador::core`/`mirador::image`/`mirador_ncnn_runtime`，
+  `mirador_apply_warnings`，`integrations/CMakeLists.txt` 末尾
+  add_subdirectory）——`NanoTrackerOptions`（四路径显式、身份字段流入
+  `BackendInfo`、`num_threads` **显式限定 1**（其他值 `create` 报
+  `kInvalidArgument`：逐序列位确定性为契约块 8 硬要求）、
+  `work_budget_bytes` 默认 16 MiB）+ `NanoTrackerBackend`
+  （`info()`/`initialize`）+ 会话（模板特征 + 参考尺寸，`NcnnRuntime`
+  以引用共享后端 runtime——契约块 1 调用方保活条款使然）。逐契约块
+  1-9 对照实现：validate → accepted_formats（kRgb8）→ bounds 矩阵的
+  校验先于取消（块 4）；update 全有或全无（解码全部局部量、成功才提交
+  参考尺寸，块 3）；`kBackendFailure` 失败可见（响应图形状违约、退化
+  框、无可用 cell、非有限值均显式；wrapper 的"未知 blob
+  kInvalidArgument"在本后端语境重映射为 `kBackendFailure`——模型契约
+  违约不是 SPI 调用方错误）；`kCancelled`/`kTimeout` 入口 + 循环定期
+  检查、会话保持可用；rotation 元数据永不解读、奇数尺寸/非连续 stride
+  经 presented 坐标正确读取、输出钳制于 prepared 像素空间（块 6，
+  DEC-021 拒绝而非伪造）。冻结参考解码（尺寸/比率惩罚 + cosine 窗 +
+  行主序首最大总序 + ltrb 逆 crop 映射 + 单次尺寸学习率规范化）以
+  后端头注释为权威；位置先验逐帧来自 `prior_bounds`，后端不自造位置。
+- `NcnnRuntime`（M5-02 共享面）扩展：新增 `NcnnNamedTensor` +
+  `run_multi`（head 双输入双输出所需；对 pinned ncnn 实测 **extractor
+  单输出语义**——同 extractor 第二次 extract 返回 -100，故逐输出独立
+  extractor 重放相同输入，输出间一致）；`opt.use_packing_layout=OFF`
+  （packing 会折叠小通道数，破坏本包装"平面 CHW 张量"文档契约，多
+  blob 链会把交错平面误读为通道数——实测复现后修正）；`run` 改 const
+  并委托 `run_multi`（会话持有共享 runtime 引用所需；三个既有冒烟
+  ncnn/ppocr/yolo 全部原样通过）。
+- 门禁（本会话于实现分支 head 执行）：integrations 构建
+  （`MIRADOR_BUILD_INTEGRATIONS=ON`，FetchContent pinned ncnn 经本机
+  代理）成功零告警，`ctest` 55/55（含既有 ncnn/ppocr/yolo 冒烟与全部
+  核心套件）；debug 默认预设 `cmake --preset debug` + build 增量
+  up-to-date、全量 ctest 53/53 零回归（默认构建图零获取口径不变，
+  架构测试未触）；clang-format `--dry-run --Werror` 对四个新增/改动
+  integrations 文件归零；clang-tidy `--warnings-as-errors='*'`
+  （`-p build/integrations`）对 `nanotrack_backend.cpp` 与
+  `ncnn_runtime.cpp` 归零（9 处告警修复后复跑）。实现自证：合成双模型
+  （常量峰 + 内容驱动峰两种）驱动后端全链路 43 项断言通过（精确解码
+  数值、跨会话逐序列位一致、0/90/180/270 × stride 填充位一致、输入
+  字节零修改、校验先于取消、预算负路径、失败可见）。
+- 限制与待办：合成模型冒烟套件
+  （`mirador.integrations.tracker_nanotrack_smoke`）与 `MIRADOR_BUILD_
+  TESTS` 条件测试 target 由独立验证工程师按分工交付（涵盖 initialize/
+  update 快乐路径、校验矩阵、预算负路径、失败可见与会话重建、确定性、
+  DOD-03 矩阵、隐私负向；CI 既有 integrations-ncnn job 的 ctest 自动
+  捕获，job 本体零改动）；验证轮独立复核、全量六预设、sanitizer 与
+  PR/CI 14/14 证据随其收口。真实权重评测与跟踪质量声明不在本项
+  （`DOD-05`/`RISK-2026-13`：归 M7-13 D+ 列报与后续真实评估）；合成
+  口径结论仅限管线与解码正确性。

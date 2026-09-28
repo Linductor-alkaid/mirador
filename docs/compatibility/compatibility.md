@@ -39,6 +39,7 @@
 | 依赖 | pinned 版本 | 说明 |
 | --- | --- | --- |
 | ncnn | 20260526（commit e54f7b1f，`integrations/deps.lock.json`） | 参考后端专用；`DEC-015` 备选 ONNX Runtime 未启用。合成模型冒烟经 CI 验证；真实权重评测按 `RISK-2026-13` 待用户提供 |
+| NanoTrack 候选 port | `76b1c67`（HonglinChu/NanoTrack，文档性对齐、不获取） | `integrations/tracker_nanotrack/` 零构建期依赖（自研后端，模型契约对齐 + 许可证审查见 [docs/supply-chain/nanotrack.md](../supply-chain/nanotrack.md)，Apache-2.0）；真实权重走用户显式路径（`RISK-2026-13`） |
 
 ## 公共 API 兼容性登记（`DEC-018` 阶段 1 冻结）
 
@@ -72,6 +73,7 @@
 | core/image/cache/geometry/fusion/render 全套 | ✅ 测试通过 | ✅ 编译 + 测试（CI） | ✅ 编译 + 测试（CI） |
 | 采集适配 | ✅ X11 冒烟（Xvfb + XWayland 分支） | 🔨 编译验证（运行待补跑） | 🔨 编译验证（运行待补跑） |
 | 参考后端（integrations） | ✅ 合成模型冒烟（CI） | ❌ 未验证 | ❌ 未验证 |
+| NanoTrack 参考跟踪后端（`integrations/tracker_nanotrack`） | ✅ 合成模型冒烟（CI，M7-12 起） | ❌ 未验证 | ❌ 未验证 |
 | 基准数字 | ✅ 已发布（`DEC-011` 主环境） | ⏳ 补跑条件 | ⏳ 补跑条件（功耗/温升挂起） |
 
 ✅ = 有执行证据；🔨 = 编译级验证；⏳ = 记录了补跑条件；❌ = 未验证。

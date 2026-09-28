@@ -26,6 +26,7 @@ Mirador 采用 **Git submodule + 锁文件**：
 | --- | --- | --- | --- | --- |
 | googletest | v1.18.0 | BSD-3-Clause | 仅测试目标 | [googletest.md](googletest.md) |
 | ncnn | 20260526（pinned commit `e54f7b1f`） | BSD-3-Clause | 仅 `integrations/` 参考后端（`MIRADOR_BUILD_INTEGRATIONS=ON` 时 FetchContent，默认构建零获取，`DEC-015`） | [ncnn.md](ncnn.md) |
+| NanoTrack 候选 port | `76b1c67`（HonglinChu/NanoTrack，不获取） | Apache-2.0 | 仅模型契约对齐（`integrations/tracker_nanotrack/` 零构建期依赖；权重经用户显式路径，`DEC-020`/`RISK-2026-13`） | [nanotrack.md](nanotrack.md) |
 
 可选实现依赖（OpenCV、ELSED 等）按里程碑引入时在此登记，并先完成许可证审查
 （`DEC-009` 覆盖 ELSED）。模型 runtime 只出现在默认构建不获取的 `integrations/`

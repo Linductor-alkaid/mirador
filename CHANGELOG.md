@@ -183,6 +183,28 @@
   链接依赖，core 链接闭包不变（架构测试锁定）；按同口径登记
   Experimental（`DEC-022` 阶段 1 所列三处之外的第四处面，待其评审
   纳入）。
+- M7-12：`integrations/tracker_nanotrack/` 新增 NanoTrack ncnn 参考跟踪
+  后端（`mirador_tracker_nanotrack`，`DEC-020`/`DEC-015`）——首个实现
+  M7-11 冻结 `TrackerBackend` SPI 的参考后端：冻结 NanoTrack 双模型契约
+  （backbone `input`→`output` 全卷积共享、head `input1`+`input2`→
+  `output1`+`output2`，仅标准 ncnn 层；布局对齐已审查候选 port，审计记录
+  [docs/supply-chain/nanotrack.md](docs/supply-chain/nanotrack.md)），
+  逐契约块 1-9 实现（校验先于取消、update 全有或全无、`kBackendFailure`
+  失败可见不返回陈旧结果、`accepted_formats` 门控 kRgb8、输出落 prepared
+  像素空间、rotation 元数据不解读）；逐序列位确定性（`num_threads` 显式
+  限定为 1，其他值 `create` 拒绝）；逐内部分配请求检查的
+  `work_budget_bytes`（超限显式 `kBudgetExceeded`）。权重不入仓不下载，
+  模型经用户显式路径提供（`RISK-2026-13`/`DEC-015` 分层）；冒烟层使用
+  运行时生成的合成模型（同 `ncnn_smoke`/`yolo_smoke` 先例，仅验证管线与
+  解码正确性，不代表跟踪质量——`DOD-05` 质量证据归 M7-13 及后续真实
+  评估）。复用 M5-02 `NcnnRuntime`：新增多输入/多输出 `run_multi`（head
+  双输入双输出所需；逐输出独立 extractor，pinned ncnn 单 extractor 单
+  输出），`opt.use_packing_layout` 关闭以保平面 CHW 张量面精确，`run`
+  转为 const 供会话持有共享 runtime 引用；默认构建零获取口径不变
+  （`MIRADOR_BUILD_INTEGRATIONS` 默认 OFF，架构测试锁定 core 闭包）。
+  供应链登记：候选 port 许可证（Apache-2.0）与模型来源审查通过并登记
+  `docs/supply-chain/nanotrack.md`（对 pinned ncnn 20260526 兼容核对，
+  零构建期依赖、`deps.lock.json` 无新条目）。
 
 ### 修复
 
