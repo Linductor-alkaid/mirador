@@ -87,7 +87,7 @@ A/B/C/D 基准发布；go/no-go 判定。
   见下方"Go/No-Go 判定记录"节）；转正草案
   [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
   （Proposed，待负责人评审）。
-- [ ] `M7-11` `TrackerBackend` SPI 契约冻结（`DEC-020`）：接口形态、状态
+- [x] `M7-11` `TrackerBackend` SPI 契约冻结（`DEC-020`）：接口形态、状态
   归属与生命周期、同步/取消语义、缓存豁免界定；Fake `TrackerBackend`
   （固定轨迹注入）完成 fusion 侧编排测试；架构测试证明 core 链接闭包
   不变；API 索引与兼容性 Experimental 登记。
@@ -1399,3 +1399,100 @@ info 观察，**均无需改动**；判定 commit 与全部文档交付内容维
   `SCOPE-13` 状态标记纠偏——`DEC-019`/`DEC-020` 已于 2026-09-21 经负责人
   批准转 Accepted（1.8 修订已录），正文标记仍为 Proposed，本轮更正；
   API 索引与兼容性登记维持两阶段注记不变（本轮零公共契约变更）。
+
+2026-09-28：`M7-11` `TrackerBackend` SPI 契约冻结交付与验证轮处置，工作项
+勾选（分支 `feat/m7-11-tracker-backend-spi-freeze` 自 master 2540ed1 切出，
+四个 commit：契约实现 6bd7523 → 文档注册 ceafa3b → 验证套件 3db5d1d →
+验证轮修复 4508da7；验证套件由 Independent-Verification-Agent 按分工
+交付）：
+
+- 交付：`include/mirador/tracker_backend.hpp`（Experimental，`DEC-020`，
+  269 行纯接口头文件，零新增链接依赖，CMake 零注册变化——经既有 include
+  接口收录，同 `detector_backend.hpp`）——`TrackerBackend::initialize` →
+  `TrackerSession::update` 句柄制三段式生命周期（一会话一目标、重初始化即
+  新会话、调用方对后端保活、同后端会话相互独立）；状态归属会话、析构即
+  显式丢弃；`kBackendFailure` 失败可见不返回陈旧结果（弃置会话重建恢复，
+  fusion 侧经既有冻结原语降级 `kUncertain`）、`kCancelled`/`kTimeout` 会话
+  保持可用、update 全有或全无；冻结裁定**校验先于取消**（M7-05/06 池
+  先例，与 M7-02 取消优先入口刻意对照）；并发：多句柄并发性由
+  `BackendInfo.thread_safe` 显式声明、单句柄严格串行（`RULE-03` 适用不
+  豁免，后端不建线程/定时器，runtime 内部异步在返回前完成）；缓存豁免
+  界定：会话状态不进能力结果缓存、`RULE-07`「相同输入相同结果」对
+  `update` 显式不成立、仅 `initialize` 确定性前处理产物可按 `RULE-07`
+  键缓存；字段集 `TrackerInitRequest{initial_bounds, backend_params}`/
+  `TrackerUpdateRequest{prior_bounds, backend_params}`（位置先验每帧由
+  调用方供给，会话状态仅外观）/`TrackerUpdateResult{bounds, confidence}`
+  按 `DEC-021` 作不可信输出消费；坐标与输入语义同 `DEC-012`（prepared
+  像素空间、`accepted_formats` 门控、不修改输入）；逐序列位确定性；
+  隐私 `RULE-10`/`DOD-06`。fusion 侧句柄槽沿池侧并行单槽先例
+  （M7-05/06/08 槽模式）、槽开销计入 `byte_size()`/`pool_budget_bytes`、
+  terminate/淘汰/reset 同步析构的归属决策冻结于头注释（槽常量本体随
+  M7-13 注入接线落地）。
+- 文档注册（ceafa3b，契约冻结要求的登记面）：[API 索引](../api/README.md)
+  core SPI 表新增 `tracker_backend.hpp` 条目（含 `DEC-012`「相同输入相同
+  结果」对 `update` 显式不适用的范围说明——`DEC-020` 要求的索引注记）；
+  [兼容性登记](../compatibility/compatibility.md) 第四处 Experimental 面
+  登记（同"不计兼容性承诺"措辞，并标记 `DEC-022` 阶段 1 目前仅列三处、
+  本面须随 M7 收尾/其评审一并纳入冻结范围——待负责人处置）；
+  [DEC-012](../decisions/DEC-012-backend-spi-contract.md) 决策 6 增适用
+  范围注记（只界定范围，不改任何冻结原文）；跟踪设计 §6.2 增冻结落地
+  注记（句柄生命周期、字段集、校验先于取消裁定、句柄槽字节记账归属与
+  M7-12/M7-13 边界）；CHANGELOG Unreleased 登记 M7-11 契约条目。
+- 验证套件：`tests/fusion/tracker_backend_orchestration_test.cpp` 20 用例
+  （注册 ctest 项 `mirador.fusion.tracker_backend_orchestration`，LABELS
+  unit，链接 `mirador::fusion` 零新依赖）随 test(tests) commit 3db5d1d
+  落地——伪实现固定轨迹注入后端排演 M7-13 fusion 侧接线（零新增
+  `ObjectTracker` API，全部消费已冻结原语），覆盖：`BackendInfo` 身份与
+  `validate` 门控；initialize/update 校验矩阵（错误路径会话状态与轨迹
+  指针不动）；冻结顺序校验先于取消（已取消且过期上下文下畸形请求仍报
+  `kInvalidArgument`）；取消/超时显式转化后会话完全可用（全有或全无）；
+  固定轨迹逐成功 update 注入回放；`kBackendFailure` 可见不陈旧、冻结
+  轨迹游标、弃置重建恢复（`RISK-2026-18` 挂钩）；失败降级经
+  `commit_track_evidence` 占位级走 kTracking → kUncertain；同后端会话
+  独立；terminate/池淘汰/reset 三路句柄同步析构；M7-13 槽常量落地前
+  SPI 编排零池字节（`byte_size` 检查点与无后端基线相等）；会话状态不进
+  能力结果缓存负向（同会话相同 update 实参产出不同结果、`RULE-07` 键
+  相同——以真实 `CapabilityResultCache` 演示拦截将服务陈旧首帧结果）；
+  DOD-03 坐标矩阵（0/90/180/270 旋转元数据 × 奇数呈现尺寸 × 非连续
+  stride × 贴边先验，同呈现内容逐位一致、输入字节零修改）；跨会话跨
+  后端实例逐序列位确定性；全编排零落盘、Status 消息无像素内容标记
+  （`RULE-10`）。
+- 验证轮处置：验证员复核发现一处 minor 契约文本歧义，实现侧修复随
+  docs(core) commit 4508da7 落地——契约块 5 对可缓存 `initialize` 前处理
+  产物的 `RULE-07` 键构成原枚举（"backend name, implementation version,
+  model id/revision and a digest of the request parameters"）易被读作
+  穷尽列举而遗漏 prepared 图像内容维度，而该产物恰由 prepared 图像派生
+  （缺图像摘要的模板缓存会命中陈旧模板——`CapabilityKeyFields::
+  image_fingerprint` 存在的同一原因，`capability_cache.hpp`，设计 §12；
+  缓存层在调用方侧，架构测试无法拦截该实现错误）。修复在两处携带该
+  枚举的表面同步改写为"按 `RULE-07` 对产物派生自的全部输入覆盖"并显式
+  列入 prepared 图像内容摘要（tracker_backend.hpp:107-113 契约块 5、
+  `DEC-012` 决策 6 注记括号枚举 DEC-012-backend-spi-contract.md:53-56
+  ——同源缺陷的两处实例一并修复保持一致），属完备性澄清（把 `DEC-020`
+  决策 4「`RULE-07` 键构成适用」从可宽泛解读变为不可误读），非放宽亦非
+  新增约束——纯注释修改，零签名/语义变更，未放宽公共契约；`DEC-020`
+  Accepted 决策原文不动（头文件是其"M7-11 定稿"条款指定的字段权威面，
+  歧义在该面消解）。修复前后套件 20/20 原样通过（未触及任何被钉住的
+  签名/语义/编排行为，无测试过时）。
+- 门禁（文档同步时点于分支 head 4508da7 复验，本会话执行）：
+  `cmake --build --preset debug` 增量 up-to-date；debug 全量 ctest 53/53
+  通过（label 汇总 architecture 7 / property 1 / unit 45，既有套件零
+  回归）；编排套件 ctest 1/1、直跑 20/20 PASSED；`ctest -L architecture`
+  7/7（source_scan + 6 个链接闭包探针；fusion 探针 NEEDED 实测恰为
+  libstdc++/libm/libgcc_s/libc——core 链接闭包不变，零新依赖）；
+  clang-format `--dry-run --Werror` 对头文件与测试文件归零；clang-tidy
+  `--warnings-as-errors='*'`（`-p build/debug`）对头文件（37,437 条
+  suppressed 均为非用户代码）与测试文件（61 处 NOLINT）退出码均 0；
+  asan/ubsan 预设增量 up-to-date 后编排套件各 1/1、sanitizer 零报告。
+  验证轮修复会话已证（4508da7 记录）：头文件变更触发全量重编零告警、
+  修复后 debug ctest 53/53 与架构 7/7；asan/ubsan 预设重建零告警后
+  编排套件直跑通过、零 sanitizer 报告（验证轮会话报告）。
+- 限制：release/warnings/tsan 预设与 asan/ubsan 全量 ctest 未在文档
+  同步轮执行（注释级修复不触达编译产物；六预设完整复跑随编排脚本
+  收口，同 M7-03~10 先例，CI 矩阵无 release 预设）；`DEC-022` 第四处
+  Experimental 面纳入冻结范围与 `DEC-021` known_limitations 落地载体
+  为前轮既登记 concerns，本项不改变其状态（随 M7 收尾/`DEC-022` 评审
+  处置）；NanoTrack 参考后端（M7-12）与深度增强注入接线（M7-13）不在
+  本项——本套件的伪实现即二者可执行规格。
+- CI 回填：待补（分支未推送，推送与 14/14 证据回填随编排脚本收口，
+  同 `M7-09`/`M7-10` 先例）。

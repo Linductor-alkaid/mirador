@@ -1,11 +1,37 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.21
+> 版本：1.24
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-28
+>
+> 1.24 修订（2026-09-28）：M7 工作项 `M7-11` `TrackerBackend` SPI 契约冻结
+> 交付，工作项勾选——`include/mirador/tracker_backend.hpp`（Experimental，
+> `DEC-020`，纯接口头文件零新增链接依赖）：`TrackerBackend::initialize` →
+> `TrackerSession::update` 句柄制三段式生命周期（一会话一目标）、状态归属
+> 会话与失败可见（`kBackendFailure` 即弃置会话重建恢复、不返回陈旧结果，
+> 取消/超时会话保持可用、update 全有或全无）、冻结裁定校验先于取消
+> （M7-05/06 池先例）、缓存豁免界定（会话状态不进能力结果缓存、
+> `DEC-012`「相同输入相同结果」对 `update` 显式不适用并已同步适用范围
+> 注记）；fusion 侧句柄槽沿池侧并行单槽先例、槽开销计入字节记账、
+> terminate/淘汰/reset 同步析构归属冻结于头注释（槽常量随 M7-13 接线）。
+> Fake `TrackerBackend`（固定轨迹注入）20 用例 fusion 侧编排套件
+> `mirador.fusion.tracker_backend_orchestration` 钉住契约可执行面（校验
+> 矩阵、失败降级 kUncertain、三路句柄同步析构、缓存豁免负向、DOD-03
+> 坐标矩阵、逐序列确定性、隐私负向）。验证轮修复 4508da7：可缓存
+> initialize 前处理产物的 `RULE-07` 键构成枚举补齐 prepared 图像内容
+> 摘要（头契约块 5 与 `DEC-012` 决策 6 注记两处表面同步，完备性澄清非
+> 放宽，纯注释修改）。架构测试 7/7 证明 core 链接闭包不变（fusion 探针
+> NEEDED 恰为标准库）。API 索引与兼容性 Experimental 登记随 ceafa3b
+> 完成（第四处 Experimental 面，须随 M7 收尾/`DEC-022` 评审纳入冻结
+> 范围）。本地门禁（文档同步时点于分支 head 4508da7 复验）：debug 全量
+> ctest 53/53、编排套件 20/20、架构 7/7、lint 双口径对新头与测试文件
+> 归零、asan/ubsan 直跑零报告；release/warnings/tsan 预设与六预设完整
+> 复跑随编排脚本收口（CI 矩阵无 release 预设），CI 推送与 14/14 证据
+> 回填待编排脚本收口（分支未推送）；`SCOPE-13` 维持未勾选
+> （M7-12~13 进行中）。
 >
 > 1.23 修订（2026-09-28）：M7 工作项 `M7-10` go/no-go 判定与转正决策草案
 > 交付，工作项勾选——依 `M7-09` 发布数字对照 `DEC-019` 第 5 条六项门槛
