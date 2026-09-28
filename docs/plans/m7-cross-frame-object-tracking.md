@@ -1774,5 +1774,7 @@ df63c17；验证套件由 Independent-Verification-Agent 按分工交付，实�
   关闭开关零变化负向、DOD-03 坐标矩阵、DOD-04 不放宽、确定性、隐私、
   D+ 列报口径）由 Independent-Verification-Agent 独立交付；六预设
   构建+ctest、sanitizer、lint 双口径与 CI 14/14 由编排脚本在分支 head
-  统一收口；基准 D+ 节数字随验证轮发布于
-  [linux-x64-object-tracking-2026-09.md](../benchmarks/linux-x64-object-tracking-2026-09.md)。
+  统一收口；基准 D+ 节已随实现轮列报于
+  [linux-x64-object-tracking-2026-09.md](../benchmarks/linux-x64-object-tracking-2026-09.md)
+  （合成口径限定、A/B/C/D 传统 24 cell 零回归对照与列报口径依据随附，
+  本机 release 复跑 3 次重复非计时指标逐位一致）。
