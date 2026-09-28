@@ -57,10 +57,17 @@ struct NanoTrackerOptions {
     /// create() rejects every other value explicitly instead of quietly
     /// forfeiting the contract.
     int num_threads = 1;
-    /// Byte budget for one initialize/update call's internally allocated
-    /// buffers (crop staging, forward outputs, stored template feature):
-    /// every internal allocation request is checked against it first and an
-    /// overflow fails loudly with kBudgetExceeded (RULE-06).
+    /// Byte budget for one initialize/update call, covering every allocation
+    /// request the backend itself controls: the crop staging buffer, the
+    /// forward output tensors, the stored template state and the decode
+    /// window. Each request is checked before it happens and an overflow
+    /// fails loudly with kBudgetExceeded (RULE-06). Transient allocations
+    /// below the backend surface (the per-forward input copies in
+    /// NcnnRuntime, its ncnn::Mat staging and ncnn's own intermediate/
+    /// workspace buffers) are bounded by the frozen model contract's
+    /// input/output geometry, are not separately chargeable from the backend
+    /// surface, and follow the same accounting posture as the M5 reference
+    /// backends.
     int64_t work_budget_bytes = int64_t{16} * 1024 * 1024;
 };
 
@@ -110,6 +117,18 @@ struct NanoTrackerOptions {
 ///      size_learning_rate toward the predicted size (the port's incidental
 ///      double application of the learning rate is normalized to this
 ///      canonical single update).
+///
+/// Frozen clamping semantics (verification-round documentation, an explicit
+/// alignment point for the M7-13 position-evidence wiring): the reported
+/// bounds are the predicted box clamped into the prepared image (contract
+/// block 6 / DEC-021), and the reference-size update in step 5 deliberately
+/// targets the clamped size — the session's scale state tracks what was
+/// actually observable inside the frame, so a target partially outside the
+/// prepared view converges the crop toward the visible part instead of
+/// growing the search window after an unobservable prediction. The
+/// alternative (feeding the unclamped predicted size into the state) is
+/// deferred to the M7-13 semantic confirmation against design section 6.2;
+/// changing it is a behavior change, not a wording fix.
 ///
 /// Accepts kRgb8 only (the pipeline converts). All results live in prepared
 /// pixel space; `ImageView::rotation` is never interpreted; input pixels are

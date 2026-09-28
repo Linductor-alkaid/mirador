@@ -46,10 +46,18 @@ constexpr const char* kHeadSearchInput = "input2";
 constexpr const char* kHeadClsOutput = "output1";
 constexpr const char* kHeadBoxOutput = "output2";
 
-/// One initialize/update call's byte budget (RULE-06): every internal
-/// allocation request is charged before it happens (or, for tensors that only
-/// materialize inside a forward, checked the moment they are handed back); an
-/// overflow is a loud kBudgetExceeded, never a silent drop.
+/// One initialize/update call's byte budget (RULE-06). Accounting boundary
+/// (verification-round precision): every allocation request the backend
+/// itself controls is charged before it happens — the crop staging buffer,
+/// the forward output tensors (contract-fixed for the head; checked when the
+/// backbone hands its feature back), the stored template state and the decode
+/// window. Transient allocations below the backend surface (the per-forward
+/// input copies in the runtime wrapper, its ncnn::Mat staging and ncnn's own
+/// intermediate/workspace buffers) are bounded by the frozen model contract's
+/// input/output geometry, are not separately chargeable from the backend
+/// surface, and follow the same accounting posture as the M5 reference
+/// backends. An overflow anywhere in the charged set is a loud
+/// kBudgetExceeded, never a silent drop.
 class WorkBudget {
 public:
     explicit WorkBudget(int64_t limit) noexcept : remaining_(limit) {}
@@ -419,7 +427,10 @@ Result<DecodedFrame> decode_update(const NcnnTensor& cls, const NcnnTensor& box,
     const float confidence = sigmoid(cls_foreground[peak.value().cell]);
     // Canonical single reference-size update (the port's incidental double
     // application of the learning rate is normalized to this one step). The
-    // convex combination of positive sizes stays positive.
+    // convex combination of positive sizes stays positive. Frozen semantics:
+    // the update deliberately targets the CLAMPED size above — the scale
+    // state tracks what was observable inside the frame (alignment with the
+    // M7-13 position-evidence semantics noted in the class comment).
     const float rate = peak.value().penalty * confidence * options.size_learning_rate;
     DecodedFrame frame;
     frame.bounds = mapped;
@@ -441,8 +452,9 @@ public:
     // own nor copy it.
     NanoTrackerSession(NcnnTensor template_feature, float ref_width, float ref_height, ChannelMeans pad_means,
                        NanoTrackerOptions options, const NcnnRuntime& backbone, const NcnnRuntime& head,
-                       std::vector<float> window)
-        : template_feature_(std::move(template_feature)),
+                       std::vector<float> window, std::vector<PixelFormat> accepted_formats)
+        : accepted_formats_(std::move(accepted_formats)),
+          template_feature_(std::move(template_feature)),
           ref_width_(ref_width),
           ref_height_(ref_height),
           cached_means_(pad_means),
@@ -454,7 +466,7 @@ public:
     Result<TrackerUpdateResult> update(const ImageView& prepared_image, const TrackerUpdateRequest& request,
                                        const ExecutionContext& context) override {
         // 1. Structural validation precedes cancellation (frozen ordering).
-        if (const Result<void> checked = validate_request(prepared_image, request.prior_bounds, kAcceptedFormats);
+        if (const Result<void> checked = validate_request(prepared_image, request.prior_bounds, accepted_formats_);
             !checked.ok()) {
             return checked.status();
         }
@@ -486,8 +498,15 @@ public:
         }
 
         // 5. Head forward on the stored template feature + the search feature.
-        // The contract-fixed output sizes and the call-local copy of the
-        // template feature are charged up front (RULE-06).
+        // Charged up front (RULE-06): the contract-fixed output sizes and the
+        // stored template feature. The per-forward input copies and the
+        // transient allocations below the runtime-wrapper surface (its
+        // ncnn::Mat input copies and ncnn's own intermediate/workspace
+        // buffers) are bounded by the frozen model contract's input/output
+        // geometry, are not separately chargeable from the backend surface,
+        // and follow the same accounting posture as the M5 reference backends
+        // (see work_budget_bytes in nanotrack_backend.hpp for the exact
+        // boundary).
         const size_t cells = static_cast<size_t>(options_.score_size) * static_cast<size_t>(options_.score_size);
         if (const Result<void> charged =
                 budget.charge(static_cast<int64_t>(cells * 6U) * static_cast<int64_t>(sizeof(float)) +
@@ -523,8 +542,12 @@ public:
     }
 
 private:
-    // Accepted formats mirror BackendInfo::accepted_formats (the kRgb8 gate).
-    static inline const std::vector<PixelFormat> kAcceptedFormats = {PixelFormat::kRgb8};
+    // The accepted-format gate is derived from the owning backend's
+    // BackendInfo::accepted_formats at construction (verification-round fix):
+    // initialize validates against info_.accepted_formats, so the session
+    // must gate update against the very same list — a second, independently
+    // evolving definition here could desynchronize the two gates.
+    std::vector<PixelFormat> accepted_formats_;
 
     NcnnTensor template_feature_;
     float ref_width_ = 0.0F;
@@ -668,9 +691,9 @@ mirador::Result<std::unique_ptr<mirador::TrackerSession>> NanoTrackerBackend::in
         !charged.ok()) {
         return charged.status();
     }
-    auto session = std::make_unique<NanoTrackerSession>(std::move(feature).take_value(), request.initial_bounds.width,
-                                                        request.initial_bounds.height, means, options_, backbone_,
-                                                        head_, cosine_window(options_.score_size));
+    auto session = std::make_unique<NanoTrackerSession>(
+        std::move(feature).take_value(), request.initial_bounds.width, request.initial_bounds.height, means, options_,
+        backbone_, head_, cosine_window(options_.score_size), info_.accepted_formats);
     return {std::move(session)};
 }
 
