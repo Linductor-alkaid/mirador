@@ -1,8 +1,11 @@
 # 兼容性登记
 
 > 状态：Active（`M5-08` 立档；M6 登记 `geometric_proposal.hpp`，`DEC-018`
-> 阶段 1 转正后为正式兼容性登记；M7 新增 Experimental API 节）
-> 更新日期：2026-09-23
+> 阶段 1 转正后为正式兼容性登记；M7 新增 Experimental API 节；M7-10 判定
+> GO（合成口径），冻结评审草案
+> [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+> Proposed 待批——批准前 Experimental 登记不计兼容性承诺）
+> 更新日期：2026-09-28
 > 负责人：linductor
 
 本文登记 Mirador 实际验证过的构建与运行组合，以及各可选依赖的已知可用版本
@@ -45,11 +48,18 @@
 
 ## Experimental API 登记（M7，不计兼容性承诺）
 
+> M7-10 go/no-go 判定（2026-09-28）：**GO（合成口径）**（判定记录见
+> [M7 里程碑](../plans/m7-cross-frame-object-tracking.md)）；契约冻结评审
+> 草案 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
+> （Proposed，待负责人评审）按两阶段模式执行——阶段 1（本节三处
+> Experimental 面冻结、计入兼容性承诺）自其批准起生效，批准前本节登记
+> 持续有效。
+
 | 头 / 符号 | 登记依据 | 状态说明 |
 | --- | --- | --- |
-| `include/mirador/object_tracker.hpp`（`TrackState`、`EvidenceGrade`、`TrackObservation`、`TrackTemplate`、`TrackSemantics`、`TargetTrack`、`ObjectTrackerOptions`、`TrackAdoption`、`ObjectTracker`） | M7-01 契约冻结（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) Accepted；[跟踪设计](../design/object-tracking-design.md)）；M7-02 扩展池有界变更原语（`record_observation`、`add_template`、`add_negative_template`、`advance_layout_generation`、`observations_in_generation`、淘汰 trace 计数）；M7-03 扩展变化检测门控三级短路（`evaluate_change_gate`、`ChangeGateDecision`、`TrackGateDecision`、`ChangeGateTrace`，消费 `ChangeReport` 的纯决策入口）；M7-05 扩展邻域验证器（`verify_track`、`verification_roi`、`record_structure_baseline`、`TrackStructureDescriptors`、`AppearanceChannelOutcome`、`StructureChannelOutcome`、`AppearanceVerification`、`StructureVerification`、`TrackVerification`、`verification_work_budget_bytes` 选项与 `kStructureBaselineOverheadBytes`，设计 §6.2）；M7-06 扩展证据融合与状态机（`commit_track_evidence`、`PositionScenario`、`TrackPositionEvidence`、`TrackEvidenceCommit`、`impostor_match_threshold` 选项与 `kStateSlotOverheadBytes`，设计 §3/§4/§6.4；三项契约裁决——纯决策/状态变更边界、负模板采集策略、kLost→kTracking 归属——冻结于头注释）；M7-07 扩展全局运动补偿与布局代际管线（`advance_generation_for_classification`、`compensate_global_motion`、`sweep_generation_lag`、`GenerationAdvance`、`MotionCompensationResult`/`MotionCompensationEntry`、`min_compensation_confidence` 选项；predicted_center 中心不变量维持、耗尽判定"证据枯竭"双条件冻结于头注释，设计 §6.3/§6.4）；M7-08 扩展级联重检测原语与身份复核簿记（`evaluate_redetection_gate` 纯 const 退避门、`record_redetection_failure` 失败记账与预算耗尽 kTerminated 转移、`record_redetection_recapture` 中断事件、`record_redetection_association` 身份交接关联，`max_redetection_records` 选项与 `kRedetectSlotOverheadBytes`/`kRedetectionRecordOverheadBytes`，移除 M7-07 验证记录指出的无定义单参 `terminate(uint64_t)` 死声明；静止画面零触发、倍增退避与耗尽归档语义冻结于头注释，设计 §7） | **Experimental**：M7 内字段与签名可调整；`ObjectTracker` 随管线工作项在同一头内扩展，直至 M7-09/M7-10 go/no-go 判定后经决策冻结才计入兼容性承诺。阈值初值为开发默认值，M7-09 校准（`DEC-019` 第 5 条） |
-| `include/mirador/stable_id_tracker.hpp`（M4 冻结契约，`DEC-010`）+ M7-06 扩展（`ConfirmedAssociation`、`advance` 的 `confirmed_associations` 参数，默认空） | M7-06 跟踪确认配对门控直通（[跟踪设计](../design/object-tracking-design.md) §6.5；`DEC-010` 第 4 节预留演进通道） | 扩展部分按 **Experimental** 对待：空关联列表下既有冻结静态匹配语义逐位不变（M4 兼容性承诺不受影响）；直通语义随 `ObjectTracker` Experimental 面一同在 M7-09/M7-10 判定 |
-| `include/mirador/shift_estimation.hpp`（`ShiftEstimationParams`、`ShiftEstimate`、`estimate_global_shift`） | M7-04 全局位移估计原语（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) 第 2 条；[跟踪设计](../design/object-tracking-design.md) §6.3） | **Experimental**：M7 内字段与签名可调整，随 M7-09/M7-10 go/no-go 判定后经决策冻结才计入兼容性承诺。置信度/位移精度/默认参数口径冻结于头文件契约注释，初值为开发冒烟默认值，M7-09 校准（`DEC-019` 第 5 条）；不发布性能承诺（效果随 M7-09 A/B/C/D 矩阵门控，`RISK-2026-17`） |
+| `include/mirador/object_tracker.hpp`（`TrackState`、`EvidenceGrade`、`TrackObservation`、`TrackTemplate`、`TrackSemantics`、`TargetTrack`、`ObjectTrackerOptions`、`TrackAdoption`、`ObjectTracker`） | M7-01 契约冻结（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) Accepted；[跟踪设计](../design/object-tracking-design.md)）；M7-02 扩展池有界变更原语（`record_observation`、`add_template`、`add_negative_template`、`advance_layout_generation`、`observations_in_generation`、淘汰 trace 计数）；M7-03 扩展变化检测门控三级短路（`evaluate_change_gate`、`ChangeGateDecision`、`TrackGateDecision`、`ChangeGateTrace`，消费 `ChangeReport` 的纯决策入口）；M7-05 扩展邻域验证器（`verify_track`、`verification_roi`、`record_structure_baseline`、`TrackStructureDescriptors`、`AppearanceChannelOutcome`、`StructureChannelOutcome`、`AppearanceVerification`、`StructureVerification`、`TrackVerification`、`verification_work_budget_bytes` 选项与 `kStructureBaselineOverheadBytes`，设计 §6.2）；M7-06 扩展证据融合与状态机（`commit_track_evidence`、`PositionScenario`、`TrackPositionEvidence`、`TrackEvidenceCommit`、`impostor_match_threshold` 选项与 `kStateSlotOverheadBytes`，设计 §3/§4/§6.4；三项契约裁决——纯决策/状态变更边界、负模板采集策略、kLost→kTracking 归属——冻结于头注释）；M7-07 扩展全局运动补偿与布局代际管线（`advance_generation_for_classification`、`compensate_global_motion`、`sweep_generation_lag`、`GenerationAdvance`、`MotionCompensationResult`/`MotionCompensationEntry`、`min_compensation_confidence` 选项；predicted_center 中心不变量维持、耗尽判定"证据枯竭"双条件冻结于头注释，设计 §6.3/§6.4）；M7-08 扩展级联重检测原语与身份复核簿记（`evaluate_redetection_gate` 纯 const 退避门、`record_redetection_failure` 失败记账与预算耗尽 kTerminated 转移、`record_redetection_recapture` 中断事件、`record_redetection_association` 身份交接关联，`max_redetection_records` 选项与 `kRedetectSlotOverheadBytes`/`kRedetectionRecordOverheadBytes`，移除 M7-07 验证记录指出的无定义单参 `terminate(uint64_t)` 死声明；静止画面零触发、倍增退避与耗尽归档语义冻结于头注释，设计 §7） | **Experimental**：M7 内字段与签名可调整；阈值初值经 M7-09 校准冻结（库默认全部维持，`DEC-019` 第 5 条）；M7-10 判定 GO（合成口径），冻结评审草案 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)（Proposed）——批准前本登记持续有效，批准后计入兼容性承诺 |
+| `include/mirador/stable_id_tracker.hpp`（M4 冻结契约，`DEC-010`）+ M7-06 扩展（`ConfirmedAssociation`、`advance` 的 `confirmed_associations` 参数，默认空） | M7-06 跟踪确认配对门控直通（[跟踪设计](../design/object-tracking-design.md) §6.5；`DEC-010` 第 4 节预留演进通道） | 扩展部分按 **Experimental** 对待：空关联列表下既有冻结静态匹配语义逐位不变（M4 兼容性承诺不受影响）；直通语义随 `ObjectTracker` Experimental 面一同于 M7-10 判定（GO，合成口径）；冻结评审草案 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)（Proposed）——批准前本登记持续有效，批准后计入兼容性承诺 |
+| `include/mirador/shift_estimation.hpp`（`ShiftEstimationParams`、`ShiftEstimate`、`estimate_global_shift`） | M7-04 全局位移估计原语（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) 第 2 条；[跟踪设计](../design/object-tracking-design.md) §6.3） | **Experimental**：M7 内字段与签名可调整。置信度/位移精度/默认参数口径冻结于头文件契约注释，默认参数经 M7-09 校准冻结（thumbnail 64 / max_shift 16 / 512 KiB 维持，`DEC-019` 第 5 条）；M7-10 判定 GO（合成口径），冻结评审草案 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)（Proposed）——批准前本登记持续有效，批准后计入兼容性承诺；不发布性能承诺（效果随 A/B/C/D 矩阵门控，`RISK-2026-17`） |
 
 ## 平台功能可用性
 
