@@ -225,6 +225,24 @@ bbox 与置信度，作为 E1 的形变鲁棒替代/复核信号——参与条�
 管线零变化，优雅退化为纯传统双通道。高置信模板更新仅取自双通道一致帧，
 防止深度 tracker 漂移污染模板池。
 
+M7-11 冻结落点：`TrackerBackend` SPI 契约冻结交付于
+`include/mirador/tracker_backend.hpp`（Experimental，`DEC-020`，`DEC-012`
+的"相同输入相同结果"条款对 `update` 显式不适用——注记见该决策与 API
+索引）。接口形态为句柄制三段式（`initialize` → `update` × N → 析构丢弃，
+一会话一目标，多句柄并发性由 `BackendInfo.thread_safe` 声明、单句柄严格
+串行）；字段集定稿：`TrackerInitRequest.initial_bounds`/
+`TrackerUpdateRequest.prior_bounds`（调用方逐帧提供位置先验，会话内部
+状态只承担外观模型）/`TrackerUpdateResult.{bounds, confidence}`；状态归
+会话、失败可见不返回陈旧结果（`kBackendFailure` 即弃置会话、经既有冻结
+原语降级 `kUncertain` 后重建，`RISK-2026-18` 钩子）；同步/取消语义
+`RULE-03` 适用不豁免，冻结裁定**校验先于取消**（M7-05/06 池先例，与
+M7-02 取消优先入口相对）；缓存豁免界定（会话状态不进能力结果缓存，仅
+`initialize` 确定性前处理产物可缓存）；fusion 侧句柄存放沿池侧并行单槽
+先例、槽开销计入字节预算、terminate/淘汰/reset 同步析构（归属决策冻结于
+头注释，槽常量随 M7-13 注入接线落地）；输出落 prepared 像素空间。本落点
+只冻结契约与 Fake 后端 fusion 侧编排测试面；组合规则本体（同位互证/
+冲突保守降级/未注入零变化对照）归 M7-13，参考后端实现归 M7-12。
+
 M7-05 冻结落点：邻域验证器交付于 `ObjectTracker::verify_track`（Experimental，
 `object_tracker.hpp`）与配套类型 `TrackStructureDescriptors`/
 `AppearanceVerification`/`StructureVerification`/`TrackVerification`。验证器

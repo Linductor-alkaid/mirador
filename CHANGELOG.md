@@ -162,6 +162,27 @@
   判定记录见 [M7 里程碑](docs/plans/m7-cross-frame-object-tracking.md)
   （仅有合成证据 `DOD-05`，真实截图评估为转正前置；`DEC-011` 单机
   Linux x64 release 口径）。
+- M7-11：新增 Experimental 公共契约 `tracker_backend.hpp`（`DEC-020`，
+  有状态跟踪 Backend SPI 契约冻结，接口字段与错误语义定稿）——
+  `TrackerBackend::initialize` → `TrackerSession::update` 的句柄制三段式
+  生命周期（一会话一目标，多句柄并发性由 `BackendInfo.thread_safe`
+  声明、单句柄严格串行）；状态归属会话、析构即显式丢弃，失败可见不返回
+  陈旧结果（`kBackendFailure` 即弃置会话并重建，fusion 侧经既有冻结原语
+  降级 `kUncertain`）；同步边界 `RULE-03` 适用不豁免、取消/超时显式转化，
+  冻结裁定**校验先于取消**（M7-05/06 池先例）；缓存豁免界定：会话状态
+  不进能力结果缓存，`DEC-012`「相同输入相同结果」条款对 `update` 显式
+  不适用（适用范围注记已同步 `DEC-012` 与 API 索引，不改其原文）；
+  坐标与输入语义同 `DEC-012`（prepared 像素空间输出、
+  `accepted_formats` 门控、不静默修改输入）。
+  `TrackerInitRequest`（`initial_bounds`/`backend_params`）、
+  `TrackerUpdateRequest`（`prior_bounds`/`backend_params`）、
+  `TrackerUpdateResult`（`bounds`/`confidence`）字段集与 `RULE-08` 错误
+  校验矩阵定稿；fusion 侧句柄存放沿池侧并行单槽先例（M7-05/06/08 槽
+  模式）、槽开销计入字节预算、terminate/淘汰/reset 同步析构的归属决策
+  冻结于头注释（槽常量随 M7-13 注入接线落地）。纯接口头文件，零新增
+  链接依赖，core 链接闭包不变（架构测试锁定）；按同口径登记
+  Experimental（`DEC-022` 阶段 1 所列三处之外的第四处面，待其评审
+  纳入）。
 
 ### 修复
 
