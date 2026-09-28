@@ -104,9 +104,13 @@ namespace mirador {
 //    the frame sequence — so cache layers must not intercept, hit or reuse
 //    initialize/update calls (see the DEC-012 scope note in that decision).
 //    The only cacheable products are deterministic initialize pre-processing
-//    artifacts (e.g. prepared template tensors), keyed per RULE-07: backend
-//    name, implementation version, model id/revision and a digest of the
-//    request parameters.
+//    artifacts (e.g. prepared template tensors), keyed per RULE-07 over
+//    every input the product derives from — backend name, implementation
+//    version, model id/revision, a digest of the request parameters AND a
+//    content digest of the prepared image (the artifact is derived from it;
+//    a template cache keyed without the image digest serves stale templates,
+//    the same reason CapabilityKeyFields carries image_fingerprint,
+//    capability_cache.hpp, design section 12).
 //
 // 6. Coordinates and input (DEC-012, same contract): all bounds — the
 //    request priors and the returned results — live in `prepared_image`
