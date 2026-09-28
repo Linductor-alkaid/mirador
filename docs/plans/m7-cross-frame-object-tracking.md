@@ -220,8 +220,8 @@ Experimental 标记与"不计兼容性承诺"登记不变**（同 M6-06 → `DEC
   增强通道为可选注入，`A/B/C/D` 基准追加"D+深度增强"口径列报，不阻塞
   亦不被本判定约束）。
 - 兼容性登记与 API 索引已按两阶段模式注记（本判定 + `DEC-022` Proposed；
-  批准前 Experimental 口径不变）；CHANGELOG 留 M7 收尾（`v0.4.0`）统一
-  处理。
+  批准前 Experimental 口径不变）；CHANGELOG Unreleased 已登记本判定条目
+  （2026-09-28），`v0.4.0` 发布说明整理仍随 M7 收尾统一处理。
 - 真实截图评估采集与三项开放项裁决随 `DEC-018` 阶段 2 协调排期。
 
 ## 测试与退出条件
@@ -1342,3 +1342,51 @@ info 观察，**均无需改动**；判定 commit 与全部文档交付内容维
   新套件直跑 `mirador.fusion.object_tracker_verdict_ruling` 2/2 通过，
   既有套件零回归）；工作树仅本条处置记录文档变更。六预设完整门禁与
   CI 证据仍随编排脚本收口。
+
+同日 `M7-10` lint 门禁修复与本地门禁证据收口（验证员随验证轮交付的裁定
+钉住套件（8e95371）在 CI lint 口径 `clang-tidy --warnings-as-errors='*'`
+下报 3 处 error，按仓库测试文件先例修复——`test(fusion)` commit da8af43，
+用例名称、数量与断言语义零变化；验证员同步复核处置 commit 840d833：
+`git diff 8e95371..840d833 --stat` 仅本里程碑文档 +29 行、零代码/契约
+变更，契约面 `min_compensation_confidence` 库默认 0.0
+（`object_tracker.hpp:198`）未被触碰）：
+
+- 修复（全部限定在 `tests/fusion/object_tracker_verdict_ruling_test.cpp`，
+  5 insertions / 3 deletions，不触碰库实现与公共契约，三类均直接套用仓库
+  既有先例而非引入新处置风格）：(1) `misc-unused-using-decls`——移除未
+  使用的 `using mirador::MotionCompensationResult`（全文件仅此一处出现，
+  结果类型均经 `auto` 消费）；(2)
+  `readability-function-cognitive-complexity`（TestBody 182 > 25）——TEST
+  行上方 `NOLINTNEXTLINE`（gtest 宏展开主导该指标；
+  `object_tracker_motion_generation_test.cpp` 同款先例措辞与位置，M7-07
+  验证套件已确立此处置——表驱动用例拆散断言归属反而伤可读性，拆分
+  helper 后各 helper 仍超阈值且改变 ASSERT 中止语义归属）；(3)
+  `modernize-avoid-c-arrays`——`cases` 表 `BandCase[]` 改
+  `std::array<BandCase, 4>`（`object_tracker_redetection_test.cpp` 先例，
+  双花括号聚合初始化）并补 `<array>` 头。首轮修复的 NOLINT 注释超 120 列
+  被 clang-format 拦截，已缩短为先例原句。
+- 门禁证据（修复会话执行，均为修复后复跑）：`clang-tidy
+  --warnings-as-errors='*'`（-p build/debug）对该文件修复前复现退出码 1
+  （恰为报出的 3 处 error）、修复后退出码 0（Suppressed 43961 warnings、
+  18 NOLINT、无 error）；`clang-format --dry-run --Werror` 对该文件退出码 0
+  （首轮 166:121 超长违规已修），全仓格式清扫（CI lint job 同口径
+  `git ls-files '*.cpp' '*.cc' '*.h' '*.hpp' | xargs`）退出码 0；
+  `cmake --build --preset debug` 零告警；debug 全量 ctest 52/52、新套件
+  直跑 2/2 PASSED（断言路径与修复前一致）。
+- 复跑（文档同步轮，本会话执行，分支 head da8af43）：debug 增量构建
+  `ninja: no work to do`；`ctest --preset debug` 52/52 通过
+  （architecture 7 / property 1 / unit 44）；新套件直跑 2/2 PASSED；
+  clang-format 单文件与全仓 dry-run 均退出码 0；clang-tidy
+  `--warnings-as-errors='*'`（-p build/debug）对该文件退出码 0；asan/
+  ubsan 目标增量 `no work to do` 后直跑各 2/2 PASSED、sanitizer 零报告。
+- 限制：release/warnings/tsan 预设与 asan/ubsan 全量 ctest 未执行——本
+  失败面为 debug 可编译纯测试文件的 lint 口径，lint 双口径与 debug ctest
+  已覆盖；TSAN 仍未运行（上条验证轮已留档该范围限定）；tidy 全仓扫描仅
+  对 da8af43 所改文件执行，其余文件由 CI lint job 全仓口径覆盖。
+- CI 回填：待补——六预设完整门禁与 CI 14/14 随编排脚本在分支 head 收口
+  后回填（同 `M7-09` 先例）。
+- 同步：CHANGELOG Unreleased 补登记 M7-10 判定条目（提前于原定 M7 收尾
+  时点；`v0.4.0` 发布说明整理职责不变），判定记录"后续动作"随改；总计划
+  `SCOPE-13` 状态标记纠偏——`DEC-019`/`DEC-020` 已于 2026-09-21 经负责人
+  批准转 Accepted（1.8 修订已录），正文标记仍为 Proposed，本轮更正；
+  API 索引与兼容性登记维持两阶段注记不变（本轮零公共契约变更）。

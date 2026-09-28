@@ -148,6 +148,20 @@
   计入字节预算；`TargetTrack` 冻结布局不动。随项移除 M7-07 验证记录指出的
   无定义单参 `terminate(uint64_t)` 死声明（refactor）。退避初值为开发冒烟
   值，M7-09 校准。
+- M7-10：go/no-go 判定为**GO（合成口径）**——`DEC-019` 第 5 条六项晋升
+  门槛依 M7-09 发布基准逐项判定全部达标，门槛初值无一处变更；
+  similar-icons swap 与假阳性延续以 D 全通道语义口径达标（A/B/C 差值归因
+  为通道贡献隔离的预期结果，`RISK-2026-16`/`RISK-2026-17` 门控证据）；
+  `min_compensation_confidence` 库默认裁定维持 0.0（不过滤的无先验门，
+  harness 调用方参考策略 0.7）。转正路径另立决策草案
+  [DEC-022](docs/decisions/DEC-022-object-tracker-contract-freeze.md)
+  （Proposed，待负责人评审）——阶段 1 三处 Experimental 面契约冻结 /
+  阶段 2 真实截图评估与转正收口，开放项三项（补偿置信度库默认、
+  `peak_sidelobe_ratio_min` 5.0 真实裕度复核、相似外观回退是否入库默认）；
+  批准前 M7 Experimental 登记与"不计兼容性承诺"口径不变。判定限定与完整
+  判定记录见 [M7 里程碑](docs/plans/m7-cross-frame-object-tracking.md)
+  （仅有合成证据 `DOD-05`，真实截图评估为转正前置；`DEC-011` 单机
+  Linux x64 release 口径）。
 
 ### 修复
 

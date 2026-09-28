@@ -398,9 +398,10 @@ run 35917953109 14/14 job 全绿，待合入）。
   kTerminated`）与有界目标池、变化检测门控三级短路、邻域验证（模板 NCC +
   闭合结构一致性）、全局运动补偿与布局代际、丢失判定与级联重检测原语及
   身份复核、`TrackerBackend` SPI（[DEC-020](../decisions/DEC-020-tracker-backend-spi.md)，
-  Proposed）与 NanoTrack ncnn 参考后端（`integrations/`，`DEC-015` 机制）
+  Accepted，接口最迟 M7-11 契约冻结定稿）与 NanoTrack ncnn 参考后端
+  （`integrations/`，`DEC-015` 机制）
   及深度增强通道条件化融合（设计 §24 M7、[跟踪设计](../design/object-tracking-design.md)、
-  [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)（Proposed）；
+  [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)（Accepted）；
   合成验证先行，`ObjectTracker`/`TrackerBackend` 契约 Experimental 至
   go/no-go 判定后经决策冻结）。
 
