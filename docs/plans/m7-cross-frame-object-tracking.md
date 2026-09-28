@@ -1488,11 +1488,20 @@ info 观察，**均无需改动**；判定 commit 与全部文档交付内容维
   修复后 debug ctest 53/53 与架构 7/7；asan/ubsan 预设重建零告警后
   编排套件直跑通过、零 sanitizer 报告（验证轮会话报告）。
 - 限制：release/warnings/tsan 预设与 asan/ubsan 全量 ctest 未在文档
-  同步轮执行（注释级修复不触达编译产物；六预设完整复跑随编排脚本
-  收口，同 M7-03~10 先例，CI 矩阵无 release 预设）；`DEC-022` 第四处
+  同步轮执行（注释级修复不触达编译产物；warnings/tsan 预设与
+  asan/ubsan 全量 ctest 侧已由 CI 在分支 head 覆盖，见下方 CI 回填；
+  CI 矩阵无 release 预设，release 侧仍属未执行范围，六预设完整复跑
+  随编排脚本收口，同 M7-03~10 先例）；`DEC-022` 第四处
   Experimental 面纳入冻结范围与 `DEC-021` known_limitations 落地载体
   为前轮既登记 concerns，本项不改变其状态（随 M7 收尾/`DEC-022` 评审
   处置）；NanoTrack 参考后端（M7-12）与深度增强注入接线（M7-13）不在
   本项——本套件的伪实现即二者可执行规格。
-- CI 回填：待补（分支未推送，推送与 14/14 证据回填随编排脚本收口，
-  同 `M7-09`/`M7-10` 先例）。
+- CI 回填：PR #31 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（ubuntu-20.04 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、
+  clang debug/fuzz、integrations-ncnn、capture/opencv 适配与
+  clang-format/clang-tidy 双口径（lint job 40m4s 完成，主导全程）。
+  [run 36390979653](https://github.com/Linductor-alkaid/mirador/actions/runs/36390979653)
+  （head 4771b62，覆盖契约冻结、文档注册、验证套件、验证轮修复与
+  门禁证据/文档同步全部 5 个 commit，全程 40m7s）；首轮通过，无修复
+  往返，上条"CI 回填：待补（分支未推送，推送与 14/14 证据回填随编排
+  脚本收口，同 `M7-09`/`M7-10` 先例）"就此闭合。
