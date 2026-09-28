@@ -126,6 +126,23 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-13 deep-enhanced channel conditional fusion (design section 6.2, RISK-2026-18):
+# the injection-point slot primitives (attach/detach/tracker_session) with their
+# byte accounting, explicit budget rejection and the terminate/eviction/reset
+# destruction triangle, the RISK-2026-18 combination matrix (co-located
+# corroboration, conservative conflict demotion, never-confirms-by-itself), the
+# dual-channel-consistent template protection incl. the redetection-review scope
+# note, the kBackendFailure disposal -> degradation -> rebuild loop, DEC-021
+# adoption-point validation with the frozen validation-before-cancellation
+# ordering, the RULE-12 switch zero-change contract, DOD-04 non-relaxation,
+# twin determinism, the DOD-03 rotation/odd-size/stride/flush matrix through a
+# pixel-echo fake backend and the RULE-10 privacy negatives.
+mirador_add_test(
+    NAME mirador.fusion.object_tracker_deep_channel
+    SOURCES object_tracker_deep_channel_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp
