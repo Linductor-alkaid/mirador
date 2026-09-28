@@ -1714,3 +1714,65 @@ df63c17；验证套件由 Independent-Verification-Agent 按分工交付，实�
   推送与 PR/CI 14/14 证据（integrations-ncnn job 的 ctest 自动捕获
   冒烟套件）随编排脚本在分支 head 收口后回填（同 `M7-03`~`M7-11`
   先例）"就此闭合。
+
+2026-09-28：`M7-13` 深度增强通道条件化融合**实现交付**（分支
+`feat/m7-13-deep-channel-conditional-fusion` 自 master bde1c6a 切出；工作项
+未勾选——验证套件按分工由 Independent-Verification-Agent 独立编写与执行，
+勾选、验证轮记录与 CI 证据随其收口）：
+
+- 交付（实现 feat(fusion) commit 404d339 + bench feat(benchmarks)
+  commit 696bf48 + 文档同步）：`ObjectTracker` 新增注入点原语
+  `attach_tracker_session`/`detach_tracker_session`/`tracker_session`
+  （池侧并行单槽存调用方初始化的 `TrackerSession` 句柄，兑现 M7-11
+  契约块 2「槽常量随 M7-13 注入接线落地」注记）——每 track 至多一槽、
+  重建原地替换（destroy 旧存新、字节中性）、`kTrackerHandleSlotOverheadBytes=32`
+  计入 `byte_size()`/`pool_budget_bytes` 放不下显式 `kBudgetExceeded`
+  （错误路径池与会话均不动）、terminate/池淘汰/reset 三路同步析构句柄、
+  `plan_eviction`/adopt 淘汰提交/归档路径同步释放槽字节；池从不驱动
+  后端（initialize/update、prepared 视图制备、坐标恢复全归调用方，
+  `RULE-12` 上层同时拥有注入与 `deep_channel_enabled` 启用开关）。
+  `commit_track_evidence` 深度证据重载（`DeepChannelEvidence`）：
+  `DEC-021` 采纳点校验——非有限/零面积/出图 bounds、非有限/出 [0,1]
+  置信度、开关关闭时供证，一律显式 `kInvalidArgument` 拒绝而非钳制，
+  校验先于取消（M7-05/06 冻结顺序）；冻结组合规则（头注释权威）：
+  深度框与 E1 候选窗（M7-06 冻结候选规则）IoU ≥
+  `deep_agreement_min_iou`（默认 0.5）且深度置信 ≥
+  `deep_min_confidence`（默认 0.5，均为开发冒烟值）为同位一致互证
+  ——确认级置信升级为传统来源（E1 峰值 NCC 或 E2-only 维持原值）与
+  深度置信的不下取最大值；否则冲突按保守侧处置（`RISK-2026-18`）——
+  确认级降为占位级（冻结状态机 kTracking → kUncertain，不动位置/置信/
+  模板），非确认级不受影响（否决语义保留）；深度通道永不单独确认
+  （漂移深度 tracker 无法伪造确认，模板补丁恒取自 E1 候选窗——漂移
+  结构性不可达外观存储）；高置信模板更新仅取双通道一致帧——开关开启
+  且 track 持有注入会话时 kConfirmed 正模板捕获要求本帧互证成立，缺失
+  深度证据（后端失败/取消/调用方跳过）仍确认身份但模板捕获扣留并
+  显式上报 `template_withheld_by_deep_channel`（`RULE-06` 不静默）；
+  提交回显新增 `deep_disposition`；`kBackendFailure` 弃置会话经既有
+  占位提交路径降级、当前帧确认 bounds 重建（无新降级 API，M7-11
+  冻结钩子兑现）；组合规则作用于 §6.2 邻域验证路径，M7-08 重检测身份
+  复核维持冻结形态（其提交不带深度证据，持会话 track 同落模板防护）。
+  bench 追加 `D+deep` 第五方法列：确定性伪深度后端（bench-deep 像素
+  回声、零学习状态、逐序列位确定）经注入点接入，deep update 在
+  verify_track 计时器之外保证 p50/p95 与 D 可比；deep=/corr=/confl=/
+  withheld= 计数入逐 cell 指标与确定性摘要；A/B/C/D 打印格式未动。
+- 零变化对照（本会话执行，实现 commit 404d339 上）：debug 预设全量
+  `ctest --preset debug` 53/53 通过（含 7 个既有 fusion 跟踪套件与
+  架构 7/7：源码扫描 + 全链接闭包探针——`mirador_fusion` 链接接口恰为
+  core/image/cache 不变，`tracker_backend.hpp` 纯接口零新链接依赖）；
+  M7-09 harness 24 个传统 cell 的非计时数字逐 cell 对照已发布报告
+  逐位一致（延续率、swap、fp、误判丢/失、verify 调用数、池峰值字节、
+  track 峰值——如 A-static 234/234 33,252B、B-static verify=0 7,716B、
+  A-scroll 39,960B ×12 等，计时列为墙钟口径不逐位比对）。
+- 文档同步：API 索引 object_tracker 条目、兼容性登记 object_tracker
+  行扩展、CHANGELOG Unreleased、设计 §6.2 新增 M7-13 交付落点与
+  NanoTrack 钳制语义对齐裁决（**维持钳制语义零行为变更**：组合规则只
+  消费上报框与置信度，不触碰后端内部尺度状态——`nanotrack_backend.hpp`
+  冻结段注记同步收口）、设计 §6.5 M7-13 注记（直通契约零变化）、
+  总计划 1.27 修订。
+- 待收口：验证套件（验收矩阵 1-11：注入生命周期与字节记账、DEC-021
+  校验拒绝矩阵、同位互证/冲突降级/模板防护/失败弃置重建、未注入与
+  关闭开关零变化负向、DOD-03 坐标矩阵、DOD-04 不放宽、确定性、隐私、
+  D+ 列报口径）由 Independent-Verification-Agent 独立交付；六预设
+  构建+ctest、sanitizer、lint 双口径与 CI 14/14 由编排脚本在分支 head
+  统一收口；基准 D+ 节数字随验证轮发布于
+  [linux-x64-object-tracking-2026-09.md](../benchmarks/linux-x64-object-tracking-2026-09.md)。

@@ -1,11 +1,29 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.26
+> 版本：1.27
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-28
+>
+> 1.27 修订（2026-09-28）：M7 工作项 `M7-13` **实现交付**（工作项未勾选
+> ——验证套件由 Independent-Verification-Agent 独立编写与执行，勾选与
+> CI 证据回填随其收口）。`ObjectTracker` 新增深度增强通道条件化融合
+> （Experimental，设计 §6.2 增强通道，`DEC-020`/`DEC-021`，`RISK-2026-18`
+> 门控）：注入点原语（池侧并行单槽会话句柄、
+> `kTrackerHandleSlotOverheadBytes=32` 计入字节预算、三路同步析构）+
+> `commit_track_evidence` 深度证据重载（`DEC-021` 采纳点校验拒绝、同位
+> 一致互证升级置信、冲突保守降级 kUncertain、高置信模板更新仅取双通道
+> 一致帧、缺失证据模板扣留显式上报）+ `deep_channel_enabled` 上层启用
+> 开关（`RULE-12`，默认关闭即传统管线逐位零变化——debug 全量 ctest
+> 53/53 含架构 7/7 在实现 commit 404d339 上验证）。bench 追加 `D+deep`
+> 确定性伪深度后端列（commit 696bf48，隔离组合规则机制贡献，`DOD-05`
+> 无质量声明）。NanoTrack 钳制语义对齐点裁决：维持钳制语义零行为变更
+> （组合规则只消费上报框与置信度，不触碰后端内部尺度状态）。A/B/C/D
+> 传统口径 24 cell 零回归与 D+ 列数字随基准报告 D+ 节发布；门禁
+> （六预设/sanitizer/lint/CI 14/14）由编排脚本在分支 head 统一收口。
+> `SCOPE-13` 维持未勾选（M7-13 验证轮进行中）。
 >
 > 1.26 修订（2026-09-28）：M7 工作项 `M7-12` 勾选——合成模型冒烟套件
 > `mirador.integrations.tracker_nanotrack_smoke` 落地（Independent-

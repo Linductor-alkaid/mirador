@@ -89,7 +89,15 @@ kLost → kTerminated 归档转移——预算耗尽显式失败）、
 `TrackInterruptionEvent`/`RedetectionAssociation`/`RedetectionRecord`、
 `max_redetection_records` 选项与 `kRedetectSlotOverheadBytes`/
 `kRedetectionRecordOverheadBytes`，身份复核本体复用 `verify_track` +
-`commit_track_evidence` 冻结契约，设计 §7）；
+`commit_track_evidence` 冻结契约，设计 §7）；M7-13 起含深度增强通道
+条件化融合（设计 §6.2 增强通道，`DEC-020`/`DEC-021`/`RISK-2026-18` 门控）：
+注入点原语 `attach_tracker_session`/`detach_tracker_session`/
+`tracker_session`（池侧并行单槽存调用方初始化的 `TrackerSession` 句柄，
+`kTrackerHandleSlotOverheadBytes` 计入字节预算、terminate/淘汰/reset 同步
+析构）、`commit_track_evidence` 深度证据重载（`DeepChannelEvidence` 按
+`DEC-021` 采纳点校验拒绝而非钳制；同位一致互证升级置信、冲突保守降级、
+`deep_channel_enabled`/`deep_agreement_min_iou`/`deep_min_confidence` 选项，
+提交回显 `DeepChannelDisposition` 与 `template_withheld_by_deep_channel`）；
 **Experimental**：M7-10 判定 GO（合成口径，判定记录见
 [M7 里程碑](../plans/m7-cross-frame-object-tracking.md)）；契约冻结评审草案
 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)

@@ -126,9 +126,13 @@ struct NanoTrackerOptions {
 /// actually observable inside the frame, so a target partially outside the
 /// prepared view converges the crop toward the visible part instead of
 /// growing the search window after an unobservable prediction. The
-/// alternative (feeding the unclamped predicted size into the state) is
-/// deferred to the M7-13 semantic confirmation against design section 6.2;
-/// changing it is a behavior change, not a wording fix.
+/// alternative (feeding the unclamped predicted size into the state) was
+/// ruled out at the M7-13 alignment point: the fusion-side combination
+/// rules consume only the reported bounds and confidence (DEC-021
+/// adoption-point validation), never the backend's internal scale state, so
+/// the clamped semantics stay frozen with zero behavior change; reviving
+/// the alternative remains a behavior change requiring its own
+/// verification round.
 ///
 /// Accepts kRgb8 only (the pipeline converts). All results live in prepared
 /// pixel space; `ImageView::rotation` is never interpreted; input pixels are

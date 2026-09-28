@@ -211,6 +211,29 @@
   边界文档措辞精确化、格式门从 `info().accepted_formats` 构造期派生
   同源化、钳制语义文档化为冻结选择并列入 M7-13 对齐点），零公共契约
   变更。
+- M7-13：`ObjectTracker` 新增深度增强通道条件化融合（Experimental，
+  设计 §6.2 增强通道，`DEC-020`/`DEC-021`，`RISK-2026-18` 门控）——
+  注入点原语 `attach_tracker_session`/`detach_tracker_session`/
+  `tracker_session`（池侧并行单槽存调用方初始化的 `TrackerSession` 句柄，
+  每 track 至多一槽、重建原地替换、`kTrackerHandleSlotOverheadBytes`
+  计入 `byte_size()`/`pool_budget_bytes` 放不下显式 `kBudgetExceeded`、
+  terminate/池淘汰/reset 同步析构句柄；池从不驱动后端，`RULE-12` 上层
+  同时拥有注入与 `deep_channel_enabled` 启用开关，默认关闭即传统管线
+  逐位零变化）；`commit_track_evidence` 深度证据重载：`DeepChannelEvidence`
+  按 `DEC-021` 作不可信输出在采纳点校验（非有限/越界/出图显式拒绝而非
+  钳制），冻结组合规则——深度框与 E1 候选窗 IoU ≥
+  `deep_agreement_min_iou` 且深度置信 ≥ `deep_min_confidence` 为同位一致
+  互证（确认级置信升级为不下取最大值），冲突按保守侧处置（确认级降为
+  占位级 → 冻结状态机 kUncertain），深度通道永不单独确认，高置信模板
+  更新仅取双通道一致帧（缺失深度证据仍确认身份但模板捕获扣留并显式
+  上报 `template_withheld_by_deep_channel`）；提交回显新增
+  `deep_disposition`；`kBackendFailure` 弃置会话经既有占位提交路径降级、
+  当前帧确认 bounds 重建（M7-11 冻结钩子兑现，无新降级 API）。
+  NanoTrack 钳制语义对齐点裁决：维持钳制语义零行为变更（组合规则只消费
+  上报框与置信度）。bench 追加 `D+deep` 方法列：确定性伪深度后端
+  （像素回声、零学习状态）经注入点接入，隔离组合规则机制贡献，不做
+  质量声明（`DOD-05`；NanoTrack 真实权重质量列报走
+  `DEC-015`/`RISK-2026-13` 用户显式路径）。
 
 ### 修复
 
