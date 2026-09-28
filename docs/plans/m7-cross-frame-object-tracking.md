@@ -104,6 +104,85 @@ A/B/C/D 基准发布；go/no-go 判定。
   "D+深度增强"口径列报（不阻塞 M7-10 传统口径判定）。（验证套件、
   验证轮两项发现收口与门禁证据及 CI 回填（run 36459822707，14/14 job
   全绿）见下方"验证记录"2026-09-29 条。）
+- [ ] `M7-14` 里程碑收口：六预设完整门禁与退出条件核验（2026-09-29 立项，
+  为 `M7-03`~`M7-13` 各验证记录"随编排脚本收口"的挂起限制与总计划 1.28
+  修订登记的"六预设完整门禁与收尾文档项"提供可验收归属（工程规范
+  §3.3/§4.5；总计划 1.29 修订）。「编排脚本」即工作区持续开发动态工作流
+  `.zcode/workflows/mirador-continuous-dev.dwf.ts`（不入仓；git 全历史
+  无 `scripts/` 资产，唯一脚本资产为 `benchmarks/measure_sizes.sh`）。
+  本项按**流程定义**收口、不新建入仓脚本：由该编排工作流或收口会话在
+  收口分支（现 `docs/m7-closeout`）head——代码内容 = master head
+  `0c753f5` + 纯文档 commit——执行 AC1 命令清单（六预设与 CI 矩阵、
+  `tests/CMakeLists.txt` 的 tsan setarch 注册为可执行事实源，文档只引用
+  不另建副本维护）；全部验证由 Independent-Verification-Agent 独立执行
+  并回报证据（commit、逐预设 ctest 计数、lint 口径、CI run 链接，工程
+  规范 §7）；任何预设失败或计数漂移时按工程规范 §4 保持未勾选并记录
+  原因与补跑条件。
+  - AC1（退出条件第 1 项：六预设 + lint，同 `M6-06` 收口口径）：六预设
+    （debug/release/warnings/asan/ubsan/tsan）逐预设
+    `cmake --preset <p> && cmake --build --preset <p> &&
+    ctest --preset <p>` 全部退出码 0（基线：调研轮于 master head
+    `0c753f5` 实测 debug 54/54、其余预设 53/53，差 1 为 debug-only
+    `mirador.adapters.opencv` 既有条目，收口复跑计数为准；tsan 依赖
+    `tests/CMakeLists.txt` 树内逐测试 setarch 注册——`M7-03` 起——裸
+    `ctest --preset tsan` 即规范口径，无需显式包装）；架构 label 显式
+    证据 `ctest --preset debug -L architecture` 7/7；lint 双口径取
+    **全仓**归零（强于编排工作流现行的变更文件口径；CI 同款命令：
+    `git ls-files '*.cpp' '*.cc' '*.h' '*.hpp' | xargs clang-format
+    --dry-run --Werror`；`git ls-files '*.cpp' '*.cc' ':!integrations/**'
+    ':!adapters/capture-linux/**' ':!adapters/capture-windows/**'
+    ':!adapters/capture-android/**' | xargs clang-tidy
+    --warnings-as-errors='*' -p build/debug`——tidy 只扫 .cpp/.cc，头
+    文件经翻译单元一并分析，勿对头文件独立合成 TU（`M7-06` 起
+    include-cleaner 假阳性）；build/debug 须含 opencv 适配器配置）；
+    最小核心构建通过 + `nm -u` 闭包探针（同 `M6-06` 口径）；收口 PR
+    CI 全绿证据回填本节"验证记录"。
+  - AC2~AC8、AC10（退出条件第 2~8、10 项）：以 AC1 全量 ctest 复跑中
+    既有用例的结果直接核验勾选——架构闭包（fusion/image 探针）、确定
+    性、预算负向（`RULE-06`/`DOD-04`）、状态机边界、`DOD-03` 补偿坐标
+    矩阵、重检测负向（kLost 后静止画面零 Detector 触发）、
+    `TrackerBackend` SPI 编排/失败降级/句柄析构/取消与未注入零变化
+    对照、隐私负向——零新测试；bench release 复跑零漂移为可选复核
+    （`M7-09` 先例；`M6-06` 收口未复跑 bench），不作本项 AC。
+  - AC9（退出条件第 9 项）：`MIRADOR_BUILD_INTEGRATIONS=ON` 配置跑
+    `mirador.integrations.tracker_nanotrack_smoke`（或引收口 PR CI
+    integrations-ncnn job 证据）；默认预设 configure 核验零获取；
+    `docs/supply-chain/nanotrack.md` 登记在位复核。
+  - AC11（退出条件"文档同步"项，唯一需新工作的项）：(a) API 索引与
+    兼容性登记四处 Experimental 面（`object_tracker.hpp`、
+    `stable_id_tracker.hpp` `M7-06` 扩展、`shift_estimation.hpp`、
+    `tracker_backend.hpp`）"M7-10 GO（合成口径）+ `DEC-022` Proposed
+    待批、不计兼容性承诺"口径一致性复核（预期零内容变更）；(b)
+    CHANGELOG Unreleased 补收口条目、审校 M7 段并挂 `v0.4.0` 发布说明
+    草案（`[0.4.0]` 段定稿随授权发布轮，同 `v0.3.0` 先例）；(c) 总计划
+    1.30 修订：`SCOPE-13` 勾选、里程碑索引 M7 → Completed、决策清单补
+    `DEC-021`/`DEC-022` 条目（现止于 `DEC-020`），与本计划头部状态
+    In Progress → Completed 同轮提交（工程规范 §4.5，避免 M6 收口验证
+    员指出的"里程碑复选框需与总计划同轮同步"再现）；(d) 设计文档 §24
+    M7 状态更正（现标题"Proposed，随 DEC-019 评审立项"与 `DEC-019` 已
+    Accepted 不符）并仿 §24 M6 段式补收口状态段；(e) 本计划头部状态
+    翻转（随 (c) 同轮）。
+  - 排期边界：本项为**合成口径收口**，不等待 `DEC-022` 评审——
+    `DEC-022` 批准不是 M7 → Completed 的前置（工程规范"决策状态不用
+    于表示实施进度"；`M6-06` → `DEC-018` 先例：里程碑 Completed 与
+    决策批准分轮执行），批准前四处 Experimental 登记与"不计兼容性
+    承诺"口径不变。真实截图评估（`RISK-2026-14`）与 `DEC-018`/
+    `DEC-022` 阶段 2 不在本项范围：真实采集为负责人侧动作
+    （`~/mirador-eval/` 仓库外、负责人自有设备，两决策一次采集两用），
+    阶段 2 执行载体于 `DEC-022` 批准轮另立计划立项；开放项 1~3 留
+    `DEC-022` 开放项节随评审裁决，不另立决策记录（避免双源）。本计划
+    头部 `v0.4.0` 注记随收口轮更新为"随 `DEC-022` 评审确认"。
+  - 待用户授权事项（Agent 不执行，仅登记，随本项验证记录留档，同
+    `M6-06`"待用户授权事项"格式）：(1) 收口 PR 合入 master；(2)
+    `DEC-022` 评审结论——阶段 1 契约冻结与否，含开放项 1~3 裁决与
+    **第四处 Experimental 面 `tracker_backend.hpp` 是否纳入阶段 1
+    冻结范围**（`DEC-022` 阶段 1 现仅列三处冻结面，而兼容性登记与
+    API 索引均要求本面随 M7 收尾/评审一并纳入——评审时须同步修订
+    `DEC-022` 消除登记不一致）；(3) `v0.4.0` tag（打在收口 PR 合并
+    提交）与 GitHub Release、CHANGELOG `[0.4.0]` 段定稿——与 (2)
+    并列同一授权轮（`M6`/`v0.3.0` 同轮先例；若评审延迟，备选口径为
+    `v0.4.0` 以 Experimental 口径先行发布并在 CHANGELOG 注明冻结评审
+    中、不计兼容性承诺）。三项彼此不互为前置。
 
 ## 风险与阻塞
 

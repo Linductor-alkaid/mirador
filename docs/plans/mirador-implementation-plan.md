@@ -1,11 +1,40 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.28
+> 版本：1.29
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-29
+>
+> 1.29 修订（2026-09-29）：M7 新增收口工作项 `M7-14`（里程碑收口：六预设
+> 完整门禁与退出条件核验，`M6-06` 先例）——1.28 修订登记的"里程碑退出
+> 条件（六预设完整门禁与收尾文档项）随编排脚本收口"挂起职责自此有可验收
+> 归属（工程规范 §3.3/§4.5；此前该职责以散句挂于 `M7-03`~`M7-13` 各验证
+> 记录限制段，无工作项可关联验收）。执行机制取**流程定义**、不入仓脚本：
+> 「编排脚本」即工作区持续开发动态工作流
+> `.zcode/workflows/mirador-continuous-dev.dwf.ts`（git 全历史无
+> `scripts/` 资产，唯一脚本资产为 `benchmarks/measure_sizes.sh`），收口
+> 由编排工作流或收口会话在收口分支（`docs/m7-closeout`）head（代码内容
+> = master head `0c753f5` + 纯文档 commit）按 `M7-14` AC1 命令清单执行：
+> 六预设逐预设 configure/build/ctest（tsan 裸 `ctest --preset tsan`，依赖
+> `tests/CMakeLists.txt` 树内逐测试 setarch 注册，`M7-03` 起）、架构
+> label `ctest -L architecture` 7/7、lint 双口径**全仓**归零（强于编排
+> 工作流现行变更文件口径）、最小核心构建 + `nm -u` 闭包探针（同
+> `M6-06` 口径）。调研轮已于 master head `0c753f5` 实测该套命令全绿
+> （debug 54/54、其余预设 53/53，差 1 为 debug-only
+> `mirador.adapters.opencv` 既有条目；全仓 format/tidy 退出码 0；最小
+> 构建通过），收口轮由 Independent-Verification-Agent 独立复跑留证。
+> 排期边界：合成口径收口不等 `DEC-022` 评审（工程规范"决策状态不用于
+> 表示实施进度"；`M6-06` → `DEC-018` 里程碑 Completed 与决策批准分轮
+> 先例）；真实截图评估（`RISK-2026-14`）与 `DEC-018`/`DEC-022` 阶段 2
+> 不在收口范围，执行载体于 `DEC-022` 批准轮另立计划立项；`v0.4.0` 发布
+> 授权与 `DEC-022` 评审结论并列同一负责人授权轮（`M6`/`v0.3.0` 同轮
+> 先例）；`DEC-022` 阶段 1 现仅列三处冻结面，第四处
+> `tracker_backend.hpp` 须随评审修订纳入（`M7-14` 授权节点已登记）。
+> 授权节点（收口 PR 合入、`DEC-022` 评审、`v0.4.0` tag/Release）仅登记、
+> Agent 不执行。`SCOPE-13` 维持未勾选（待 `M7-14` 收口轮退出条件逐项
+> 核验通过后与里程碑状态同轮翻转）。
 >
 > 1.28 修订（2026-09-29）：M7 工作项 `M7-13` 勾选——验证套件
 > `mirador.fusion.object_tracker_deep_channel` 25 用例落地
