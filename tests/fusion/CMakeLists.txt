@@ -110,6 +110,22 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M7-11 TrackerBackend SPI contract freeze (DEC-020): the fake fixed-trajectory
+# tracker backend makes the frozen header contract executable and rehearses the
+# fusion-side orchestration with the frozen ObjectTracker primitives only —
+# initialize/update lifecycle, the validation matrix with the frozen
+# validation-before-cancellation ordering, cancel/deadline conversion with
+# all-or-nothing session state, kBackendFailure degradation to kUncertain
+# through the existing commit_track_evidence grade and session rebuild, handle
+# destruction on terminate/pool eviction/reset, the capability-result cache
+# exemption negative, per-sequence determinism, the DOD-03 rotation/odd-size/
+# stride/flush matrix and the RULE-10 privacy negatives.
+mirador_add_test(
+    NAME mirador.fusion.tracker_backend_orchestration
+    SOURCES tracker_backend_orchestration_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.snapshot
     SOURCES semantic_snapshot_test.cpp
