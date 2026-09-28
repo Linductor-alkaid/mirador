@@ -1577,6 +1577,32 @@ CI 证据回填一并处置）。本会话（实现工程师）记录：
   PR/CI 14/14 证据随其收口。真实权重评测与跟踪质量声明不在本项
   （`DOD-05`/`RISK-2026-13`：归 M7-13 D+ 列报与后续真实评估）；合成
   口径结论仅限管线与解码正确性。
+- 验证轮处置（2026-09-28，验证套件 839dfd7 交付后的实现侧修复，随
+  fix(integrations) commit 落地）：验证员三项发现逐项收口，零公共契约
+  变更——(1) RULE-06 记账口径：按验证员给出的两路收口选项取**文档措辞
+  精确化**（`work_budget_bytes` 头注释、`WorkBudget` 类注释与 update
+  记账点注释三处同步改写为精确边界：后端自身可控的分配请求——crop 暂存、
+  forward 输出张量、模板状态、解码窗——逐请求预算检查；wrapper 侧
+  per-forward 输入拷贝与 ncnn 内部中间/工作区缓冲受冻结模型契约几何
+  约束、非无界、不可自后端面单独计账，沿 M5 既有后端同款口径）。实现
+  过程曾按"记账收口"路线为 forward 输入拷贝追加计账，但验证套件的
+  预算夹具（starved 3000 / tight 8000）钉住计账集，追加计账使
+  initialize 总量 5184→8256 字节、套件"initialize fits the 8000-byte
+  budget"正例失败——为不弱化验证套件的独立性（夹具归验证员维护），
+  回退追加计账、维持文档收口路线。(2) 格式门重复定义漂移：会话构造时
+  从后端 `info_.accepted_formats` 派生 `accepted_formats_` 成员，update
+  与 initialize 校验同一列表，文件级静态 `kAcceptedFormats` 删除——
+  行为不变（值恒等），漂移面消除。(3) 钳制语义：按验证员定位为
+  observation 的口径**文档化而非改行为**——头注释新增"冻结钳制语义"
+  段：上报 bounds 为预测框钳入 prepared 图（契约块 6/DEC-021），参考
+  尺寸更新**刻意以钳制后尺寸为目标**（尺度状态追踪帧内可观测部分，
+  防止目标部分出图时搜索窗按不可观测预测持续放大），"以未钳制预测
+  尺寸入状态"的替代方案列为 M7-13 位置证据接线时与设计 §6.2 的显式
+  对齐点（属行为变更，非措辞修正）。修复后门禁（本会话执行）：
+  integrations 全树 ctest 56/56 连续三轮（含验证套件 153 检查项）、
+  debug 预设 53/53 零回归、clang-format/clang-tidy 双口径对
+  nanotrack_backend.{hpp,cpp} 归零、实现侧合成模型 harness 全部断言
+  通过（SANITY PASS）。
 - 环境干扰记录（验证轮须知）：本机全量 ctest 复跑中两次观察到
   `mirador.privacy.privacy`（`Privacy.PipelineWritesNoFiles`）与一次
   `mirador.fusion.tracker_backend_orchestration`（同名快照校验模式）
