@@ -8,10 +8,12 @@
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/shift_estimation.hpp>
+#include <mirador/tracker_backend.hpp>
 #include <mirador/visual_fingerprint.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -214,6 +216,32 @@ struct ObjectTrackerOptions {
     /// capacity; overflow drops the oldest record, explicitly counted in
     /// `evicted_redetection_record_count()` (RULE-06). [1, 4096].
     int32_t max_redetection_records = 64;
+
+    // ---- Deep-enhanced channel (M7-13; object-tracking design section 6.2
+    // "enhancement channel (optional injection)", RISK-2026-18 gating;
+    // RULE-12 — the upper layer owns both the TrackerBackend injection and
+    // this activation switch, the core hardcodes no policy; the defaults
+    // keep the traditional dual-channel pipeline bit-identical). ----
+    /// Master switch of the deep-channel combination rules. false (default):
+    /// every commit is graded by the frozen M7-06 table alone and a commit
+    /// that supplies deep evidence is rejected with kInvalidArgument — the
+    /// zero-change contract of the non-injected pipeline. true: commits may
+    /// carry `DeepChannelEvidence` and the frozen M7-13 combination rules
+    /// apply, including the template protection on tracks that hold an
+    /// injected session (see the M7-13 section note below the redetection
+    /// records).
+    bool deep_channel_enabled = false;
+    /// Minimum IoU between the deep bounds and the E1 candidate window (the
+    /// frozen M7-06 candidate rule) for the two channels to count as
+    /// co-located (design section 6.2 同位一致). (0, 1]. Development smoke
+    /// default — exercised by the M7-13 D+ harness column, no real-scene
+    /// prior exists (DOD-05).
+    double deep_agreement_min_iou = 0.5;
+    /// Minimum deep confidence for the deep channel to corroborate a
+    /// confirming grade; below it (or below the IoU bar) the deep evidence
+    /// takes the conservative conflict side. [0, 1]. Development smoke
+    /// default (DOD-05).
+    double deep_min_confidence = 0.5;
 };
 
 /// Outcome of one pool adoption: the new track id plus the ids of tracks
@@ -382,6 +410,139 @@ struct TrackVerification {
     StructureVerification structure;
 };
 
+// ---- Deep-enhanced channel (M7-13; object-tracking design section 6.2
+// "enhancement channel (optional injection)"; RISK-2026-18 gating; frozen
+// contract decisions recorded here and on the four entries) ----
+//
+// When the caller injects a TrackerBackend (DEC-020, e.g. the NanoTrack
+// reference backend), the neighborhood verification gains a deep appearance
+// channel: the caller runs one `TrackerSession::update` per verified frame —
+// with the track's current bounds as the position prior — and supplies the
+// validated outcome as `DeepChannelEvidence` to the deep overload of
+// `commit_track_evidence`. The pool consumes the evidence at the frozen
+// combination rules below; it never drives the backend itself (no
+// initialize/update happens inside this class — the caller prepares the
+// backend view per accepted_formats and owns the coordinate recovery from
+// prepared space into this tracker's space, RULE-05/DOD-03).
+//
+// Injection point (RULE-12, contract block 2 of tracker_backend.hpp): the
+// caller initializes sessions on ITS backend instance and stores the handles
+// in pool-side parallel single slots (`attach_tracker_session`), at most one
+// slot per track, a session rebuild replacing the handle in place (destroy
+// old, store new). The slot's byte overhead is accounted in `byte_size()`
+// and bounded by `pool_budget_bytes` (RULE-06); an insertion that cannot fit
+// fails explicitly with kBudgetExceeded and leaves the pool untouched; the
+// handle — and with it the session state — is destroyed synchronously on
+// track termination, pool eviction and `reset` (the frozen M7-05/M7-06/M7-08
+// parallel-slot pattern; the `TargetTrack` layout stays untouched). The
+// frozen M7-11 orchestration surface (the no-injection zero-byte contract of
+// the M7-11 suite) remains true with the switch and slots at their defaults:
+// a tracker that never sees `attach_tracker_session` accounts zero handle
+// bytes and grades every commit by the M7-06 table alone.
+//
+// Frozen combination rules (design section 6.2; explicit and deterministic;
+// RISK-2026-18):
+//   - Evidence trust (DEC-021): deep bounds/confidence are untrusted backend
+//     output, validated at this adoption point — non-finite or non-positive
+//     bounds, bounds outside the presented view, or a confidence outside
+//     [0, 1] are REJECTED with kInvalidArgument, never clamped, never
+//     partially adopted.
+//   - Co-located corroboration (同位一致互证): when the deep bounds overlap
+//     the E1 candidate window (the frozen M7-06 candidate rule: track bounds
+//     translated by the E1 `best_offset_*` when the E1 channel has an
+//     outcome, else the unchanged bounds) with IoU >=
+//     `deep_agreement_min_iou` AND the deep confidence is >=
+//     `deep_min_confidence`, the channels corroborate each other: a
+//     confirming grade (kConfirmed/kTentative) keeps its level and the track
+//     confidence is upgraded to the maximum of the traditional source (the
+//     clamped E1 peak NCC, or the prior confidence on an E2-only
+//     confirmation) and the deep confidence — never lowered.
+//   - Conflict, conservative side (RISK-2026-18): deep evidence present
+//     without corroboration demotes every confirming grade to
+//     kPlaceholder — the frozen M7-06 state machine then degrades a
+//     kTracking track to kUncertain, no evidence field moves, nothing is
+//     captured. Non-confirming grades (kPlaceholder/kVetoed) are already on
+//     the conservative side and stay untouched (a veto keeps its impostor /
+//     semantics semantics).
+//   - The deep channel never confirms by itself: without a confirming
+//     traditional grade, corroborated deep evidence changes nothing (no
+//     grade lift, no confidence write). A drifted deep tracker therefore
+//     cannot fabricate confirmations, and the template patch always comes
+//     from the E1 candidate window — deep drift cannot move the appearance
+//     store.
+//   - Template protection (高置信模板更新仅取双通道一致帧): with the switch
+//     on and the track holding an injected session, the positive-template
+//     capture of a kConfirmed commit requires a corroborated frame. A
+//     confirmed commit whose deep evidence is missing this frame (backend
+//     failure, cancel/timeout, caller skip) still confirms identity — the
+//     graceful-degradation rule — but its template capture is withheld and
+//     reported (`template_withheld_by_deep_channel`, RULE-06 visibility:
+//     never silent). A conflicted commit is demoted to kPlaceholder before
+//     this question arises. Tracks without an injected session and trackers
+//     with the switch off keep the frozen M7-06 capture policy.
+//   - Failure disposition (contract block 3 of tracker_backend.hpp):
+//     kBackendFailure from a session update makes that session unusable —
+//     the caller destroys it (`detach_tracker_session` drops the returned
+//     handle), the track degrades through the existing frozen primitives
+//     (the placeholder-grade commit path, no new API), and recovery is a
+//     fresh initialize on the current frame's confirmed bounds re-attached
+//     in place. kCancelled/kTimeout leave the session fully usable; a frame
+//     they abort simply supplies no deep evidence.
+//   - Zero change when not injected (the negative contract): switch off
+//     (default) or no session attached — `byte_size()`, grades, transitions,
+//     templates and every trace field are bit-identical to the pre-M7-13
+//     pipeline on identical inputs. Supplying deep evidence while the switch
+//     is off is a caller programming error and fails explicitly with
+//     kInvalidArgument (never silently ignored).
+//
+// Scope: the deep channel conditions the design section 6.2 neighborhood
+// verification path. The M7-08 redetection identity review keeps its frozen
+// shape (commits there carry no deep evidence and, on session-holding tracks
+// under an enabled switch, fall under the template protection above).
+
+/// Deep-channel combination disposition of one commit (M7-13; design section
+/// 6.2). Evidence-level echo on `TrackEvidenceCommit` — the disposition
+/// classifies, it never fabricates evidence of its own.
+enum class DeepChannelDisposition : uint8_t {
+    /// No deep evidence took part in this commit: not supplied, the switch is
+    /// off, or the injected session produced no usable update this frame.
+    /// The traditional grade applies unchanged (the zero-change rule; on a
+    /// session-holding track under an enabled switch this is exactly the
+    /// frame shape that triggers the template withholding).
+    kNotSupplied,
+    /// Deep bounds co-located with the E1 candidate window and deep
+    /// confidence at or above `deep_min_confidence`: mutual corroboration —
+    /// a confirming grade keeps its level and the track confidence is
+    /// upgraded to the max of the traditional source and the deep confidence.
+    kCorroborated,
+    /// Deep evidence present but not corroborating (position or confidence
+    /// conflict): the conservative disposition (RISK-2026-18) — a confirming
+    /// grade is demoted to kPlaceholder and the frozen state machine
+    /// degrades kTracking to kUncertain; no position move, no confidence
+    /// write, no template capture.
+    kConflict,
+};
+
+/// Caller-supplied deep-channel evidence of one frame for one track (M7-13):
+/// the outcome of one `TrackerSession::update` call, recovered by the caller
+/// from prepared-image pixel space into this tracker's coordinate space
+/// through its Transform2D chain (RULE-05, DOD-03 rotation/odd-size/stride
+/// matrix). Consumed as untrusted backend output (DEC-021): the commit
+/// validates it at this adoption point and rejects instead of clamping (see
+/// the section note).
+struct DeepChannelEvidence {
+    /// Deep-tracked target bounds in this tracker's coordinate space:
+    /// finite, positive area, fully inside the presented view.
+    RectF bounds;
+    /// Deep appearance confidence in [0, 1]; 1 means maximal confidence.
+    float confidence = 0.0F;
+
+    /// Component equality (test convenience).
+    [[nodiscard]] friend bool operator==(const DeepChannelEvidence& lhs, const DeepChannelEvidence& rhs) noexcept {
+        return lhs.bounds == rhs.bounds && lhs.confidence == rhs.confidence;
+    }
+};
+
 // ---- Evidence fusion and the tracking state machine (M7-06;
 // object-tracking design sections 3, 4 and 6.4 — frozen contract decisions
 // recorded here and on `commit_track_evidence`) ----
@@ -463,6 +624,17 @@ struct TrackEvidenceCommit {
     /// already hit a stored negative template; bounded store, eviction
     /// counted in `evicted_negative_template_count()`).
     bool negative_template_captured = false;
+    /// Deep-channel combination disposition of this commit (M7-13; see the
+    /// section note and `DeepChannelDisposition`). kNotSupplied on every
+    /// path of the traditional pipeline — the zero-change echo.
+    DeepChannelDisposition deep_disposition = DeepChannelDisposition::kNotSupplied;
+    /// True when the deep-channel template protection withheld the positive
+    /// capture of a kConfirmed commit (M7-13: high-confidence template
+    /// updates take dual-channel-consistent frames only — the switch is on,
+    /// the track holds an injected session, and this frame supplied no
+    /// corroborated deep evidence). RULE-06 visibility: the withholding is
+    /// reported, never silent.
+    bool template_withheld_by_deep_channel = false;
 };
 
 // ---- Global motion compensation and layout-generation pipeline (M7-07;
@@ -730,6 +902,17 @@ public:
     /// (M7-08): interruption events and recapture associations, ids and
     /// frame sequences only.
     static constexpr int64_t kRedetectionRecordOverheadBytes = 48;
+    /// Byte overhead of one track's deep-channel session-handle slot (M7-13):
+    /// the pool-side parallel single slot holding the injected
+    /// `TrackerSession` handle (tracker_backend.hpp contract block 2, the
+    /// M7-05/M7-06/M7-08 parallel-storage pattern; the frozen `TargetTrack`
+    /// layout stays untouched). At most one slot per track, allocated by
+    /// `attach_tracker_session` (a rebuild replaces the handle in place,
+    /// byte-neutral), accounted in `byte_size()` and `pool_budget_bytes`
+    /// (an insertion that cannot fit fails explicitly with kBudgetExceeded),
+    /// released — destroying the session state with it — by
+    /// `detach_tracker_session`, `terminate`, track eviction and `reset`.
+    static constexpr int64_t kTrackerHandleSlotOverheadBytes = 32;
 
     ObjectTracker() noexcept = default;
     ObjectTracker(const ObjectTracker&) = delete;
@@ -779,8 +962,10 @@ public:
     /// templates, negative templates and position history are released so
     /// archives stay cheap; the identity record (bounds, semantics, state)
     /// stays visible ("failure is visible", design section 4). The pool-side
-    /// E2 baseline (M7-05), state-machine (M7-06) and redetection-episode
-    /// (M7-08) slots are released with it. This is the caller-driven
+    /// E2 baseline (M7-05), state-machine (M7-06), redetection-episode
+    /// (M7-08) and deep-channel session-handle (M7-13 — the session state is
+    /// destroyed with the handle) slots are released with it. This is the
+    /// caller-driven
     /// kLost/kTracking → kTerminated edge of the state machine (M7-06); the
     /// redetect-budget-exhausted edge is M7-08's and is performed by
     /// `record_redetection_failure` itself (same archive semantics, no need
@@ -1191,6 +1376,74 @@ public:
         const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view,
         uint64_t frame_sequence, const ExecutionContext& context = {}) noexcept;
 
+    /// Deep-channel variant of `commit_track_evidence` (M7-13; object-tracking
+    /// design section 6.2 enhancement channel): identical to the overload
+    /// above in every frozen respect — grade table, state transitions, capture
+    /// policies, atomicity, validation-before-cancellation — plus the frozen
+    /// deep-channel combination rules applied to `deep_evidence` (see the
+    /// M7-13 section note: DEC-021 adoption-point validation with explicit
+    /// rejection, co-located corroboration upgrading the confidence, the
+    /// conservative conflict demotion, the template protection on tracks
+    /// holding an injected session). The commit echo carries
+    /// `deep_disposition` and, where the protection fired,
+    /// `template_withheld_by_deep_channel`. Requires
+    /// `options().deep_channel_enabled` — a deep-evidence commit on a tracker
+    /// with the switch off is a caller programming error and fails with
+    /// kInvalidArgument (never silently ignored; the zero-change contract).
+    ///
+    /// Errors: as the overload above, plus kInvalidArgument for deep evidence
+    /// supplied while the switch is off, non-finite or non-positive deep
+    /// bounds, deep bounds not fully inside the presented view, or a deep
+    /// confidence that is non-finite or outside [0, 1] (DEC-021: rejected,
+    /// never clamped). Never throws.
+    [[nodiscard]] Result<TrackEvidenceCommit> commit_track_evidence(
+        uint64_t track_id, const TrackVerification& verification, const TrackPositionEvidence& position,
+        const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view,
+        uint64_t frame_sequence, const DeepChannelEvidence& deep_evidence,
+        const ExecutionContext& context = {}) noexcept;
+
+    /// Stores one injected tracking-session handle in the track's pool-side
+    /// parallel single slot (M7-13 injection point; tracker_backend.hpp
+    /// contract block 2, the M7-05/M7-06/M7-08 parallel-storage pattern — the
+    /// frozen `TargetTrack` layout stays untouched). The pool never drives
+    /// the session: the caller runs `initialize` on its own backend instance
+    /// and hands the handle here; the caller runs `update` (usually with the
+    /// track's current bounds as the position prior, feeding the deep
+    /// overload of `commit_track_evidence`); `info().thread_safe` governs
+    /// cross-handle concurrency, calls on one handle stay strictly serial
+    /// (RULE-03; the pool adds no scheduling of its own).
+    ///
+    /// At most one slot exists per track: attaching over an existing slot
+    /// replaces the handle in place (destroy old, store new — the session-
+    /// rebuild shape; byte-neutral). A new slot is budget-checked
+    /// (`kTrackerHandleSlotOverheadBytes`, RULE-06): an insertion that cannot
+    /// fit fails explicitly with kBudgetExceeded and leaves the pool —
+    /// including the caller's session — untouched (the unique_ptr is not
+    /// consumed on any error path). The handle is destroyed synchronously by
+    /// `detach_tracker_session`, `terminate`, track eviction and `reset`.
+    ///
+    /// Errors: kInvalidArgument for a null session, an unknown track id or an
+    /// already-terminated track (identity closed — a session cannot
+    /// outlive its identity); kBudgetExceeded as above. Never throws.
+    [[nodiscard]] Result<void> attach_tracker_session(uint64_t track_id,
+                                                      std::unique_ptr<TrackerSession> session) noexcept;
+
+    /// Extracts the track's injected session handle, releasing the slot (M7-13):
+    /// the returned unique_ptr owns the session; letting it go out of scope is
+    /// the explicit discard (tracker_backend.hpp contract blocks 2/3 — the
+    /// kBackendFailure disposal shape: detach, drop, rebuild fresh). Slot bytes
+    /// are freed. Returns nullptr when the track holds no session (an unknown
+    /// track id reads as absent, the `find_track` query precedent). Never
+    /// throws.
+    [[nodiscard]] std::unique_ptr<TrackerSession> detach_tracker_session(uint64_t track_id) noexcept;
+
+    /// The track's injected session handle, or nullptr when absent (M7-13).
+    /// The pointer stays valid until the next non-const call on this tracker.
+    /// The caller drives `update` through it; the pool only stores the handle.
+    /// Never throws.
+    [[nodiscard]] TrackerSession* tracker_session(uint64_t track_id) noexcept;
+    [[nodiscard]] const TrackerSession* tracker_session(uint64_t track_id) const noexcept;
+
     /// Applies the M7-07 pipeline's frozen trigger decision that maps the
     /// frame's global change classification onto the layout generation
     /// (object-tracking design section 6.4; the decision the M7-03 gate
@@ -1478,9 +1731,11 @@ public:
     /// (`kObservationOverheadBytes` each) + semantics text/label byte lengths,
     /// plus one `kStructureBaselineOverheadBytes` slot per track that holds an
     /// E2 structure baseline (M7-05), one `kStateSlotOverheadBytes` slot
-    /// per track that holds a state-machine slot (M7-06) and one
+    /// per track that holds a state-machine slot (M7-06), one
     /// `kRedetectSlotOverheadBytes` slot per track that holds a
-    /// redetection-episode slot (M7-08), plus `kRedetectionRecordOverheadBytes`
+    /// redetection-episode slot (M7-08) and one `kTrackerHandleSlotOverheadBytes`
+    /// slot per track that holds an injected deep-channel session handle
+    /// (M7-13), plus `kRedetectionRecordOverheadBytes`
     /// per record of the bounded redetection log (M7-08). Always <=
     /// `options().pool_budget_bytes`.
     [[nodiscard]] int64_t byte_size() const noexcept { return used_bytes_; }
@@ -1575,11 +1830,25 @@ private:
     /// Removes the track's redetection slot if present; returns the bytes
     /// freed.
     int64_t erase_redetect_slot(uint64_t track_id) noexcept;
+    /// Pool-side deep-channel session-handle slot of one track (M7-13),
+    /// parallel storage like the baseline/state/redetect slots above and
+    /// sorted by track_id the same way. The unique_ptr IS the ownership: its
+    /// destruction is the synchronous discard of the backend session state
+    /// (tracker_backend.hpp contract block 2).
+    using HandleSlots = std::vector<std::pair<uint64_t, std::unique_ptr<TrackerSession>>>;
+    /// Iterator to the track's handle slot, or `end()` when absent.
+    [[nodiscard]] HandleSlots::iterator find_tracker_handle(uint64_t track_id) noexcept;
+    [[nodiscard]] HandleSlots::const_iterator find_tracker_handle(uint64_t track_id) const noexcept;
+    /// Bytes of the track's handle slot (0 when the track holds none).
+    [[nodiscard]] int64_t tracker_handle_bytes(uint64_t track_id) const noexcept;
+    /// Removes the track's handle slot if present, destroying the session
+    /// synchronously; returns the bytes freed.
+    int64_t erase_tracker_handle(uint64_t track_id) noexcept;
     /// Archive semantics shared by `terminate` and the budget-exhaustion
     /// edge of `record_redetection_failure` (frozen M7-01 visibility rule):
     /// the track becomes kTerminated at `frame_sequence`, its evidence
-    /// stores are released and the pool-side baseline, state-machine and
-    /// redetection slots are erased with it.
+    /// stores are released and the pool-side baseline, state-machine,
+    /// redetection and deep-channel session-handle slots are erased with it.
     void archive_track(TargetTrack& track, uint64_t frame_sequence) noexcept;
     /// Shared bounded-log append of `record_redetection_recapture` and
     /// `record_redetection_association`: fixed-size records, capacity
@@ -1587,6 +1856,15 @@ private:
     /// `evicted_redetection_record_count()`), pool byte budget enforced. On
     /// error the log — and the pool — are untouched.
     [[nodiscard]] Result<void> append_redetection_record(const RedetectionRecord& record) noexcept;
+    /// Shared body of the two `commit_track_evidence` overloads: `deep` is
+    /// null on the traditional path (zero-change contract) and points at the
+    /// caller-supplied evidence on the M7-13 deep path (validated inside,
+    /// DEC-021 adoption-point rejection).
+    [[nodiscard]] Result<TrackEvidenceCommit> commit_track_evidence_impl(
+        uint64_t track_id, const TrackVerification& verification, const TrackPositionEvidence& position,
+        const std::optional<TrackSemantics>& candidate_semantics, const ImageView& presented_view,
+        uint64_t frame_sequence, const DeepChannelEvidence* deep, const ExecutionContext& context) noexcept;
+
     /// Planned (not yet applied) eviction of an `adopt_track` insertion:
     /// terminated tracks first, then oldest by (`last_verified_sequence`,
     /// `track_id`), until the insertion fits both the count and byte bounds.
@@ -1605,6 +1883,8 @@ private:
     StateSlots state_slots_;
     /// Redetection-episode slots keyed by track_id, ascending (M7-08).
     RedetectSlots redetect_slots_;
+    /// Deep-channel session-handle slots keyed by track_id, ascending (M7-13).
+    HandleSlots tracker_handles_;
     /// Bounded pool-wide redetection log, oldest first (M7-08).
     std::vector<RedetectionRecord> redetection_records_;
     uint32_t layout_generation_ = 0;
