@@ -1313,3 +1313,32 @@ commit f8926a2 落地）：
   改动，六预设门禁与 CI 证据随编排脚本在分支 head 收口回填；
   `DEC-022` 评审批准、三项开放项裁决与真实截图评估（`RISK-2026-14`，与
   `DEC-018` 阶段 2 共享 `~/mirador-eval/` 采集）待负责人排期。
+
+同日 `M7-10` 验证轮处置（验证员复核判定记录与提交纪律：一项 minor、一项
+info 观察，**均无需改动**；判定 commit 与全部文档交付内容维持不变）：
+
+- minor（commit 格式，按先例处置、无需返工）：判定 commit 067f913 的
+  subject 为 `docs: …` 无 `(scope)`，字面上不满足 AC5 的
+  `<type>(<scope>): <subject>`；但与本工作项同型先例 b05f783（M6-06 判定
+  commit，已合入 master）及 master 上至少 8 条 scope-less `docs:` 提交完全
+  一致——AGENTS.md 的 scope 枚举亦无 plans/decisions 对应项，验证员判定
+  为按仓库既定惯例执行，无需返工。实现侧不重写已交付 commit（改写历史
+  无逻辑收益且违背提交纪律），本处置记录及后续提交沿用同一先例格式。
+- info（非缺陷观察，留档备查）：判定记录已如实声明"六预设门禁与 CI 证据
+  随编排脚本在分支 head 收口回填"（未执行验证已按 AC5 记录原因与补跑
+  条件）；验证员本轮按其 ask 范围仅抽查 asan/ubsan、未跑 TSAN——与纯
+  文档变更及本项范围一致，留档备查。
+- 验证员测试交付：`test(fusion)` commit 8e95371 新增
+  `mirador.fusion.object_tracker_verdict_ruling` 套件，钉住本判定
+  `min_compensation_confidence` 裁定的行为面——局部变化伪位移带
+  [0.46, 0.55] 在库默认 0.0 门下应用（判定记录如实登记的未配置调用方
+  暴露面）、在 0.7 调用方策略下显式拒绝（估计回显、池不动）；真滚动带
+  [0.93, 0.95] 两种配置下均应用；显式 0.0 配置与库默认行为逐位一致
+  （默认值本身仍由 `M7-09` 校准套件钉住）。变异校验（临时上调库默认
+  0.7 后两测失败、头文件还原）证实钉住有效。
+- 复验（实现侧本地证据，本会话执行）：`cmake --build --preset debug`
+  增量 up-to-date（`ninja: no work to do`，验证员测试二进制已构建零告警）；
+  debug 全量 ctest 52/52 通过（architecture 7 / property 1 / unit 44，含
+  新套件直跑 `mirador.fusion.object_tracker_verdict_ruling` 2/2 通过，
+  既有套件零回归）；工作树仅本条处置记录文档变更。六预设完整门禁与
+  CI 证据仍随编排脚本收口。
