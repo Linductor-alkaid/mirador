@@ -204,7 +204,13 @@
   （`MIRADOR_BUILD_INTEGRATIONS` 默认 OFF，架构测试锁定 core 闭包）。
   供应链登记：候选 port 许可证（Apache-2.0）与模型来源审查通过并登记
   `docs/supply-chain/nanotrack.md`（对 pinned ncnn 20260526 兼容核对，
-  零构建期依赖、`deps.lock.json` 无新条目）。
+  零构建期依赖、`deps.lock.json` 无新条目）。合成模型冒烟套件
+  `mirador.integrations.tracker_nanotrack_smoke` 入 integrations 套件
+  与 CI（153 检查项、6 套运行时生成合成模型，integrations-ncnn job 的
+  ctest 自动捕获、job 零改动）；验证轮三项发现已收口（`RULE-06` 记账
+  边界文档措辞精确化、格式门从 `info().accepted_formats` 构造期派生
+  同源化、钳制语义文档化为冻结选择并列入 M7-13 对齐点），零公共契约
+  变更。
 
 ### 修复
 
