@@ -233,7 +233,17 @@
   上报框与置信度）。bench 追加 `D+deep` 方法列：确定性伪深度后端
   （像素回声、零学习状态）经注入点接入，隔离组合规则机制贡献，不做
   质量声明（`DOD-05`；NanoTrack 真实权重质量列报走
-  `DEC-015`/`RISK-2026-13` 用户显式路径）。
+  `DEC-015`/`RISK-2026-13` 用户显式路径）。验证轮两项发现随 fix(fusion)
+  commit 收口：`attach_tracker_session` 改为 owning-reference 签名——
+  池仅在成功路径消费句柄，任何错误路径（`kInvalidArgument`/
+  `kBudgetExceeded`）调用方 `unique_ptr` 仍拥有存活会话，头契约
+  「错误路径不消费」由假变真（采纳验证员「归还会话」方向，非契约
+  放宽）；`create()` 对 double 选项家族补 isfinite 守卫（NaN 显式
+  `kInvalidArgument`，纯收紧——文档域本排除 NaN，无原合法值被拒）。
+  25 用例验证套件 `mirador.fusion.object_tracker_deep_channel` 钉住
+  注入生命周期与字节记账、`RISK-2026-18` 组合矩阵、高置信模板防护、
+  未注入/关闭开关零变化与 `RULE-12` 开关；bench `D+deep` 列修复后
+  复跑与传统 24 cell 逐位零漂移。
 
 ### 修复
 

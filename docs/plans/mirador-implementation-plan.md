@@ -1,11 +1,38 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.27
+> 版本：1.28
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-28
+> 更新日期：2026-09-29
+>
+> 1.28 修订（2026-09-29）：M7 工作项 `M7-13` 勾选——验证套件
+> `mirador.fusion.object_tracker_deep_channel` 25 用例落地
+> （Independent-Verification-Agent 交付，test(fusion) 585cefa：`RULE-12`
+> 开关矩阵与仅开开关零变化、`DEC-021` 拒绝矩阵、`RISK-2026-18` 同位
+> 互证/冲突保守降级矩阵、高置信模板防护与扣留上报、注入生命周期字节
+> 记账、DOD-03 坐标矩阵、逐位确定性与隐私负向）；验证轮两项发现随
+> fix(fusion) 1d8234a 逐项收口（4 文件 +68/−25，沿 M7-12 48de7db
+> 先例）：[中] `attach_tracker_session` 签名改 owning-reference
+> （池仅成功路径消费句柄，任何错误路径调用方 `unique_ptr` 仍拥有存活
+> 会话——头契约「错误路径不消费」由假变真，采纳验证员「归还会话」
+> 方向非契约放宽）；[低] `create()` 对 double 选项家族补 isfinite
+> 守卫（NaN 显式 `kInvalidArgument`，纯收紧）。bench deep_step 与
+> 套件五处 attach 调用点机械适配，断言零删除、净增 4 条（预算拒绝
+> 用例就地补三条会话存活断言，增强非弱化）。门禁（修复会话报告 +
+> 文档同步轮复验于分支 head 1d8234a）：debug ctest 54/54、release
+> 53/53（差 1 为 debug-only `mirador.adapters.opencv` 既有条目）、
+> 验证套件直跑 debug/asan/ubsan/warnings 各 25/25 且 asan/ubsan 全量
+> ctest 53/53 零 sanitizer 报告、lint 双口径对触及文件归零；缺陷探针
+> 19/19 与 NaN 家族拒绝复验通过；bench release 复跑 D+ 列与传统
+> 24 cell 对发布报告逐位零漂移（剥离计时字段 diff 为空，`DEC-011`
+> 口径）。API 索引与兼容性登记补记注入句柄 owning-reference 语义
+> （登记文本原不载签名细节，语义以头注释为权威）；CHANGELOG Unreleased
+> 补验证轮收口句。限制：tsan 预设与六预设完整复跑、sanitizer 全量、
+> CI 14/14 与推送/PR 归编排脚本收口（CI 回填段记"待补"）；`SCOPE-13`
+> 维持未勾选（`M7-01`~`M7-13` 全部工作项已勾选，里程碑退出条件——
+> tsan/六预设完整门禁、CI 回填与收尾文档项——随编排脚本收口）。
 >
 > 1.27 修订（2026-09-28）：M7 工作项 `M7-13` **实现交付**（工作项未勾选
 > ——验证套件由 Independent-Verification-Agent 独立编写与执行，勾选与

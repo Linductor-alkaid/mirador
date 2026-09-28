@@ -6,7 +6,7 @@
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)（`SCOPE-13`）
 > 前置：M6（已完成）；建议与 `DEC-018` 阶段 2 的真实数据评估协调排期，但不互为前置
 > 建议发布点：`v0.4.0`（暂定，随判定收尾确认）
-> 更新日期：2026-09-28
+> 更新日期：2026-09-29
 
 ## 目标
 
@@ -98,10 +98,12 @@ A/B/C/D 基准发布；go/no-go 判定。
   `DEC-015` 分层走用户显式路径（`RISK-2026-13` 口径）。（审查**通过**并
   登记 [docs/supply-chain/nanotrack.md](../supply-chain/nanotrack.md)，
   未触发备选更换；交付与验证轮记录见下方"验证记录"2026-09-28 三条。）
-- [ ] `M7-13` 深度增强通道条件化融合：注入时 E1/深度组合与置信冲突保守
+- [x] `M7-13` 深度增强通道条件化融合：注入时 E1/深度组合与置信冲突保守
   处置（`RISK-2026-18` 门控）、高置信模板更新仅取双通道一致帧、未注入
   退化路径零变化验证、上层启用开关（`RULE-12`）；`A/B/C/D` 基准追加
-  "D+深度增强"口径列报（不阻塞 M7-10 传统口径判定）。
+  "D+深度增强"口径列报（不阻塞 M7-10 传统口径判定）。（验证套件、
+  验证轮两项发现收口与门禁证据见下方"验证记录"2026-09-29 条；CI 回填
+  待补。）
 
 ## 风险与阻塞
 
@@ -1778,3 +1780,113 @@ df63c17；验证套件由 Independent-Verification-Agent 按分工交付，实�
   [linux-x64-object-tracking-2026-09.md](../benchmarks/linux-x64-object-tracking-2026-09.md)
   （合成口径限定、A/B/C/D 传统 24 cell 零回归对照与列报口径依据随附，
   本机 release 复跑 3 次重复非计时指标逐位一致）。
+
+2026-09-29：`M7-13` 验证套件交付、验证轮两项发现收口与工作项勾选（分支
+`feat/m7-13-deep-channel-conditional-fusion`，自 master bde1c6a 切出，六个
+commit：实现 d92adf5 → bench deb18e6 → 文档注册 f135d70 → 基准报告
+5f36942 → 验证套件 585cefa → 验证轮修复 1d8234a；验证套件由
+Independent-Verification-Agent 按分工交付，实现轮交付见上方 2026-09-28
+记录）：
+
+- 交付摘要：验证套件 `tests/fusion/object_tracker_deep_channel_test.cpp`
+  （`ObjectTrackerDeepChannelTest` 25 用例，注册 ctest 项
+  `mirador.fusion.object_tracker_deep_channel`）随 test(fusion) commit
+  585cefa 落地；验证轮两项发现随 fix(fusion) commit 1d8234a 逐项收口
+  （4 文件 +68/−25，沿 `M7-12` fix(integrations) 48de7db 验证轮修复
+  先例；未推送、未放宽公共契约）：
+  - [中] `attach_tracker_session` 签名由按值 `unique_ptr` 改为
+    owning-reference（`std::unique_ptr<TrackerSession>&`，
+    object_tracker.hpp:1438-1440）：原签名下任何错误返回都会在参数析构
+    中销毁调用方会话——与头契约「unique_ptr 不在任何错误路径被消费」
+    直接冲突（`kBudgetExceeded` 静默丢弃刚初始化的会话，按头契约继续
+    持有则 use-after-free）。修复后池仅在成功路径消费句柄（move 后
+    调用方指针为 null，src/fusion/object_tracker.cpp:1527-1530）；任何
+    错误路径——`kInvalidArgument`（null/unknown/terminated）与
+    `kBudgetExceeded`——调用方 `unique_ptr` 仍拥有存活会话，可重试/
+    销毁/复用。修复方向采纳验证员两选项中的 (a) 归还会话而非 (b)
+    修订契约为「失败即销毁」——前者保留更优语义（预算拒绝不强迫调用
+    方重初始化刚建好的会话）且使头契约注释与设计 §6.2「错误路径池与
+    会话均不动」口径无需改写即为真；失败可见性不变（显式 Status）。
+    验证轮裁决理由写入头契约注释（object_tracker.hpp:1416-1424）与
+    cpp 注记（src/fusion/object_tracker.cpp:1515-1521）。
+  - [低] `create()` 新增 isfinite 守卫：NaN `deep_agreement_min_iou`/
+    `deep_min_confidence` 现报 `kInvalidArgument`；按验证员校准面建议
+    一次性修复全部 double 选项家族（ncc 弱/强阈值、
+    `peak_sidelobe_ratio_min`、`structure_deviation_tolerance`、
+    `verification_roi_diagonal_ratio`、`impostor_match_threshold`、
+    `min_compensation_confidence` 与两个深度阈值，
+    src/fusion/object_tracker.cpp:1038-1070）——纯收紧：全部文档域
+    （[0,1]、(0,1]、≥1）本就排除 NaN，isfinite 是对文档域的实现对齐，
+    无任何原合法值被新拒；int/bool 选项不受 NaN 影响。
+  - 机械适配：bench `deep_step` 与验证套件五处 attach 调用点改为具名
+    句柄形式；断言语义零改动——审计（`git diff 585cefa..1d8234a --
+    tests/fusion/object_tracker_deep_channel_test.cpp`）确认零
+    EXPECT/ASSERT 删除（3 行为同一断言的具名句柄机械改写），净增
+    4 条：`attach_or_fail` 成功后 `EXPECT_EQ(handle, nullptr)`；预算
+    拒绝用例以三条会话存活断言（`EXPECT_NE(rejected_handle, nullptr)`/
+    同对象/`counters->alive == 1`）替换原 `(void)rejected_session`
+    占位——上轮未断言的探针行为固化为回归覆盖，属增强非弱化。测试债
+    记录（哨兵两态演进）由套件
+    `SentinelNotInjectedZeroBytesInjectedSlotBytes` 补齐，实现侧无
+    动作。
+- 验证覆盖（25 用例，伪 `TrackerBackend` 注入）：`RULE-12` 开关矩阵
+  （开关关闭时供证 `kInvalidArgument` 池不动；仅开开关与
+  传统管线孪生对照逐位零变化）；`DEC-021` 不可信输出校验拒绝矩阵与
+  校验先于取消；`RISK-2026-18` 组合矩阵（同位互证置信升级为不下取
+  最大值且维持确认级——strong/weak/E2-only 三入口；位置/置信冲突把
+  确认级降占位级，kTracking → kUncertain 且位置/置信/模板不动；低
+  置信冲突同处置；深度通道永不单独确认；否决语义保留）；高置信模板
+  防护（持会话 track 缺深度证据仍确认身份但模板捕获扣留并显式上报
+  `template_withheld_by_deep_channel`、扣留帧不污染模板集、无会话
+  track 不受防护、M7-08 重检测复核提交同落防护）；`kBackendFailure`
+  弃置降级与确认 bounds 重建恢复；注入生命周期（槽字节记账与显式
+  预算拒绝——拒绝后调用方会话存活三断言、原地重建字节中性并析构旧
+  会话、terminate/池淘汰/reset 三路同步析构、校验矩阵、未注入零
+  字节/注入 +`kTrackerHandleSlotOverheadBytes` 哨兵）；`DOD-04`
+  不放宽（组合规则不改模板/参数失效语义）；逐位确定性；DOD-03 坐标
+  矩阵（0/90/180/270 旋转 × 奇数尺寸 × 非连续 stride × 贴边）；隐私
+  （零落盘、Status 消息无像素标记，`RULE-10`/`DOD-06`）。
+- 门禁（验证轮修复会话报告，分支 head 1d8234a）：缺陷探针（/tmp，
+  不入仓）19/19 ALL PASS——预算差 1 字节 attach → `kBudgetExceeded`
+  且池字节不变、无池会话、调用方指针仍持同一存活会话（destroyed=0，
+  调用方侧丢弃后 destroyed=1）；NaN 双深度阈值/NaN ncc_weak/NaN
+  impostor 均拒绝、合法配置通过。debug 预设 ctest 54/54（含验证套件
+  与架构 7/7）、release 53/53（差 1 为 debug-only
+  `mirador.adapters.opencv` 既有条目，`M7-01` 记录口径）；asan/ubsan
+  预设套件直跑各 25/25 且全量 ctest 各 53/53、sanitizer 零报告；
+  warnings 预设构建 + 套件 25/25；clang-format `--dry-run --Werror`
+  对触及四文件归零、clang-tidy `--warnings-as-errors='*'`
+  （`-p build/debug`）对测试文件与 fusion 实现归零。基准复跑（release、
+  3 次重复内建逐位确定性断言通过）：
+  D+ 列 deep/corr/confl/withheld = 0/0/0/0、30/30/0/0、18/18/0/1、
+  6/6/0/0、5/0/5/1、5/5/0/0，池峰值 7716/25156/16923/14628/6303/6312 B
+  ——与发布报告及上轮 585cefa 运行逐位一致；全 30 cell 剥离计时字段
+  后 diff 为空（唯一差异为 header 一行 short-circuit p50/p95 计时
+  噪声，`DEC-011` 口径）——修复对传统 24 cell 与 D+ 列零行为漂移。
+- 门禁（文档同步轮复验，本会话执行，分支 head 1d8234a）：
+  `cmake --build --preset debug` 与 `--preset release` 增量均
+  `ninja: no work to do`；`ctest --preset debug` 54/54（architecture
+  7 / property 1 / unit 46）、`ctest --preset release` 53/53；验证
+  套件直跑 debug/asan/ubsan/warnings 各 25/25（asan/ubsan 零
+  sanitizer 报告）；clang-format `--dry-run --Werror` 对触及四文件
+  退出码 0；clang-tidy `--warnings-as-errors='*'`（`-p build/debug`）
+  对三份触及 .cpp（fusion 实现、验证套件、bench）0 errors——头文件
+  经 .cpp 翻译单元一并分析（CI lint 口径只扫 .cpp；对头文件独立合成
+  TU 跑 tidy 会在 `M7-06` 起的 `std::pair` 使用上报 include-cleaner
+  假阳性，非本分支引入、非任何门入口径）；三个缺陷探针二进制（/tmp）
+  原样复跑：19/19 ok、attach 存活 VERDICT PASS、NaN 家族 VERDICT
+  PASS；bench release 复跑（2 次重复）退出码 0、`self-checks ok`
+  （零静态触发/池预算/逐位确定性内建断言通过），D+ 列六场景
+  deep/corr/confl/withheld 与池峰值数字与发布报告逐位一致。
+- 限制：(1) tsan 预设与六预设完整复跑、sanitizer 全量 ctest、CI
+  14/14 与推送/PR 归编排脚本在分支 head 统一收口（同
+  `M7-03`~`M7-12` 先例；本分支实际执行面以上两条门禁段为准）。
+  (2) release ctest 53 vs debug 54 之差为 debug-only
+  `mirador.adapters.opencv` 既有条目（`M7-01` 记录口径），非本轮
+  差异。(3) /tmp 探针文件与二进制未入仓（工程验证证据非测试资产），
+  正式负向覆盖由套件就地增强的存活断言与全家族 isfinite 拒绝承接，
+  验证员复核如需可纳管。(4) 验证员侧的验证轮处置记录（df63c17 式
+  docs(plans) 记录）与哨兵两态演进说明归验证员/编排脚本收口；本条
+  为实现侧修复与文档同步轮记录。
+- CI 回填：待补——分支未推送，推送与 PR/CI 14/14 证据随编排脚本在
+  分支 head 收口后回填（同 `M7-03`~`M7-12` 先例）。

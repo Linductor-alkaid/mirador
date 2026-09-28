@@ -93,6 +93,8 @@ kLost → kTerminated 归档转移——预算耗尽显式失败）、
 条件化融合（设计 §6.2 增强通道，`DEC-020`/`DEC-021`/`RISK-2026-18` 门控）：
 注入点原语 `attach_tracker_session`/`detach_tracker_session`/
 `tracker_session`（池侧并行单槽存调用方初始化的 `TrackerSession` 句柄，
+attach 为 owning-reference 语义：仅成功路径消费句柄、任何错误路径调用方
+`unique_ptr` 仍拥有存活会话，验证轮裁决冻结于头注释；
 `kTrackerHandleSlotOverheadBytes` 计入字节预算、terminate/淘汰/reset 同步
 析构）、`commit_track_evidence` 深度证据重载（`DeepChannelEvidence` 按
 `DEC-021` 采纳点校验拒绝而非钳制；同位一致互证升级置信、冲突保守降级、
