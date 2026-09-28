@@ -91,11 +91,13 @@ A/B/C/D 基准发布；go/no-go 判定。
   归属与生命周期、同步/取消语义、缓存豁免界定；Fake `TrackerBackend`
   （固定轨迹注入）完成 fusion 侧编排测试；架构测试证明 core 链接闭包
   不变；API 索引与兼容性 Experimental 登记。
-- [ ] `M7-12` NanoTrack ncnn 参考后端（`integrations/`）：许可证与模型
+- [x] `M7-12` NanoTrack ncnn 参考后端（`integrations/`）：许可证与模型
   来源审查并登记 `docs/supply-chain/`（审查未通过则按 `DEC-020` 备选更换
   候选，契约不变）；复用 `NcnnRuntime` 与 `MIRADOR_BUILD_INTEGRATIONS`
   默认 OFF；合成模型冒烟入 `integrations` 套件与 CI job；真实权重评测按
-  `DEC-015` 分层走用户显式路径（`RISK-2026-13` 口径）。
+  `DEC-015` 分层走用户显式路径（`RISK-2026-13` 口径）。（审查**通过**并
+  登记 [docs/supply-chain/nanotrack.md](../supply-chain/nanotrack.md)，
+  未触发备选更换；交付与验证轮记录见下方"验证记录"2026-09-28 三条。）
 - [ ] `M7-13` 深度增强通道条件化融合：注入时 E1/深度组合与置信冲突保守
   处置（`RISK-2026-18` 门控）、高置信模板更新仅取双通道一致帧、未注入
   退化路径零变化验证、上层启用开关（`RULE-12`）；`A/B/C/D` 基准追加
@@ -1505,3 +1507,210 @@ info 观察，**均无需改动**；判定 commit 与全部文档交付内容维
   门禁证据/文档同步全部 5 个 commit，全程 40m7s）；首轮通过，无修复
   往返，上条"CI 回填：待补（分支未推送，推送与 14/14 证据回填随编排
   脚本收口，同 `M7-09`/`M7-10` 先例）"就此闭合。
+
+2026-09-28：`M7-12` NanoTrack ncnn 参考后端**实现与审查轮交付**（分支
+`feat/m7-12-nanotrack-ncnn-reference-backend`，工作项保持未勾选——合成
+模型冒烟套件按分工由独立验证工程师随后续 commit 交付，勾选随其落地与
+CI 证据回填一并处置）。本会话（实现工程师）记录：
+
+- 许可证与模型来源审查（工作项第一步与门槛）：**通过**。候选 port
+  HonglinChu/NanoTrack @ `76b1c6711ae11958ec592e525163826d357d5db5`
+  （master head，2023-06-08，GitHub API 核对），仓库根 `LICENSE` 为
+  Apache-2.0（允许再分发与构建树获取，含专利授权）；模型权重为 port
+  仓库内 assets（port 作者转换、随仓库同许可分发），本仓库不入仓、不
+  下载、不随任何机制分发，真实权重由使用者显式路径提供（`DEC-015`
+  分层、`RISK-2026-13` 口径）。对 pinned ncnn `e54f7b1f`（20260526）
+  兼容核对：候选模型仅标准层（Input/Convolution/Pooling/Concat，无自定义
+  层），pin 参数字典完整覆盖，**未升级 ncnn pin**。实现路线照 M5-04
+  YOLO 先例取"冻结模型输出契约"而非构建期引入 port：`integrations/`
+  代码为自研，对 port 零 FetchContent/零编译/零链接——因此
+  `deps.lock.json` 无新条目（工作项文本"若以上游仓库 FetchContent 获取"
+  条件未触发），登记为文档性对齐 + 供应链审计记录。审查未触发
+  `DEC-020` 备选更换（LightTrack/Ocean），候选维持 NanoTrack。审计
+  记录 `docs/supply-chain/nanotrack.md`（来源/精确 commit/许可证/获取
+  方式/使用范围/兼容核对/验证/更换流程）+ `dependency-policy.md`
+  依赖清单行。
+- 交付：`integrations/tracker_nanotrack/`（`mirador_tracker_nanotrack`
+  库，链接 `mirador::core`/`mirador::image`/`mirador_ncnn_runtime`，
+  `mirador_apply_warnings`，`integrations/CMakeLists.txt` 末尾
+  add_subdirectory）——`NanoTrackerOptions`（四路径显式、身份字段流入
+  `BackendInfo`、`num_threads` **显式限定 1**（其他值 `create` 报
+  `kInvalidArgument`：逐序列位确定性为契约块 8 硬要求）、
+  `work_budget_bytes` 默认 16 MiB）+ `NanoTrackerBackend`
+  （`info()`/`initialize`）+ 会话（模板特征 + 参考尺寸，`NcnnRuntime`
+  以引用共享后端 runtime——契约块 1 调用方保活条款使然）。逐契约块
+  1-9 对照实现：validate → accepted_formats（kRgb8）→ bounds 矩阵的
+  校验先于取消（块 4）；update 全有或全无（解码全部局部量、成功才提交
+  参考尺寸，块 3）；`kBackendFailure` 失败可见（响应图形状违约、退化
+  框、无可用 cell、非有限值均显式；wrapper 的"未知 blob
+  kInvalidArgument"在本后端语境重映射为 `kBackendFailure`——模型契约
+  违约不是 SPI 调用方错误）；`kCancelled`/`kTimeout` 入口 + 循环定期
+  检查、会话保持可用；rotation 元数据永不解读、奇数尺寸/非连续 stride
+  经 presented 坐标正确读取、输出钳制于 prepared 像素空间（块 6，
+  DEC-021 拒绝而非伪造）。冻结参考解码（尺寸/比率惩罚 + cosine 窗 +
+  行主序首最大总序 + ltrb 逆 crop 映射 + 单次尺寸学习率规范化）以
+  后端头注释为权威；位置先验逐帧来自 `prior_bounds`，后端不自造位置。
+- `NcnnRuntime`（M5-02 共享面）扩展：新增 `NcnnNamedTensor` +
+  `run_multi`（head 双输入双输出所需；对 pinned ncnn 实测 **extractor
+  单输出语义**——同 extractor 第二次 extract 返回 -100，故逐输出独立
+  extractor 重放相同输入，输出间一致）；`opt.use_packing_layout=OFF`
+  （packing 会折叠小通道数，破坏本包装"平面 CHW 张量"文档契约，多
+  blob 链会把交错平面误读为通道数——实测复现后修正）；`run` 改 const
+  并委托 `run_multi`（会话持有共享 runtime 引用所需；三个既有冒烟
+  ncnn/ppocr/yolo 全部原样通过）。
+- 门禁（本会话于实现分支 head 执行）：integrations 构建
+  （`MIRADOR_BUILD_INTEGRATIONS=ON`，FetchContent pinned ncnn 经本机
+  代理）成功零告警，`ctest` 55/55（含既有 ncnn/ppocr/yolo 冒烟与全部
+  核心套件）；debug 默认预设 `cmake --preset debug` + build 增量
+  up-to-date、全量 ctest 53/53 零回归（默认构建图零获取口径不变，
+  架构测试未触）；clang-format `--dry-run --Werror` 对四个新增/改动
+  integrations 文件归零；clang-tidy `--warnings-as-errors='*'`
+  （`-p build/integrations`）对 `nanotrack_backend.cpp` 与
+  `ncnn_runtime.cpp` 归零（9 处告警修复后复跑）。实现自证：合成双模型
+  （常量峰 + 内容驱动峰两种）驱动后端全链路 43 项断言通过（精确解码
+  数值、跨会话逐序列位一致、0/90/180/270 × stride 填充位一致、输入
+  字节零修改、校验先于取消、预算负路径、失败可见）。
+- 限制与待办：合成模型冒烟套件
+  （`mirador.integrations.tracker_nanotrack_smoke`）与 `MIRADOR_BUILD_
+  TESTS` 条件测试 target 由独立验证工程师按分工交付（涵盖 initialize/
+  update 快乐路径、校验矩阵、预算负路径、失败可见与会话重建、确定性、
+  DOD-03 矩阵、隐私负向；CI 既有 integrations-ncnn job 的 ctest 自动
+  捕获，job 本体零改动）；验证轮独立复核、全量六预设、sanitizer 与
+  PR/CI 14/14 证据随其收口。真实权重评测与跟踪质量声明不在本项
+  （`DOD-05`/`RISK-2026-13`：归 M7-13 D+ 列报与后续真实评估）；合成
+  口径结论仅限管线与解码正确性。
+- 验证轮处置（2026-09-28，验证套件 839dfd7 交付后的实现侧修复，随
+  fix(integrations) commit 落地）：验证员三项发现逐项收口，零公共契约
+  变更——(1) RULE-06 记账口径：按验证员给出的两路收口选项取**文档措辞
+  精确化**（`work_budget_bytes` 头注释、`WorkBudget` 类注释与 update
+  记账点注释三处同步改写为精确边界：后端自身可控的分配请求——crop 暂存、
+  forward 输出张量、模板状态、解码窗——逐请求预算检查；wrapper 侧
+  per-forward 输入拷贝与 ncnn 内部中间/工作区缓冲受冻结模型契约几何
+  约束、非无界、不可自后端面单独计账，沿 M5 既有后端同款口径）。实现
+  过程曾按"记账收口"路线为 forward 输入拷贝追加计账，但验证套件的
+  预算夹具（starved 3000 / tight 8000）钉住计账集，追加计账使
+  initialize 总量 5184→8256 字节、套件"initialize fits the 8000-byte
+  budget"正例失败——为不弱化验证套件的独立性（夹具归验证员维护），
+  回退追加计账、维持文档收口路线。(2) 格式门重复定义漂移：会话构造时
+  从后端 `info_.accepted_formats` 派生 `accepted_formats_` 成员，update
+  与 initialize 校验同一列表，文件级静态 `kAcceptedFormats` 删除——
+  行为不变（值恒等），漂移面消除。(3) 钳制语义：按验证员定位为
+  observation 的口径**文档化而非改行为**——头注释新增"冻结钳制语义"
+  段：上报 bounds 为预测框钳入 prepared 图（契约块 6/DEC-021），参考
+  尺寸更新**刻意以钳制后尺寸为目标**（尺度状态追踪帧内可观测部分，
+  防止目标部分出图时搜索窗按不可观测预测持续放大），"以未钳制预测
+  尺寸入状态"的替代方案列为 M7-13 位置证据接线时与设计 §6.2 的显式
+  对齐点（属行为变更，非措辞修正）。修复后门禁（本会话执行）：
+  integrations 全树 ctest 56/56 连续三轮（含验证套件 153 检查项）、
+  debug 预设 53/53 零回归、clang-format/clang-tidy 双口径对
+  nanotrack_backend.{hpp,cpp} 归零、实现侧合成模型 harness 全部断言
+  通过（SANITY PASS）。
+- 环境干扰记录（验证轮须知）：本机全量 ctest 复跑中两次观察到
+  `mirador.privacy.privacy`（`Privacy.PipelineWritesNoFiles`）与一次
+  `mirador.fusion.tracker_backend_orchestration`（同名快照校验模式）
+  间歇失败，根因经复现捕获确认：外部进程在本机 `/tmp` 持续创建
+  `mirage-m1-04-*` 临时文件（非本仓库任何代码产物，仓库全文检索零
+  命中，创建时间与调用方 PID 持续更新），落入"快照前后目录比对"的
+  窗口即误报新文件——为共享 `/tmp` 假设的既有测试设计敏感点，与本项
+  改动无关（涉事二进制不链接 integrations 代码；直跑二进制 200 次
+  零复现，仅全树 ctest 间发）。验证轮在本机复跑门禁遇此失败时，先
+  核对 `/tmp/mirage-*` 是否新增再归因；硬化（私有临时目录或按前缀
+  过滤）归测试面负责方另行处置，不在本项分支混入。
+
+2026-09-28：`M7-12` 合成模型冒烟套件交付、验证轮三项发现收口与工作项
+勾选（分支 `feat/m7-12-nanotrack-ncnn-reference-backend`，七个 commit：
+实现 2587eaa → `run_multi` 3a8c89d → 供应链审查登记 4f43aa8 → /tmp
+干扰记录 ec52b75 → 验证套件 839dfd7 → 验证轮修复 48de7db + 处置记录
+df63c17；验证套件由 Independent-Verification-Agent 按分工交付，实现与
+审查轮交付见上方两条记录）：
+
+- 交付摘要：验证套件 `integrations/tracker_nanotrack/test/nanotrack_smoke.cpp`
+  （839dfd7，1439 行，153 检查项）注册 ctest 项
+  `mirador.integrations.tracker_nanotrack_smoke`（`MIRADOR_BUILD_
+  INTEGRATIONS` + `MIRADOR_BUILD_TESTS` 条件，同 detector_yolo/
+  ocr_ppocr 冒烟形态；CI integrations-ncnn job 的 ctest 自动捕获，
+  job 本体零改动），六套运行时生成合成 ncnn 模型（零权重入树）端到端
+  钉住冻结契约。验证轮三项发现随 fix(integrations) 48de7db 逐项收口
+  （处置明细见上方"验证轮处置"段），零公共契约变更：(1) `RULE-06`
+  记账口径取验证员两路收口选项中的**文档措辞精确化**路线——
+  `work_budget_bytes` 头注释（nanotrack_backend.hpp:59-71）、
+  `WorkBudget` 类注释（nanotrack_backend.cpp:49-61）与 update 记账点
+  注释（:501-511）三处同步改写为精确边界（后端自身可控分配——
+  crop 暂存/forward 输出张量/模板状态/解码窗——逐请求计账；wrapper 侧
+  per-forward 输入拷贝与 ncnn 内部中间/工作区缓冲受冻结模型契约几何
+  约束、非无界、沿 M5 口径不可自后端面单独计账）；曾按"追加计账"路线
+  实现后回退——验证套件预算夹具（starved 3000 / tight 8000）钉住
+  计账集，追加计账使 initialize 总量 5184→8256 字节令其
+  "initialize fits the 8000-byte budget" 正例失败，夹具归验证员维护
+  不弱化。(2) 格式门漂移消除——会话构造时从后端 `info_.accepted_formats`
+  派生 `accepted_formats_` 成员（nanotrack_backend.cpp:456、:694-696），
+  update（:469）与 initialize（:647）校验同一列表，文件级静态
+  `kAcceptedFormats` 删除（grep 零命中）——行为不变（值恒等），两门
+  同源。(3) 钳制语义按验证员 observation 定位**文档化而非改行为**——
+  头注释新增"冻结钳制语义"段（nanotrack_backend.hpp:121-130：上报框
+  为预测框钳入 prepared 图、参考尺寸刻意以钳制后尺寸为目标——尺度
+  状态追踪帧内可观测部分），"以未钳制预测尺寸入状态"列为 M7-13 与
+  设计 §6.2 的显式对齐点（属行为变更，非措辞修正）。
+- 验证覆盖（153 检查项）：精确解码对照手推边界与独立 double 精度重放
+  （胜者扫描、ltrb 映射、钳制、置信度、参考尺寸单次更新）、调用方位置
+  先验所有权、校验矩阵与冻结的校验先于取消顺序、kCancelled/kTimeout/
+  kInvalidArgument/kUnsupportedFormat 全有或全无、initialize/update
+  双路径 `kBudgetExceeded`、`kBackendFailure` 可见（无可用 cell、出图
+  解码、错误 blob 名经 wrapper 错误重映射、3 通道 cls 形状门）、跨会话
+  跨后端逐序列位确定性、经 crop/backbone/head 的像素敏感性与窗外/
+  patch 外不变性、0/90/180/270 旋转 × 非连续 stride × 奇数尺寸矩阵、
+  输入字节零修改、隐私（零落盘、Status 消息无像素标记）；wrapper 级
+  `run_multi` 精确输出、参数校验与 moved-from 路径。修复为零公共契约
+  变更（措辞精确化 + 构造期派生同值列表），153 检查项在 HEAD 原样重跑
+  通过——测试未过时、零改动。
+- 门禁（验证轮会话于分支 head df63c17 执行，随处置记录 df63c17 留档）：
+  153 检查项直跑 5 次全 PASS（exit 0）、`ctest -R tracker_nanotrack`
+  Passed；integrations 全树 ctest 共 7 轮——5 轮 56/56 全绿，2 轮各
+  1 失败均归因上段环境干扰记录的共享 `/tmp` 外部进程（本机确认 18 个
+  `/tmp/mirage-m1-04-*` 外部产物，涉事套件为文档点名的无过滤 /tmp
+  前后快照模式、仅链接 core 头 + fake 后端，单跑即 Passed）；debug
+  预设 build 增量 up-to-date + 全量 ctest 53/53 零回归；clang-format
+  `--dry-run --Werror` 与 clang-tidy `--warnings-as-errors='*'`
+  （`-p build/integrations`）对 nanotrack_backend.{hpp,cpp} 与
+  nanotrack_smoke.cpp 归零；二进制新鲜度核查（object 时间戳晚于修复后
+  源，ninja no work to do）；sanitizer 抽查——`-fsanitize=address,
+  undefined` 重建 smoke + 修复后 backend + wrapper 链接 libncnnd.a，
+  153 检查全 PASS 零报告；实现侧合成模型 harness（/tmp，未入仓）
+  SANITY PASS。
+- 文档同步轮复验（本会话执行，分支 head df63c17）：integrations 构建
+  增量 `ninja: no work to do`；`ctest -R tracker_nanotrack` 1/1
+  Passed（冒烟二进制直跑 PASS、exit 0）；integrations 全树 ctest
+  56/56；`cmake --build --preset debug` 增量 up-to-date + 全量 ctest
+  53/53；clang-format `--dry-run --Werror` 对 nanotrack_backend.{cpp,
+  hpp} 与 nanotrack_smoke.cpp 三文件退出码 0；clang-tidy
+  `--warnings-as-errors='*'`（`-p build/integrations`）对
+  nanotrack_backend.cpp 与 nanotrack_smoke.cpp 退出码 0（Suppressed
+  88936、15 NOLINT）。
+- 限制：(1) 发现 1 为**措辞收口**而非记账收口——`work_budget_bytes`
+  不覆盖 wrapper 内部 per-forward 输入拷贝与 ncnn 内部中间/工作区缓冲
+  （受冻结模型几何约束、非无界、M5 同款口径）；如编排侧/负责人倾向
+  严格计账，改动点为 `update()`/`initialize()` forward 前三处 charge
+  + 验证套件预算夹具同步（8000→≥8256），属行为变更需验证轮复验。
+  (2) 钳制语义（状态吃进钳制尺寸）已文档化为冻结选择，与设计 §6.2 的
+  最终对齐归 M7-13——若 M7-13 确认改为未钳制预测尺寸入状态，属行为
+  变更需验证轮复验（边缘帧数值会变）。(3) 全量六预设/sanitizer 全量
+  ctest 不在本轮（编排脚本职责，同前轮口径）；warnings/tsan 预设与
+  asan/ubsan 全量 ctest 侧已由 PR CI 在分支 head 覆盖（见下方 CI 回填；
+  CI 矩阵无 release 预设，release 侧仍属未执行范围）；本分支实际
+  执行面以上两条门禁段为准。(4) 共享 `/tmp` 外部进程（`mirage-*`）
+  间歇干扰的既有记录（ec52b75）仍有效，本轮文档同步轮复跑未再遇
+  （全树与抽验均绿）。(5) 真实权重评测与跟踪质量声明不在本项
+  （`DOD-05`/`RISK-2026-13`：归 M7-13 D+ 列报与后续真实评估），合成
+  口径结论仅限管线与解码正确性——沿用实现轮记录。
+- CI 回填：PR #32 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（ubuntu-20.04 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、
+  clang debug/fuzz、integrations-ncnn（5m40s，ctest 自动捕获
+  `mirador.integrations.tracker_nanotrack_smoke` 冒烟套件）、capture/
+  opencv 适配与 clang-format/clang-tidy 双口径（lint job 38m49s 完成，
+  主导全程）。[run 36420344189](https://github.com/Linductor-alkaid/mirador/actions/runs/36420344189)
+  （head 4e35f8e，覆盖实现、run_multi、供应链审查登记、/tmp 干扰记录、
+  验证套件、验证轮修复、处置记录与勾选/文档同步全部 8 个 commit，全程
+  38m52s）；首轮通过，无修复往返，上条"CI 回填：待补——分支未推送，
+  推送与 PR/CI 14/14 证据（integrations-ncnn job 的 ctest 自动捕获
+  冒烟套件）随编排脚本在分支 head 收口后回填（同 `M7-03`~`M7-11`
+  先例）"就此闭合。

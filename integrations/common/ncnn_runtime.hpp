@@ -36,6 +36,14 @@ struct NcnnTensor {
     std::vector<float> data;
 };
 
+/// One named input blob for `NcnnRuntime::run_multi` (M7-12): the two-model
+/// NanoTrack layout feeds the template and search features into the head net
+/// as separate blobs, so a single-blob run is not enough there.
+struct NcnnNamedTensor {
+    std::string blob;  ///< blob name as spelled in the .param file
+    NcnnTensor tensor;
+};
+
 /// Minimal synchronous wrapper over one loaded ncnn network (M5-02, DEC-015).
 /// It validates the "real runtime fits behind the Backend SPI" claim of
 /// POST-05; OCR/Detector reference backends (M5-03/M5-04) build on it. The
@@ -64,9 +72,23 @@ public:
     /// output tensor out from `output_blob`. Cancellation is polled before
     /// and after the forward call; a single forward is atomic and cannot be
     /// interrupted mid-flight, so callers bound model size and budget
-    /// upstream (design section 20).
+    /// upstream (design section 20). Const so session objects can hold
+    /// references to a backend's shared runtime (the tracker contract keeps
+    /// the owning backend alive for every session's lifetime).
     Result<NcnnTensor> run(const std::string& input_blob, const NcnnTensor& input, const std::string& output_blob,
-                           const ExecutionContext& context);
+                           const ExecutionContext& context) const;
+
+    /// M7-12 generalization of `run` for multi-blob models: every entry of
+    /// `inputs` is set on its named blob, one atomic forward runs, and each
+    /// name in `output_blobs` is extracted (in the given order) into copied
+    /// planar tensors. Same contract as `run`: inputs are validated then never
+    /// modified, cancellation is polled before and after the forward (never
+    /// mid-flight), unknown blobs are kInvalidArgument, extract failures are
+    /// kBackendFailure. `inputs`/`output_blobs` must be non-empty with unique
+    /// names; duplicate output names return kInvalidArgument.
+    Result<std::vector<NcnnTensor>> run_multi(const std::vector<NcnnNamedTensor>& inputs,
+                                              const std::vector<std::string>& output_blobs,
+                                              const ExecutionContext& context) const;
 
     [[nodiscard]] int num_threads() const noexcept;
 

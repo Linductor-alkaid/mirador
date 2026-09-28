@@ -1,8 +1,8 @@
 # integrations — 参考能力后端（POST-05，`DEC-015`）
 
 本目录承载 Mirador 的**参考能力后端交付包**：在真实模型 runtime 上实现公共
-`OcrBackend` / `DetectorBackend` SPI（`DEC-012`），验证 runtime 可适配性并为 M5
-评测提供真实能力。
+`OcrBackend` / `DetectorBackend` / `TrackerBackend` SPI（`DEC-012`/`DEC-020`），
+验证 runtime 可适配性并为评测提供真实能力。
 
 ## 边界（强制）
 
@@ -24,8 +24,12 @@
 integrations/
   CMakeLists.txt     FetchContent 拉取 pinned ncnn + 锁定校验
   deps.lock.json     依赖锁定（commit、许可证、审计记录指针）
-  common/            ncnn 运行时包装（NcnnRuntime：load / run / pack_image）
+  common/            ncnn 运行时包装（NcnnRuntime：load / run / run_multi / pack_image）
   common/test/       合成 tiny 模型冒烟（构建时生成模型，权重不入库）
+  ocr_ppocr/         PP-OCR mobile 参考 OCR 后端（M5-03）
+  detector_yolo/     YOLO 系参考检测后端（M5-04）
+  tracker_nanotrack/ NanoTrack ncnn 参考跟踪后端（M7-12，`TrackerBackend` SPI，
+                     `DEC-020`；模型契约对齐审计见 docs/supply-chain/nanotrack.md）
 ```
 
 ## 使用
@@ -37,6 +41,6 @@ cmake --build build/integrations
 ctest --test-dir build/integrations -R mirador.integrations
 ```
 
-规划中的交付物：`integrations/ocr_ppocr`（PP-OCR mobile，M5-03）、
-`integrations/detector_yolo`（YOLO 系，M5-04）。真实模型的评测数字按 `DEC-011`
-环境与归因口径发布（Core 外层开销与 runtime 耗时分列）。
+真实模型的评测数字按 `DEC-011` 环境与归因口径发布（Core 外层开销与 runtime
+耗时分列）；跟踪后端的合成冒烟只验证管线与解码正确性，跟踪质量证据归
+M7-13 及后续真实评估（`DOD-05`/`RISK-2026-13`）。

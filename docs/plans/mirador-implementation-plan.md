@@ -1,11 +1,54 @@
 # Mirador 实施总计划
 
 > 状态：Active
-> 版本：1.24
+> 版本：1.26
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-09-28
+>
+> 1.26 修订（2026-09-28）：M7 工作项 `M7-12` 勾选——合成模型冒烟套件
+> `mirador.integrations.tracker_nanotrack_smoke` 落地（Independent-
+> Verification-Agent 交付，153 检查项、6 套运行时生成合成模型，
+> `MIRADOR_BUILD_INTEGRATIONS`+`MIRADOR_BUILD_TESTS` 条件注册，CI
+> integrations-ncnn job 的 ctest 自动捕获、job 零改动）；验证轮三项
+> 发现随 fix(integrations) 48de7db 逐项收口：`RULE-06` 记账口径取文档
+> 措辞精确化路线（追加计账路线因验证套件预算夹具钉住计账集而回退，
+> 夹具归验证员维护）、格式门从 `info().accepted_formats` 构造期派生
+> 同源化（文件级静态列表删除，行为不变）、钳制语义按 observation 口径
+> 文档化为冻结选择并以"未钳制预测尺寸入状态"列为 M7-13 与设计 §6.2
+> 的显式对齐点——零公共契约变更，153 检查项原样复跑通过。门禁（文档
+> 同步时点于分支 head df63c17 复验）：integrations 全树 ctest 56/56、
+> debug 预设 53/53 零回归、lint 双口径（clang-format/clang-tidy）对
+> 触及文件归零、sanitizer 抽查（ASAN+UBSAN）零报告；验证轮全树复跑
+> 7 轮中 2 轮单点失败归因共享 `/tmp` 外部进程干扰（里程碑文档 ec52b75
+> 既有记录，涉事套件不链接 integrations 代码）。限制：严格计账与钳制
+> 语义对齐若实施均属行为变更需验证轮复验；真实权重评测按 `DEC-015`/
+> `RISK-2026-13` 走用户显式路径（质量声明归 M7-13 D+ 列报与后续真实
+> 评估）；CI 证据随 PR #32 回填（run 36420344189，14/14 job 全绿，
+> PR 待合入）；`SCOPE-13` 维持未勾选（M7-13 进行中）。
+>
+> 1.25 修订（2026-09-28）：M7 工作项 `M7-12` NanoTrack ncnn 参考后端
+> **实现与审查轮交付**（工作项未勾选——合成模型冒烟套件由独立验证工程师
+> 随后续 commit 交付，勾选与 CI 证据回填随其收口）。许可证与模型来源审查
+> 通过并登记 `docs/supply-chain/nanotrack.md`：候选 port
+> HonglinChu/NanoTrack @ `76b1c67`（Apache-2.0，允许再分发与构建树获取），
+> 模型权重不入仓不下载、经用户显式路径（`DEC-015` 分层、`RISK-2026-13`）；
+> 实现路线照 M5-04 先例取冻结模型契约对齐而非构建期引入（`integrations/`
+> 代码自研，port 零 FetchContent/零编译/零链接），`deps.lock.json` 无新
+> 条目（工作项条件文本未触发）；对 pinned ncnn `e54f7b1f` 兼容核对通过，
+> 未升级 pin。交付 `integrations/tracker_nanotrack/`：首个 `TrackerBackend`
+> SPI（M7-11，`DEC-020`）参考实现，逐契约块 1-9 对照（校验先于取消、
+> update 全有或全无、`kBackendFailure` 失败可见、`accepted_formats` 门控、
+> rotation 元数据不解读、输出落 prepared 空间）；`num_threads` 显式限定 1
+> （逐序列位确定性）、`work_budget_bytes` 逐内部分配请求检查；复用 M5-02
+> `NcnnRuntime` 新增 `run_multi`（多输入/多输出；对 pinned ncnn 实测
+> extractor 单输出语义，逐输出独立 extractor；`use_packing_layout` 关闭保
+> 平面 CHW 张量面），`run` 转 const，既有三冒烟原样通过。本地门禁：
+> integrations 构建 + ctest 55/55、debug 默认构建图零获取 + ctest 53/53
+> 零回归、lint 双口径（clang-format/clang-tidy）对新增与改动 integrations
+> 文件归零；合成双模型 43 项实现自证断言通过。限制：质量与性能声明不做
+> （`DOD-05`，归 M7-13 D+ 列报与后续真实评估）；CI 证据随验证套件轮回填。
 >
 > 1.24 修订（2026-09-28）：M7 工作项 `M7-11` `TrackerBackend` SPI 契约冻结
 > 交付，工作项勾选——`include/mirador/tracker_backend.hpp`（Experimental，
