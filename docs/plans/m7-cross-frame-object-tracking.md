@@ -1381,10 +1381,19 @@ info 观察，**均无需改动**；判定 commit 与全部文档交付内容维
   ubsan 目标增量 `no work to do` 后直跑各 2/2 PASSED、sanitizer 零报告。
 - 限制：release/warnings/tsan 预设与 asan/ubsan 全量 ctest 未执行——本
   失败面为 debug 可编译纯测试文件的 lint 口径，lint 双口径与 debug ctest
-  已覆盖；TSAN 仍未运行（上条验证轮已留档该范围限定）；tidy 全仓扫描仅
+  已覆盖；warnings/tsan 预设与 asan/ubsan 全量 ctest 侧已由 CI 在分支
+  head 覆盖（见下方 CI 回填；CI 矩阵无 release 预设，release 侧仍属未
+  执行范围，上条验证轮留档的 TSAN 范围限定就此闭合）；tidy 全仓扫描仅
   对 da8af43 所改文件执行，其余文件由 CI lint job 全仓口径覆盖。
-- CI 回填：待补——六预设完整门禁与 CI 14/14 随编排脚本在分支 head 收口
-  后回填（同 `M7-09` 先例）。
+- CI 回填：PR #30 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（ubuntu-20.04 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、
+  clang debug/fuzz、integrations-ncnn、capture/opencv 适配与
+  clang-format/clang-tidy 双口径（lint job 排队后 26m12s 完成）。
+  [run 36377952484](https://github.com/Linductor-alkaid/mirador/actions/runs/36377952484)
+  （head 8934bee，覆盖判定与转正草案、验证员裁定钉住套件、验证轮处置、
+  lint 修复与门禁证据/文档同步 commit，全程 26m16s）；首轮通过，无修复
+  往返，上条"CI 回填：待补——六预设完整门禁与 CI 14/14 随编排脚本在
+  分支 head 收口后回填（同 `M7-09` 先例）"就此闭合。
 - 同步：CHANGELOG Unreleased 补登记 M7-10 判定条目（提前于原定 M7 收尾
   时点；`v0.4.0` 发布说明整理职责不变），判定记录"后续动作"随改；总计划
   `SCOPE-13` 状态标记纠偏——`DEC-019`/`DEC-020` 已于 2026-09-21 经负责人
