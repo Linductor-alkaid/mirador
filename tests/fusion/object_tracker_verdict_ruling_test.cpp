@@ -36,6 +36,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -43,7 +45,6 @@
 namespace {
 
 using mirador::ImageView;
-using mirador::MotionCompensationResult;
 using mirador::ObjectTracker;
 using mirador::ObjectTrackerOptions;
 using mirador::PixelFormat;
@@ -162,18 +163,19 @@ void expect_center_invariant(const TrackPin& pin) {
 /// and is explicitly refused at the 0.7 caller policy, while the true-scroll
 /// band [0.93, 0.95] applies at both. A library-side default raise without a
 /// conscious re-recording of the verdict flips the first two rows.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest macro expansion dominates the metric
 TEST(ObjectTrackerVerdictRulingTest, PublishedConfidenceBandsSeparateExactlyAtTheCallerPolicy) {
     struct BandCase {
         float confidence;
         bool applied_at_caller07;  // the default (0.0) applies every case
     };
     // Band ends as published by the M7-09 calibration row.
-    const BandCase cases[] = {
+    const std::array<BandCase, 4> cases{{
         {0.46F, false},  // local-change pseudo-shift band, lower end
         {0.55F, false},  // local-change pseudo-shift band, upper end
         {0.93F, true},   // true-scroll band, lower end
         {0.95F, true},   // true-scroll band, upper end
-    };
+    }};
     constexpr float kShiftDx = 4.0F;
     constexpr float kShiftDy = 2.0F;
 
