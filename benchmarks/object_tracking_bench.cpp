@@ -12,7 +12,14 @@
 // short-circuit — every non-terminated track is verified every frame), B
 // appearance + position gate (no compensation), C = B + global motion
 // compensation, D = C + candidate semantics and the StableIdTracker
-// confirmed-association passthrough (M7-06).
+// confirmed-association passthrough (M7-06), D+ = D + the M7-13 deep-enhanced
+// channel — a deterministic in-memory fake TrackerBackend injected through the
+// pool-side session-handle slots, exercising the frozen E1/deep combination
+// rules (corroboration/conflict/template protection). The fake is a pure
+// pixel echo (no learned state), so the D+ column isolates the fusion-side
+// wiring and combination-rule mechanics — it makes NO deep-tracking quality
+// claim (DOD-05: NanoTrack real-weight evaluation stays on the DEC-015/
+// RISK-2026-13 user-explicit path).
 //
 // Scenes (evaluation-scenes IDs; synthetic in-memory renders from seeded
 // integer hashes — bit-deterministic, no wall clock in any decision, latency
@@ -28,7 +35,9 @@
 // classifications are asserted so a render drift cannot distort the numbers.
 // Timing figures are only meaningful on the machine that ran the harness
 // (DEC-011, DOD-05: no real-scene claims).
+#include <mirador/backend_info.hpp>
 #include <mirador/change_detection.hpp>
+#include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/object_tracker.hpp>
@@ -36,14 +45,18 @@
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/shift_estimation.hpp>
 #include <mirador/stable_id_tracker.hpp>
+#include <mirador/status.hpp>
+#include <mirador/tracker_backend.hpp>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -55,9 +68,12 @@ namespace {
 using mirador::ChangeClassification;
 using mirador::ChangeDetectionParams;
 using mirador::ChangeReport;
+using mirador::DeepChannelDisposition;
+using mirador::DeepChannelEvidence;
 using mirador::detect_change;
 using mirador::estimate_global_shift;
 using mirador::EvidenceGrade;
+using mirador::ExecutionContext;
 using mirador::ImageView;
 using mirador::ObjectTracker;
 using mirador::ObjectTrackerOptions;
@@ -71,6 +87,11 @@ using mirador::ShiftEstimate;
 using mirador::StableIdTracker;
 using mirador::TargetTrack;
 using mirador::TrackAdoption;
+using mirador::TrackerBackend;
+using mirador::TrackerInitRequest;
+using mirador::TrackerSession;
+using mirador::TrackerUpdateRequest;
+using mirador::TrackerUpdateResult;
 using mirador::TrackSemantics;
 using mirador::TrackState;
 using mirador::TrackStructureDescriptors;
@@ -583,14 +604,99 @@ struct MethodConfig {
     bool change_gate;   // B/C/D consume evaluate_change_gate; A verifies every frame
     bool compensation;  // C/D run estimate_global_shift + compensate_global_motion on kPartial
     bool semantics;     // D supplies candidate semantics and fusion associations
+    bool deep;          // D+ injects the fake deep backend and supplies DeepChannelEvidence
 };
 
-constexpr std::array<MethodConfig, 4> kMethods = {{
-    {"A-appearance", false, false, false},
-    {"B-pos-gate", true, false, false},
-    {"C-compensated", true, true, false},
-    {"D-semantic", true, true, true},
+constexpr std::array<MethodConfig, 5> kMethods = {{
+    {"A-appearance", false, false, false, false},
+    {"B-pos-gate", true, false, false, false},
+    {"C-compensated", true, true, false, false},
+    {"D-semantic", true, true, true, false},
+    {"D+deep", true, true, true, true},
 }};
+
+// ---- M7-13 fake deep backend (the D+ synthetic deep channel) -------------------
+
+// Deterministic in-memory TrackerBackend (the M7-11 verification-double
+// pattern): the session holds NO learned state — every update echoes a pure
+// integer-arithmetic function of the presented bytes around the prior
+// (stride-honoring covering window), so the D+ column isolates the fusion
+// wiring and the combination rules. Per-sequence bit determinism holds
+// (contract block 8); the reported bounds stay fully inside the prepared
+// image (contract block 6); validation precedes cancellation (contract block
+// 4). DeepChannelEvidence created from its results flows through the frozen
+// DEC-021 adoption-point validation in the pool.
+class BenchDeepSession final : public TrackerSession {
+public:
+    Result<TrackerUpdateResult> update(const ImageView& image, const TrackerUpdateRequest& request,
+                                       const ExecutionContext& context) override {
+        if (const Result<void> checked = mirador::validate(image); !checked.ok()) {
+            return checked.status();
+        }
+        if (mirador::is_cancelled(context)) {
+            return mirador::Status(mirador::ErrorCode::kCancelled, "bench-deep observed cancellation");
+        }
+        const RectF& prior = request.prior_bounds;
+        const auto x0 = std::max(0, static_cast<int32_t>(std::floor(prior.x)));
+        const auto y0 = std::max(0, static_cast<int32_t>(std::floor(prior.y)));
+        const auto x1 = std::min(image.width, static_cast<int32_t>(std::ceil(prior.x + prior.width)));
+        const auto y1 = std::min(image.height, static_cast<int32_t>(std::ceil(prior.y + prior.height)));
+        uint64_t sum = 0;
+        for (int32_t y = y0; y < y1; ++y) {
+            const std::byte* row = image.data + static_cast<int64_t>(y) * image.row_stride_bytes;
+            for (int32_t x = x0; x < x1; ++x) {
+                sum += std::to_integer<uint8_t>(row[x]);
+            }
+        }
+        // A small content-driven displacement ([-2, 2] x [-1, 1] px), clamped
+        // back into the image — corroborating under the frozen combination
+        // thresholds (64x32 widget, IoU >= 0.83 >= 0.5) without ever moving
+        // the position estimate itself: the deep channel corroborates, it
+        // never confirms (the frozen M7-13 rule).
+        const float dx = static_cast<float>(sum % 5U) - 2.0F;
+        const float dy = static_cast<float>(sum % 3U) - 1.0F;
+        TrackerUpdateResult result;
+        result.bounds = RectF{std::clamp(prior.x + dx, 0.0F, static_cast<float>(image.width) - prior.width),
+                              std::clamp(prior.y + dy, 0.0F, static_cast<float>(image.height) - prior.height),
+                              prior.width, prior.height};
+        result.confidence = 0.6F + static_cast<float>(sum % 40U) / 100.0F;
+        return result;
+    }
+};
+
+class BenchDeepBackend final : public TrackerBackend {
+public:
+    [[nodiscard]] mirador::BackendInfo info() const override { return info_; }
+
+    Result<std::unique_ptr<TrackerSession>> initialize(const ImageView& prepared_image,
+                                                       const TrackerInitRequest& request,
+                                                       const ExecutionContext& context) override {
+        if (const Result<void> checked = mirador::validate(prepared_image); !checked.ok()) {
+            return checked.status();
+        }
+        if (request.initial_bounds.x < 0.0F || request.initial_bounds.y < 0.0F ||
+            request.initial_bounds.x + request.initial_bounds.width > static_cast<float>(prepared_image.width) ||
+            request.initial_bounds.y + request.initial_bounds.height > static_cast<float>(prepared_image.height)) {
+            return mirador::Status(mirador::ErrorCode::kInvalidArgument,
+                                   "bench-deep initial bounds must be fully inside the prepared image");
+        }
+        (void)context;
+        return {std::make_unique<BenchDeepSession>()};
+    }
+
+private:
+    [[nodiscard]] static mirador::BackendInfo make_info() {
+        mirador::BackendInfo backend_info;
+        backend_info.name = "bench-deep";
+        backend_info.implementation_version = "1.0.0";
+        backend_info.model_id = "bench-deep-echo";
+        backend_info.model_revision = "r1";
+        backend_info.accepted_formats = {PixelFormat::kRgba8};
+        backend_info.thread_safe = false;
+        return backend_info;
+    }
+    mirador::BackendInfo info_ = make_info();
+};
 
 // ---- metrics ------------------------------------------------------------------
 
@@ -625,6 +731,10 @@ struct CellMetrics {
     int64_t pool_peak_tracks = 0;
     int64_t fusion_regions = 0;
     int64_t fusion_retained = 0;
+    int64_t deep_updates = 0;
+    int64_t deep_corroborated = 0;
+    int64_t deep_conflicts = 0;
+    int64_t deep_withheld = 0;
     double shift_confidence_min = 2.0;
     double shift_confidence_max = -1.0;
     double true_peak_min = 2.0;
@@ -669,6 +779,10 @@ std::string metrics_digest(const CellMetrics& m) {
     digest_append(digest, m.pool_peak_tracks);
     digest_append(digest, m.fusion_regions);
     digest_append(digest, m.fusion_retained);
+    digest_append(digest, m.deep_updates);
+    digest_append(digest, m.deep_corroborated);
+    digest_append(digest, m.deep_conflicts);
+    digest_append(digest, m.deep_withheld);
     return digest;
 }
 
@@ -745,6 +859,8 @@ struct CellRun {
     // NOLINTNEXTLINE(misc-non-private-member-variables-in-classes)
     std::vector<int64_t> verify_ns;
     // NOLINTNEXTLINE(misc-non-private-member-variables-in-classes)
+    std::unique_ptr<BenchDeepBackend> deep_backend;  // D+ only
+    // NOLINTNEXTLINE(misc-non-private-member-variables-in-classes)
     CellMetrics m;
 
     CellRun(const SceneSpec& spec, const MethodConfig& config) : scene(spec), method(config) {
@@ -757,6 +873,14 @@ struct CellRun {
         ObjectTrackerOptions options;
         if (config.compensation) {
             options.min_compensation_confidence = 0.7;
+        }
+        if (config.deep) {
+            // RULE-12: the upper layer owns both the backend injection and
+            // the activation switch; the library defaults of the combination
+            // thresholds are kept (deep_agreement_min_iou 0.5 /
+            // deep_min_confidence 0.5).
+            options.deep_channel_enabled = true;
+            deep_backend = std::make_unique<BenchDeepBackend>();
         }
         tracker = take_ok(ObjectTracker::create(options), "tracker create");
         const size_t count = scene.objects.size();
@@ -1075,6 +1199,17 @@ void redetect_new_id_branch(CellRun& run, const FrameTruth& truth, const uint64_
     ++run.m.associations;
 }
 
+void record_deep_disposition(CellRun& run, const mirador::TrackEvidenceCommit& commit) {
+    if (commit.deep_disposition == DeepChannelDisposition::kCorroborated) {
+        ++run.m.deep_corroborated;
+    } else if (commit.deep_disposition == DeepChannelDisposition::kConflict) {
+        ++run.m.deep_conflicts;
+    }
+    if (commit.template_withheld_by_deep_channel) {
+        ++run.m.deep_withheld;
+    }
+}
+
 void run_redetect_attempts(CellRun& run, const ChangeClassification classification, const FrameTruth& truth,
                            const uint64_t sequence, const std::vector<uint64_t>& triggered) {
     for (const uint64_t id : triggered) {
@@ -1093,6 +1228,12 @@ void run_redetect_attempts(CellRun& run, const ChangeClassification classificati
                         id, review, mirador::TrackPositionEvidence{frame_scenario(classification, false), true},
                         candidate_semantics(run, truth, review, track->last_bounds), run.curr.view, sequence),
                     "redetection commit");
+        // The M7-08 review commit carries no deep evidence (the frozen review
+        // shape), but on session-holding tracks under an enabled switch its
+        // template capture can be WITHHELD by the protection — the
+        // disposition counter must see every commit path (RULE-06
+        // visibility).
+        record_deep_disposition(run, commit);
         reconcile_commit(run, truth, id, commit, sequence);
         if (commit.grade == EvidenceGrade::kConfirmed || commit.grade == EvidenceGrade::kTentative) {
             const uint64_t lost_sequence = cell_lost_sequence_of(run, id);
@@ -1103,6 +1244,14 @@ void run_redetect_attempts(CellRun& run, const ChangeClassification classificati
                 static_cast<int>(std::max<int64_t>(static_cast<int64_t>(run.m.recapture_latency_max), latency));
             ++run.m.recaptures;
             cell_clear_lost_sequence(run, id);
+            if (run.method.deep) {
+                // The deep session predates the loss; rebuild it on the
+                // recaptured bounds (detach + drop, fresh initialize on the
+                // next verification frame — the M7-13 rebuild shape).
+                std::unique_ptr<TrackerSession> stale = run.tracker.detach_tracker_session(id);
+                expect_true("recaptured deep track must hold a session to rebuild", stale != nullptr);
+                stale.reset();
+            }
             continue;
         }
         redetect_new_id_branch(run, truth, sequence, id, index);
@@ -1136,6 +1285,38 @@ void redetection_step(CellRun& run, const ChangeClassification classification, c
     run_redetect_attempts(run, classification, truth, sequence, triggered);
 }
 
+// One deep-channel frame for one track (the M7-13 caller-side wiring): ensure
+// a session is attached (first sight, or re-attached after eviction/loss),
+// run one update with the track's current bounds as the position prior, and
+// map the outcome onto the frozen caller disciplines — a kBackendFailure
+// discards the session (detach + drop; the track's degradation runs through
+// the frozen placeholder-commit path in the caller, and a fresh session
+// rebuilds on the next frame), kCancelled/kTimeout simply supply no evidence.
+// The deep update deliberately sits OUTSIDE timed_review so the verify p50/
+// p95 columns stay comparable with D.
+std::optional<DeepChannelEvidence> deep_step(CellRun& run, const uint64_t id, const RectF& prior) {
+    if (run.deep_backend == nullptr) {
+        return std::nullopt;
+    }
+    if (run.tracker.tracker_session(id) == nullptr) {
+        auto initialized = run.deep_backend->initialize(run.curr.view, TrackerInitRequest{prior, {}}, {});
+        expect_ok(initialized, "deep initialize");
+        expect_ok(run.tracker.attach_tracker_session(id, initialized.take_value()), "deep attach");
+    }
+    TrackerSession* session = run.tracker.tracker_session(id);
+    const Result<TrackerUpdateResult> updated = session->update(run.curr.view, TrackerUpdateRequest{prior, {}}, {});
+    ++run.m.deep_updates;
+    if (!updated.ok()) {
+        if (updated.status().code() == mirador::ErrorCode::kBackendFailure) {
+            std::unique_ptr<TrackerSession> discarded = run.tracker.detach_tracker_session(id);
+            expect_true("deep failure must have a session to discard", discarded != nullptr);
+            discarded.reset();
+        }
+        return std::nullopt;
+    }
+    return DeepChannelEvidence{updated.value().bounds, updated.value().confidence};
+}
+
 void verify_and_commit_one(CellRun& run, const ChangeReport& report, const PositionScenario scenario,
                            const FrameTruth& truth, const uint64_t sequence, const uint64_t id) {
     const TargetTrack* track = cell_track(run, id);
@@ -1144,10 +1325,23 @@ void verify_and_commit_one(CellRun& run, const ChangeReport& report, const Posit
     const TrackVerification verification = timed_review(run, id, descriptors);
     record_channel_evidence(run, report.classification, verification);
     const std::optional<TrackSemantics> semantics = candidate_semantics(run, truth, verification, track->last_bounds);
+    // D+ supplies the deep evidence between the verification and the commit
+    // (the design section 6.2 wiring point); the deep channel scopes to the
+    // neighborhood-verification path — redetection identity review keeps its
+    // frozen M7-08 shape (its commits carry no deep evidence and fall under
+    // the template protection on session-holding tracks).
+    const std::optional<DeepChannelEvidence> deep =
+        run.method.deep ? deep_step(run, id, track->last_bounds) : std::nullopt;
     const mirador::TrackEvidenceCommit commit =
-        take_ok(run.tracker.commit_track_evidence(id, verification, mirador::TrackPositionEvidence{scenario, true},
-                                                  semantics, run.curr.view, sequence),
-                "commit_track_evidence");
+        deep.has_value() ? take_ok(run.tracker.commit_track_evidence(id, verification,
+                                                                     mirador::TrackPositionEvidence{scenario, true},
+                                                                     semantics, run.curr.view, sequence, deep.value()),
+                                   "deep commit_track_evidence")
+                         : take_ok(run.tracker.commit_track_evidence(id, verification,
+                                                                     mirador::TrackPositionEvidence{scenario, true},
+                                                                     semantics, run.curr.view, sequence),
+                                   "commit_track_evidence");
+    record_deep_disposition(run, commit);
     reconcile_commit(run, truth, id, commit, sequence);
     if (commit.grade == EvidenceGrade::kConfirmed || commit.grade == EvidenceGrade::kTentative) {
         const TargetTrack* committed = cell_track(run, id);
@@ -1410,6 +1604,15 @@ void print_cell(const SceneSpec& scene, const MethodConfig& method, const CellMe
         minutes <= 0.0 ? 0.0 : static_cast<double>(m.detector_calls) / minutes, m.impostor_hits, m.semantic_vetoes,
         m.placeholder_commits, m.theme_e2_carries, m.shift_confidence_min, m.shift_confidence_max,
         m.true_peak_min > 1.5 ? 0.0 : m.true_peak_min, m.psr_min > 1e17 ? 0.0 : m.psr_min, m.e2_dev_max);
+    if (method.deep) {
+        // The D+-only line: deep-channel wiring counters. corr/confl split
+        // the supplied evidence (corroboration vs the conservative conflict
+        // side); withheld counts template captures withheld by the frozen
+        // dual-channel-consistent protection.
+        std::printf("%-20s %-14s deep=%lld corr=%lld confl=%lld withheld=%lld\n", scene.name, method.name,
+                    static_cast<long long>(m.deep_updates), static_cast<long long>(m.deep_corroborated),
+                    static_cast<long long>(m.deep_conflicts), static_cast<long long>(m.deep_withheld));
+    }
 }
 
 }  // namespace
@@ -1420,11 +1623,15 @@ int main(int argc, char** argv) {
         reps = std::atoi(argv[1]);
     }
     reps = std::max(reps, 2);  // the second repetition doubles as the determinism check
-    std::printf("mirador_bench_object_tracking %dx%d RGBA, A/B/C/D x 6 scenes, %d reps (determinism checked)\n", kWidth,
-                kHeight, reps);
     std::printf(
-        "tracker options: frozen M7 library defaults; C/D additionally configure the\n"
-        "calibrated caller policy min_compensation_confidence=0.7 (library default 0.0 kept)\n\n");
+        "mirador_bench_object_tracking %dx%d RGBA, A/B/C/D + D+(M7-13 deep) x 6 scenes, %d reps (determinism "
+        "checked)\n",
+        kWidth, kHeight, reps);
+    std::printf(
+        "tracker options: frozen M7 library defaults; C/D/D+ additionally configure the\n"
+        "calibrated caller policy min_compensation_confidence=0.7 (library default 0.0 kept);\n"
+        "D+ injects the synthetic bench-deep pixel-echo TrackerBackend (deep_channel_enabled,\n"
+        "combination thresholds at the library defaults) — mechanics only, no quality claim\n\n");
     self_check_background_y_invariance();
     self_check_theme_edges_invariant();
     self_check_scroll_shift_recovery();
