@@ -1694,12 +1694,23 @@ df63c17；验证套件由 Independent-Verification-Agent 按分工交付，实�
   (2) 钳制语义（状态吃进钳制尺寸）已文档化为冻结选择，与设计 §6.2 的
   最终对齐归 M7-13——若 M7-13 确认改为未钳制预测尺寸入状态，属行为
   变更需验证轮复验（边缘帧数值会变）。(3) 全量六预设/sanitizer 全量
-  ctest/PR CI 14/14 不在本轮（编排脚本职责，同前轮口径）；本分支实际
+  ctest 不在本轮（编排脚本职责，同前轮口径）；warnings/tsan 预设与
+  asan/ubsan 全量 ctest 侧已由 PR CI 在分支 head 覆盖（见下方 CI 回填；
+  CI 矩阵无 release 预设，release 侧仍属未执行范围）；本分支实际
   执行面以上两条门禁段为准。(4) 共享 `/tmp` 外部进程（`mirage-*`）
   间歇干扰的既有记录（ec52b75）仍有效，本轮文档同步轮复跑未再遇
   （全树与抽验均绿）。(5) 真实权重评测与跟踪质量声明不在本项
   （`DOD-05`/`RISK-2026-13`：归 M7-13 D+ 列报与后续真实评估），合成
   口径结论仅限管线与解码正确性——沿用实现轮记录。
-- CI 回填：待补——分支未推送，推送与 PR/CI 14/14 证据（integrations-
-  ncnn job 的 ctest 自动捕获冒烟套件）随编排脚本在分支 head 收口后
-  回填（同 `M7-03`~`M7-11` 先例）。
+- CI 回填：PR #32 单轮 run 全绿，14/14 job——msvc/ninja、ndk/arm64-v8a、
+  gcc10（ubuntu-20.04 容器）、gcc debug/asan/ubsan/tsan/warnings 五预设、
+  clang debug/fuzz、integrations-ncnn（5m40s，ctest 自动捕获
+  `mirador.integrations.tracker_nanotrack_smoke` 冒烟套件）、capture/
+  opencv 适配与 clang-format/clang-tidy 双口径（lint job 38m49s 完成，
+  主导全程）。[run 36420344189](https://github.com/Linductor-alkaid/mirador/actions/runs/36420344189)
+  （head 4e35f8e，覆盖实现、run_multi、供应链审查登记、/tmp 干扰记录、
+  验证套件、验证轮修复、处置记录与勾选/文档同步全部 8 个 commit，全程
+  38m52s）；首轮通过，无修复往返，上条"CI 回填：待补——分支未推送，
+  推送与 PR/CI 14/14 证据（integrations-ncnn job 的 ctest 自动捕获
+  冒烟套件）随编排脚本在分支 head 收口后回填（同 `M7-03`~`M7-11`
+  先例）"就此闭合。
