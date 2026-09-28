@@ -16,6 +16,13 @@ target_include_directories(mirador_tracker_nanotrack PUBLIC ${CMAKE_CURRENT_SOUR
 mirador_apply_warnings(mirador_tracker_nanotrack)
 
 # Synthetic-model smoke test (model generated at runtime, no weights in the
-# source tree) is delivered with the independent verification suite: it
-# registers the mirador.integrations.tracker_nanotrack_smoke ctest entry here,
-# same shape as the detector_yolo/ocr_ppocr smoke targets.
+# source tree), delivered by the independent verification suite and registered
+# here like the detector_yolo/ocr_ppocr smoke targets: frozen decode, prior
+# ownership, validation/ordering matrix, budget, failure visibility, per-frame
+# determinism, coordinate/stride/rotation matrix, immutability and privacy.
+if(MIRADOR_BUILD_TESTS)
+    add_executable(mirador_integrations_tracker_nanotrack_smoke test/nanotrack_smoke.cpp)
+    target_link_libraries(mirador_integrations_tracker_nanotrack_smoke PRIVATE mirador_tracker_nanotrack)
+    mirador_apply_warnings(mirador_integrations_tracker_nanotrack_smoke)
+    add_test(NAME mirador.integrations.tracker_nanotrack_smoke COMMAND mirador_integrations_tracker_nanotrack_smoke)
+endif()
