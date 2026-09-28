@@ -43,6 +43,19 @@
    非空且全部为已定义格式），不合法报 `kBackendUnavailable`（与 `Status` 枚举语义一致）。
 6. **确定性要求**：缓存语义要求"相同 prepared 图像 + 相同 Backend 参数 → 相同结果"；
    违反确定性的实现不得接入带缓存感知的会话。
+
+   > **适用范围注记**（2026-09-28，M7-11 契约冻结，
+   > [DEC-020](DEC-020-tracker-backend-spi.md)）：本条"相同输入必须产出相同
+   > 结果"的确定性要求对 `TrackerBackend` SPI 的 `TrackerSession::update`
+   > **显式不适用**——跟踪会话有状态（update 结果依赖帧序列，逐位确定性
+   > 口径为"同帧序列同结果序列"而非"同单次调用同结果"），跟踪会话状态
+   > 不进入能力结果缓存，缓存层不得对 `initialize`/`update` 做命中复用；
+   > 仅 `initialize` 的确定性前处理产物可缓存，键构成仍按本决策并对该产物
+   > 派生自的全部输入覆盖（Backend 名称、实现版本、模型 ID/修订、请求参数
+   > 摘要及 prepared 图像内容摘要——图像指纹本就是 `RULE-07` 键字段，
+   > 见 `capability_cache.hpp` `CapabilityKeyFields`）。
+   > 完整界定见 DEC-020 决策 4。本注记只界定适用范围，不改变上文任何
+   > 冻结语义原文。
 7. **Embedder SPI 延后**：按 `POST-04` 触发条件（M3 图标索引命中率不足）再定义；本决策
    的请求分层与坐标契约即未来 Embedder SPI 必须遵循的模板。
 
@@ -79,4 +92,6 @@ ROI+缩放）、取消/超时、`kRefresh`/`kReadOnly`、格式门控。见
 ## 关联文档和工作项
 
 [设计文档](../design/mirador-development-design.md) §9、§13、§18、§19；总计划
-`RULE-03`、`RULE-05`、`RULE-07`、`RULE-08`、`POST-04`/`POST-05`；`M2-01`~`M2-05`。
+`RULE-03`、`RULE-05`、`RULE-07`、`RULE-08`、`POST-04`/`POST-05`；`M2-01`~`M2-05`；
+[DEC-020](DEC-020-tracker-backend-spi.md)（有状态跟踪 Backend SPI：本决策
+确定性/缓存语义的适用范围豁免界定，见决策 6 注记）。
