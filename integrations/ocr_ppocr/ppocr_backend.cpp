@@ -113,8 +113,10 @@ Result<DetCanvas> make_det_canvas(const ImageView& image, int32_t limit, int64_t
     const int32_t longer_side = std::max(image.width, image.height);
     DetCanvas canvas;
     canvas.scale = longer_side > limit ? static_cast<float>(limit) / static_cast<float>(longer_side) : 1.0F;
-    const auto resized_w = std::max(1, static_cast<int32_t>(std::lround(static_cast<double>(image.width) * canvas.scale)));
-    const auto resized_h = std::max(1, static_cast<int32_t>(std::lround(static_cast<double>(image.height) * canvas.scale)));
+    const auto resized_w =
+        std::max(1, static_cast<int32_t>(std::lround(static_cast<double>(image.width) * canvas.scale)));
+    const auto resized_h =
+        std::max(1, static_cast<int32_t>(std::lround(static_cast<double>(image.height) * canvas.scale)));
     const auto canvas_w = static_cast<int32_t>((static_cast<int64_t>(resized_w) + 31) / 32 * 32);
     const auto canvas_h = static_cast<int32_t>((static_cast<int64_t>(resized_h) + 31) / 32 * 32);
 
@@ -214,8 +216,7 @@ Result<std::vector<TextRegion>> PpOcrDetBackend::recognize(const ImageView& prep
     }
     const NcnnTensor& probability = output.value();
     if (probability.channels != 1 || probability.width != canvas_w || probability.height != canvas_h) {
-        return Status{ErrorCode::kBackendFailure,
-                      "det model must output a 1 x canvas_h x canvas_w probability map"};
+        return Status{ErrorCode::kBackendFailure, "det model must output a 1 x canvas_h x canvas_w probability map"};
     }
 
     // Probability floats -> Gray8 bytes for the M3 DB postprocess chain.
@@ -317,8 +318,7 @@ Result<std::vector<TextRegion>> PpOcrRecBackend::recognize(const ImageView& prep
     // aspect ratio preserved (no padding — the model is fully convolutional
     // and CTC drops the implied trailing blanks); rec_width caps the line
     // width for budget bounds (ppocrv5.cpp `get_rotate_crop_image`).
-    const int64_t scaled_width =
-        static_cast<int64_t>(prepared_image.width) * static_cast<int64_t>(options_.rec_height);
+    const int64_t scaled_width = static_cast<int64_t>(prepared_image.width) * static_cast<int64_t>(options_.rec_height);
     const auto line_width = std::clamp<int32_t>(
         static_cast<int32_t>(std::lround(static_cast<double>(scaled_width) / prepared_image.height)), 1,
         options_.rec_width);
