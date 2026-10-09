@@ -25,9 +25,9 @@ constexpr int32_t kMaxChannels = 4;
 /// source row/column can back several destination rows/columns when upscaling,
 /// so weights must be keyed per destination, not per source.
 struct CoverageAxis {
-    std::vector<int64_t> begin{};
+    std::vector<int64_t> begin;
     std::vector<int64_t> offsets{0};
-    std::vector<int64_t> weights{};
+    std::vector<int64_t> weights;
 };
 
 /// Builds the axis table for `dst` destinations over `src_count` sources: the

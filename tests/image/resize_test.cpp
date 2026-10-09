@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -260,9 +261,9 @@ TEST(ResizeArea, UpscaleSharedSourceWeightsNotOverwritten) {
     ASSERT_TRUE(dst.ok());
     const std::byte* pixel = dst.value().view().data;
     for (int32_t x = 0; x < 3; ++x) {
-        EXPECT_EQ(std::to_integer<int32_t>(pixel[x * 3]), 255) << "R at x=" << x;
-        EXPECT_EQ(std::to_integer<int32_t>(pixel[x * 3 + 1]), 255) << "G at x=" << x;
-        EXPECT_EQ(std::to_integer<int32_t>(pixel[x * 3 + 2]), 255) << "B at x=" << x;
+        EXPECT_EQ(std::to_integer<int32_t>(pixel[static_cast<ptrdiff_t>(x) * 3]), 255) << "R at x=" << x;
+        EXPECT_EQ(std::to_integer<int32_t>(pixel[static_cast<ptrdiff_t>(x) * 3 + 1]), 255) << "G at x=" << x;
+        EXPECT_EQ(std::to_integer<int32_t>(pixel[static_cast<ptrdiff_t>(x) * 3 + 2]), 255) << "B at x=" << x;
     }
 }
 
@@ -305,7 +306,7 @@ TEST(ResizeArea, VerticalUpscaleTwoToThreeBlendsSharedSourceExactWeights) {
 /// coverage weights of each destination pixel sum to exactly sw * sh, so any
 /// ratio — including upscales and non-integer ratios — is a fixed point.
 void expect_constant_preserved(PixelFormat format, int32_t sw, int32_t sh, int32_t dw, int32_t dh, int32_t value) {
-    const auto bpp = static_cast<int32_t>(mirador::bytes_per_pixel(format));
+    const auto bpp = mirador::bytes_per_pixel(format);
     std::vector<std::byte> storage(static_cast<size_t>(sw) * sh * bpp, static_cast<std::byte>(value));
     ImageView src;
     src.data = storage.data();
@@ -321,7 +322,8 @@ void expect_constant_preserved(PixelFormat format, int32_t sw, int32_t sh, int32
     for (int32_t y = 0; y < dh; ++y) {
         for (int32_t x = 0; x < dw; ++x) {
             for (int32_t c = 0; c < bpp; ++c) {
-                const auto byte = view.data[static_cast<int64_t>(y) * view.row_stride_bytes + x * bpp + c];
+                const auto byte =
+                    view.data[static_cast<int64_t>(y) * view.row_stride_bytes + static_cast<int64_t>(x) * bpp + c];
                 EXPECT_EQ(std::to_integer<int32_t>(byte), value)
                     << "channel " << c << " at (" << x << ", " << y << ") for " << sw << "x" << sh << " -> " << dw
                     << "x" << dh;
@@ -380,19 +382,18 @@ void reference_resize_area(const std::byte* src, int64_t src_stride, int32_t sw,
 /// Deterministic pattern byte (32-bit LCG) so reference comparisons never
 /// depend on rand() or platform seeding.
 int32_t next_pattern_byte(uint32_t& state) {
-    state = state * 1664525u + 1013904223u;
-    return static_cast<int32_t>((state >> 16) % 256u);
+    state = state * 1664525U + 1013904223U;
+    return static_cast<int32_t>((state >> 16) % 256U);
 }
 
-/// Resamples pseudo-random content with `resize_area` and compares every
-/// destination byte against `reference_resize_area`. `stride_padding` extra
-/// bytes per source row are poisoned so reads outside the logical pixels
-/// surface as wrong values instead of silent luck.
-void expect_matches_reference(PixelFormat format, int32_t sw, int32_t sh, int32_t dw, int32_t dh, uint32_t seed,
-                              int64_t stride_padding) {
-    const auto bpp = static_cast<int32_t>(mirador::bytes_per_pixel(format));
+/// Builds a pseudo-random padded source view. `stride_padding` extra bytes
+/// per row are poisoned so reads outside the logical pixels surface as wrong
+/// values instead of silent luck.
+ImageView make_pattern_source(std::vector<std::byte>& storage, PixelFormat format, int32_t sw, int32_t sh,
+                              int64_t stride_padding, uint32_t& seed) {
+    const auto bpp = mirador::bytes_per_pixel(format);
     const int64_t src_stride = static_cast<int64_t>(sw) * bpp + stride_padding;
-    std::vector<std::byte> storage(static_cast<size_t>(src_stride) * sh, std::byte{0});
+    storage.assign(static_cast<size_t>(src_stride) * sh, std::byte{0});
     for (int32_t y = 0; y < sh; ++y) {
         for (int32_t x = 0; x < sw; ++x) {
             for (int32_t c = 0; c < bpp; ++c) {
@@ -410,6 +411,33 @@ void expect_matches_reference(PixelFormat format, int32_t sw, int32_t sh, int32_
     src.height = sh;
     src.row_stride_bytes = src_stride;
     src.format = format;
+    return src;
+}
+
+/// Compares every destination byte of `view` against the tight packed
+/// `expected` buffer.
+void expect_view_equals(const ImageView& view, const std::vector<std::byte>& expected, int32_t dw, int32_t dh,
+                        const std::string& context) {
+    const auto bpp = mirador::bytes_per_pixel(view.format);
+    for (int32_t y = 0; y < dh; ++y) {
+        for (int32_t x = 0; x < dw; ++x) {
+            for (int32_t c = 0; c < bpp; ++c) {
+                const size_t index = (static_cast<size_t>(y) * dw + x) * bpp + c;
+                const auto actual =
+                    view.data[static_cast<int64_t>(y) * view.row_stride_bytes + static_cast<int64_t>(x) * bpp + c];
+                EXPECT_EQ(actual, expected[index]) << context << " channel " << c << " at (" << x << ", " << y << ")";
+            }
+        }
+    }
+}
+
+/// Resamples pseudo-random content with `resize_area` and compares every
+/// destination byte against `reference_resize_area`.
+void expect_matches_reference(PixelFormat format, int32_t sw, int32_t sh, int32_t dw, int32_t dh, uint32_t seed,
+                              int64_t stride_padding) {
+    const auto bpp = mirador::bytes_per_pixel(format);
+    std::vector<std::byte> storage;
+    const ImageView src = make_pattern_source(storage, format, sw, sh, stride_padding, seed);
     ASSERT_TRUE(validate(src).ok());
 
     auto dst = resize_area(src, dw, dh, kBudget);
@@ -417,35 +445,29 @@ void expect_matches_reference(PixelFormat format, int32_t sw, int32_t sh, int32_
     const ImageView view = dst.value().view();
 
     std::vector<std::byte> expected(static_cast<size_t>(dw) * dh * bpp, std::byte{0});
-    reference_resize_area(src.data, src_stride, sw, sh, expected.data(), static_cast<int64_t>(dw) * bpp, bpp, dw, dh);
-    for (int32_t y = 0; y < dh; ++y) {
-        for (int32_t x = 0; x < dw; ++x) {
-            for (int32_t c = 0; c < bpp; ++c) {
-                const size_t index = (static_cast<size_t>(y) * dw + x) * bpp + c;
-                const auto actual = view.data[static_cast<int64_t>(y) * view.row_stride_bytes + x * bpp + c];
-                EXPECT_EQ(actual, expected[index]) << "channel " << c << " at (" << x << ", " << y << ") for " << sw
-                                                   << "x" << sh << " -> " << dw << "x" << dh;
-            }
-        }
-    }
+    reference_resize_area(src.data, src.row_stride_bytes, sw, sh, expected.data(), static_cast<int64_t>(dw) * bpp, bpp,
+                          dw, dh);
+    expect_view_equals(
+        view, expected, dw, dh,
+        std::to_string(sw) + "x" + std::to_string(sh) + " -> " + std::to_string(dw) + "x" + std::to_string(dh));
 }
 
 TEST(ResizeArea, MatchesDirectCoverageReferenceOnMixedRatios) {
     // Strongest guard for MIRADOR-20261009-001: the destination-keyed coverage
     // tables must stay bit-identical to the direct per-pixel accumulation for
     // upscales, downscales, non-integer ratios and two-axis mixes.
-    expect_matches_reference(PixelFormat::kGray8, 3, 5, 7, 2, 0x51ED270Bu, 0);
-    expect_matches_reference(PixelFormat::kGray8, 2, 2, 3, 3, 0x2705C0DEu, 0);
-    expect_matches_reference(PixelFormat::kGray8, 4, 4, 1, 6, 0x1BADB002u, 0);
-    expect_matches_reference(PixelFormat::kGray8, 5, 3, 2, 7, 0x0D15EA5Eu, 0);
-    expect_matches_reference(PixelFormat::kGray8, 7, 2, 3, 5, 0x5EED5EEDu, 0);  // inverse of the first ratio
-    expect_matches_reference(PixelFormat::kRgb8, 2, 2, 3, 3, 0x216E1D0Eu, 0);
-    expect_matches_reference(PixelFormat::kRgb8, 5, 3, 2, 7, 0x9C0FFEE0u, 0);
+    expect_matches_reference(PixelFormat::kGray8, 3, 5, 7, 2, 0x51ED270BU, 0);
+    expect_matches_reference(PixelFormat::kGray8, 2, 2, 3, 3, 0x2705C0DEU, 0);
+    expect_matches_reference(PixelFormat::kGray8, 4, 4, 1, 6, 0x1BADB002U, 0);
+    expect_matches_reference(PixelFormat::kGray8, 5, 3, 2, 7, 0x0D15EA5EU, 0);
+    expect_matches_reference(PixelFormat::kGray8, 7, 2, 3, 5, 0x5EED5EEDU, 0);  // inverse of the first ratio
+    expect_matches_reference(PixelFormat::kRgb8, 2, 2, 3, 3, 0x216E1D0EU, 0);
+    expect_matches_reference(PixelFormat::kRgb8, 5, 3, 2, 7, 0x9C0FFEE0U, 0);
 }
 
 TEST(ResizeArea, MatchesDirectCoverageReferenceWithPaddedStride) {
-    expect_matches_reference(PixelFormat::kGray8, 3, 5, 7, 2, 0x51ED270Bu, 5);
-    expect_matches_reference(PixelFormat::kRgb8, 4, 3, 9, 2, 0x24424424u, 4);
+    expect_matches_reference(PixelFormat::kGray8, 3, 5, 7, 2, 0x51ED270BU, 5);
+    expect_matches_reference(PixelFormat::kRgb8, 4, 3, 9, 2, 0x24424424U, 4);
 }
 
 }  // namespace
