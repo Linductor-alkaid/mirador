@@ -54,6 +54,10 @@ void collect_component(const ImageView& gray, uint8_t threshold, int32_t seed_x,
     while (!queue.empty()) {
         const auto [cx, cy] = queue.front();
         queue.pop();
+        // The seed is only the topmost row's leftmost pixel; lower rows may
+        // extend further left, so the minimum must track every visited pixel.
+        component.min_x = std::min(component.min_x, cx);
+        component.min_y = std::min(component.min_y, cy);
         component.max_x = std::max(component.max_x, cx);
         component.max_y = std::max(component.max_y, cy);
         ++component.pixel_count;

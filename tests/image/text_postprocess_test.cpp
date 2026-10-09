@@ -221,6 +221,29 @@ TEST(ContourBoxes, EightConnectivityJoinsDiagonalsAndThresholdGates) {
     EXPECT_EQ(gated_boxes.value()[0], (RectF{2.0F, 2.0F, 2.0F, 2.0F}));
 }
 
+// Regression: the shared flood fill used to set min_x/min_y only at the seed
+// (the topmost row's leftmost pixel) and never updated them, so a component
+// whose topmost rows sit far to the right of its lower rows reported bounds
+// that excluded foreground pixels. The bounds must cover every foreground
+// pixel: min_x/min_y equal the global minimum over the component.
+TEST(ContourBoxes, TopRowInsetBoundsCoverAllForegroundPixels) {
+    Map map = make_map(30, 20, 30);
+    // First component: the top two rows hold only a short segment at columns
+    // 8-9; the rows below extend left to column 2.
+    fill_rect(map, 8, 2, 2, 2, 255);
+    fill_rect(map, 2, 4, 8, 6, 255);
+    // Second component: same inset-top shape, shifted right and down.
+    fill_rect(map, 20, 8, 2, 2, 255);
+    fill_rect(map, 16, 10, 6, 4, 255);
+
+    const auto boxes = mirador::recover_contour_boxes(map_view(map), ContourBoxParams{});
+    ASSERT_TRUE(boxes.ok()) << boxes.status().message();
+    ASSERT_EQ(boxes.value().size(), 2U);
+    // Exact pixel bounds in scan order, spanning the full foreground extent.
+    EXPECT_EQ(boxes.value()[0], (RectF{2.0F, 2.0F, 8.0F, 8.0F}));
+    EXPECT_EQ(boxes.value()[1], (RectF{16.0F, 8.0F, 6.0F, 6.0F}));
+}
+
 TEST(ContourBoxes, ExplicitErrors) {
     Map map = make_map(10, 10, 10);
     fill_rect(map, 1, 1, 2, 2, 255);
