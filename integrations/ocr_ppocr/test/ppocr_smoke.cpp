@@ -192,7 +192,7 @@ mirador::ImageView make_rgb_view(const std::vector<std::byte>& bytes, int32_t wi
 }
 
 // Deterministic non-trivial scene; the fixture models are bias-driven, so the
-// pixel values only exercise the letterbox/normalize path.
+// pixel values only exercise the canvas/resize/normalize path.
 std::vector<std::byte> make_rgb_bytes(int32_t width, int32_t height) {
     std::vector<std::byte> bytes(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U);
     for (int32_t y = 0; y < height; ++y) {
@@ -328,8 +328,8 @@ mirador::integrations::PpOcrRecOptions rec_options(const std::filesystem::path& 
     return options;
 }
 
-// Check 2: det backend on a non-square RGB8 frame (letterbox + inference +
-// constant 0.9 probability map + DB postprocess + inverse letterbox).
+// Check 2: det backend on a non-square RGB8 frame (reference canvas prep +
+// inference + constant 0.9 probability map + DB postprocess + inverse pad/scale).
 void check_det_backend(const std::filesystem::path& dir) {
     auto det_result = mirador::integrations::PpOcrDetBackend::create(det_options(dir));
     expect_true(det_result.ok(), "det backend loads the synthetic model");
@@ -366,8 +366,9 @@ void check_det_backend(const std::filesystem::path& dir) {
     expect_true(filtered.ok() && filtered.value().empty(), "det drops the ~0.9 box when min_confidence=0.95");
 }
 
-// Check 3: rec backend on a 100x25 line image; the model emits classes 1..4
-// which the 4-line charset maps to "ABCD".
+// Check 3: rec backend on a 200x30 line image; the aspect-preserving resize
+// lands exactly on the 320x48 fixture kernel (200 * 48 / 30 = 320), and the
+// model emits classes 1..4 which the 4-line charset maps to "ABCD".
 void check_rec_backend(const std::filesystem::path& dir) {
     auto rec_result = mirador::integrations::PpOcrRecBackend::create(rec_options(dir));
     expect_true(rec_result.ok(), "rec backend loads the synthetic model and charset");
@@ -379,13 +380,13 @@ void check_rec_backend(const std::filesystem::path& dir) {
     expect_true(rec.rec_height() == kRecHeight && rec.rec_width() == kRecWidth,
                 "rec backend reports the configured input size");
 
-    const std::vector<std::byte> bytes = make_rgb_bytes(100, 25);
-    const mirador::ImageView view = make_rgb_view(bytes, 100, 25);
+    const std::vector<std::byte> bytes = make_rgb_bytes(200, 30);
+    const mirador::ImageView view = make_rgb_view(bytes, 200, 30);
     const mirador::OcrRequest default_request;
     const mirador::ExecutionContext never_cancelled;
 
     const auto regions = rec.recognize(view, default_request, never_cancelled);
-    expect_true(regions.ok(), "rec recognize succeeds on a 100x25 RGB8 frame");
+    expect_true(regions.ok(), "rec recognize succeeds on a 200x30 RGB8 frame");
     if (!regions.ok()) {
         std::printf("  rec recognize status: %s\n", regions.status().message().c_str());
         return;
@@ -394,7 +395,7 @@ void check_rec_backend(const std::filesystem::path& dir) {
     if (regions.value().size() == 1) {
         const mirador::TextRegion& region = regions.value().front();
         expect_true(region.utf8_text == "ABCD", "rec decodes classes 1,2,3,4 to \"ABCD\"");
-        expect_true(bounds_close(region.bounds, 0.0F, 0.0F, 100.0F, 25.0F, 0.5F),
+        expect_true(bounds_close(region.bounds, 0.0F, 0.0F, 200.0F, 30.0F, 0.5F),
                     "rec bounds cover the whole line image");
         expect_true(region.confidence >= 0.3F && region.confidence <= 0.7F,
                     "rec confidence is the per-step softmax mean (~e/(e+4))");
@@ -406,7 +407,8 @@ void check_rec_backend(const std::filesystem::path& dir) {
     expect_true(filtered.ok() && filtered.value().empty(), "rec returns nothing when min_confidence=0.9");
 }
 
-// Check 4: combined det + rec pipeline on the 200x150 frame.
+// Check 4: combined det + rec pipeline on a 400x60 frame; the det box covers
+// the whole frame and 400 * 48 / 60 = 320 keeps the fixture kernel exact.
 void check_combined_backend(const std::filesystem::path& dir) {
     auto combined_result = mirador::integrations::PpOcrBackend::create(det_options(dir), rec_options(dir));
     expect_true(combined_result.ok(), "combined backend loads both models");
@@ -416,8 +418,8 @@ void check_combined_backend(const std::filesystem::path& dir) {
     }
     auto combined = std::move(combined_result).take_value();
 
-    const std::vector<std::byte> bytes = make_rgb_bytes(200, 150);
-    const mirador::ImageView view = make_rgb_view(bytes, 200, 150);
+    const std::vector<std::byte> bytes = make_rgb_bytes(400, 60);
+    const mirador::ImageView view = make_rgb_view(bytes, 400, 60);
     const mirador::OcrRequest default_request;
     const mirador::ExecutionContext never_cancelled;
 
@@ -434,7 +436,7 @@ void check_combined_backend(const std::filesystem::path& dir) {
         // det ~0.902 x rec ~0.405 = ~0.365.
         expect_true(region.confidence >= 0.25F && region.confidence <= 0.6F,
                     "combined confidence is the det score times the rec score");
-        expect_true(bounds_close(region.bounds, 0.0F, 0.0F, 200.0F, 150.0F, 2.0F),
+        expect_true(bounds_close(region.bounds, 0.0F, 0.0F, 400.0F, 60.0F, 2.0F),
                     "combined bounds stay in prepared-image space");
     }
 }

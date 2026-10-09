@@ -29,22 +29,30 @@ struct PpOcrDetOptions {
     std::string param_path;
     std::string bin_path;
     PpOcrModelIdentity identity;
-    /// Square model input side; the prepared image is letterboxed to
-    /// side x side (pad 0, normalized to x/127.5 - 1).
+    /// Longer-side cap of the reference deployment: the prepared image is
+    /// never upscaled, resized so its longer side fits `det_side`, and padded
+    /// (value 114) to a /32-aligned canvas (reference ppocrv5.cpp `detect`).
     int32_t det_side = 960;
     int num_threads = 1;
-    /// M3 DB postprocess parameters (binarize threshold, unclip, budgets).
-    DbPostprocessParams postprocess;
-    /// Byte budget for the letterbox and probability-map buffers.
+    /// M3 DB postprocess parameters. Defaults follow the reference thresholds:
+    /// probability binarized at 0.3, box score gate 0.6, DB unclip 1.5.
+    DbPostprocessParams postprocess = [] {
+        DbPostprocessParams params;
+        params.binarize_threshold = 77;  // round(0.3 * 255)
+        params.min_mean_score = 0.6;
+        return params;
+    }();
+    /// Byte budget for the canvas and probability-map buffers.
     int64_t work_budget_bytes = int64_t{16} * 1024 * 1024;
 };
 
 /// PP-OCR text detection reference backend (M5-03, DEC-015): one ncnn model
-/// producing a 1 x side x side probability map, postprocessed by the M3
-/// `db_postprocess_aabb` reference chain. `recognize` returns boxes in
-/// prepared-image pixel space (DEC-012 contract); `utf8_text` stays empty
-/// (detection only). Accepts kRgb8 only — the perception pipeline converts
-/// to the first accepted format (DEC-012).
+/// producing a 1 x canvas_h x canvas_w probability map over the /32-aligned
+/// detection canvas, postprocessed by the M3 `db_postprocess_aabb` reference
+/// chain and mapped back through the pad/scale transform. `recognize` returns
+/// boxes in prepared-image pixel space (DEC-012 contract); `utf8_text` stays
+/// empty (detection only). Accepts kRgb8 only — the perception pipeline
+/// converts to the first accepted format (DEC-012).
 class PpOcrDetBackend final : public OcrBackend {
 public:
     static Result<PpOcrDetBackend> create(const PpOcrDetOptions& options);
@@ -67,7 +75,10 @@ struct PpOcrRecOptions {
     /// is class i+1 and class 0 is the CTC blank. Provided by the caller.
     std::string charset_path;
     PpOcrModelIdentity identity;
-    /// Model input size (PP-OCR rec: 3 x rec_height x rec_width).
+    /// Model input size (PP-OCR rec: 3 x rec_height x width): lines are
+    /// resized to `rec_height` with the aspect ratio preserved; the line width
+    /// stays dynamic (the reference model is fully convolutional) and
+    /// `rec_width` caps it for budget bounds.
     int32_t rec_height = 48;
     int32_t rec_width = 320;
     int num_threads = 1;
@@ -75,8 +86,9 @@ struct PpOcrRecOptions {
 };
 
 /// PP-OCR text recognition reference backend (M5-03): treats the prepared
-/// image as ONE text line (letterbox to rec_height x rec_width, normalize to
-/// x/127.5 - 1), runs the model and greedy-CTC-decodes the output. The model
+/// image as ONE text line, resizes it to `rec_height` with the aspect ratio
+/// preserved (exact area resampling, width capped at `rec_width`), normalizes
+/// to x/127.5 - 1, runs the model and greedy-CTC-decodes the output. The model
 /// output contract is planar CHW with channels = time steps and width =
 /// class count (height 1); conversions whose raw output differs must reshape
 /// in their param files. For full-image OCR use `PpOcrBackend`, which feeds

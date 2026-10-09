@@ -7,19 +7,20 @@
 #include <mirador/crop.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
+#include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
-#include <mirador/letterbox.hpp>
 #include <mirador/ocr_backend.hpp>
 #include <mirador/pixel_format.hpp>
+#include <mirador/resize.hpp>
 #include <mirador/result.hpp>
 #include <mirador/status.hpp>
 #include <mirador/text_postprocess.hpp>
-#include <mirador/transform.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <utility>
@@ -30,6 +31,9 @@ namespace {
 
 constexpr int32_t kRecBlankClass = 0;
 constexpr size_t kMaxCharsetEntries = 65536;
+/// Border value of the reference detection canvas (ppocrv5.cpp pads the /32
+/// border with the YOLO-style constant 114 before ImageNet normalization).
+constexpr std::uint8_t kDetPadValue = 114;
 
 Status precheck(const ImageView& image, const ExecutionContext& context) {
     if (image.format != PixelFormat::kRgb8) {
@@ -60,25 +64,85 @@ Result<void> normalize_ppocr(NcnnTensor& tensor, const ExecutionContext& context
     return Result<void>{Status::success()};
 }
 
-/// Maps a model-space box back to prepared-image space through the inverse
-/// letterbox transform and clips it to the image bounds.
-Result<RectF> unletterbox_bounds(const RectF& bounds, const Transform2D& to_model, const ImageView& prepared) {
-    const auto inverse_transform = inverse(to_model);
-    if (!inverse_transform.ok()) {
-        return inverse_transform.status();
+/// Swaps the packed RGB planes to BGR: the reference deployment (and the
+/// PaddleOCR export behind it) consumes cv BGR planes.
+Result<void> swap_planes_to_bgr(NcnnTensor& tensor) {
+    if (tensor.channels != 3 || tensor.width * tensor.height == 0) {
+        return Result<void>{Status::success()};
     }
-    const PointF top_left = transform_point(inverse_transform.value(), PointF{bounds.x, bounds.y});
-    const PointF bottom_right =
-        transform_point(inverse_transform.value(), PointF{bounds.x + bounds.width, bounds.y + bounds.height});
+    const size_t plane = static_cast<size_t>(tensor.width) * tensor.height;
+    float* r = tensor.data.data();
+    float* b = tensor.data.data() + 2 * plane;
+    for (size_t i = 0; i < plane; ++i) {
+        std::swap(r[i], b[i]);
+    }
+    return Result<void>{Status::success()};
+}
+
+/// Maps a canvas-space box back to prepared-image space through the inverse
+/// pad/scale transform of the detection canvas and clips it to the image.
+Result<RectF> unpad_bounds(const RectF& bounds, float scale, int32_t pad_left, int32_t pad_top,
+                           const ImageView& prepared) {
+    const float left = (bounds.x - static_cast<float>(pad_left)) / scale;
+    const float top = (bounds.y - static_cast<float>(pad_top)) / scale;
+    const float right = (bounds.x + bounds.width - static_cast<float>(pad_left)) / scale;
+    const float bottom = (bounds.y + bounds.height - static_cast<float>(pad_top)) / scale;
     RectF mapped;
-    mapped.x = std::max(0.0F, std::min(top_left.x, bottom_right.x));
-    mapped.y = std::max(0.0F, std::min(top_left.y, bottom_right.y));
-    mapped.width = std::min(static_cast<float>(prepared.width), std::max(top_left.x, bottom_right.x)) - mapped.x;
-    mapped.height = std::min(static_cast<float>(prepared.height), std::max(top_left.y, bottom_right.y)) - mapped.y;
+    mapped.x = std::max(0.0F, std::min(left, right));
+    mapped.y = std::max(0.0F, std::min(top, bottom));
+    mapped.width = std::min(static_cast<float>(prepared.width), std::max(left, right)) - mapped.x;
+    mapped.height = std::min(static_cast<float>(prepared.height), std::max(top, bottom)) - mapped.y;
     if (mapped.width <= 0.0F || mapped.height <= 0.0F) {
         return Status{ErrorCode::kCoordinateTransform, "det box fell outside the prepared image"};
     }
     return mapped;
+}
+
+/// Builds the reference detection canvas: the prepared image is never
+/// upscaled, resized so its longer side fits `limit` (exact area weights),
+/// and copied into a /32-aligned canvas whose border is filled with 114
+/// (ppocrv5.cpp `detect`: pad to the stride multiple, near-centered split).
+struct DetCanvas {
+    ImageBuffer buffer;
+    float scale = 1.0F;  // image -> canvas
+    int32_t pad_left = 0;
+    int32_t pad_top = 0;
+};
+
+Result<DetCanvas> make_det_canvas(const ImageView& image, int32_t limit, int64_t budget) {
+    const int32_t longer_side = std::max(image.width, image.height);
+    DetCanvas canvas;
+    canvas.scale = longer_side > limit ? static_cast<float>(limit) / static_cast<float>(longer_side) : 1.0F;
+    const auto resized_w = std::max(1, static_cast<int32_t>(std::lround(static_cast<double>(image.width) * canvas.scale)));
+    const auto resized_h = std::max(1, static_cast<int32_t>(std::lround(static_cast<double>(image.height) * canvas.scale)));
+    const auto canvas_w = static_cast<int32_t>((static_cast<int64_t>(resized_w) + 31) / 32 * 32);
+    const auto canvas_h = static_cast<int32_t>((static_cast<int64_t>(resized_h) + 31) / 32 * 32);
+
+    auto resized = resize_area(image, resized_w, resized_h, budget);
+    if (!resized.ok()) {
+        return resized.status();
+    }
+    auto created = ImageBuffer::create(PixelFormat::kRgb8, canvas_w, canvas_h, budget);
+    if (!created.ok()) {
+        return created.status();
+    }
+    canvas.buffer = created.take_value();
+    const int64_t canvas_stride = canvas.buffer.row_stride_bytes();
+    std::byte* canvas_data = canvas.buffer.data();
+    for (int32_t y = 0; y < canvas_h; ++y) {
+        std::memset(canvas_data + static_cast<int64_t>(y) * canvas_stride, kDetPadValue,
+                    static_cast<size_t>(canvas_stride));
+    }
+    canvas.pad_left = (canvas_w - resized_w) / 2;
+    canvas.pad_top = (canvas_h - resized_h) / 2;
+    const ImageView resized_view = resized.value().view();
+    for (int32_t y = 0; y < resized_h; ++y) {
+        std::memcpy(canvas_data + static_cast<int64_t>(canvas.pad_top + y) * canvas_stride +
+                        static_cast<int64_t>(canvas.pad_left) * 3,
+                    resized_view.data + static_cast<int64_t>(y) * resized_view.row_stride_bytes,
+                    static_cast<size_t>(resized_w) * 3);
+    }
+    return canvas;
 }
 
 BackendInfo make_info(const char* name, const PpOcrModelIdentity& identity) {
@@ -123,20 +187,23 @@ Result<std::vector<TextRegion>> PpOcrDetBackend::recognize(const ImageView& prep
         return status;
     }
 
-    LetterboxRequest letterbox_request;
-    letterbox_request.dst_width = options_.det_side;
-    letterbox_request.dst_height = options_.det_side;
-    letterbox_request.pad_value = 0;
-    auto letterboxed = letterbox(prepared_image, letterbox_request, options_.work_budget_bytes);
-    if (!letterboxed.ok()) {
-        return letterboxed.status();
+    auto canvas = make_det_canvas(prepared_image, options_.det_side, options_.work_budget_bytes);
+    if (!canvas.ok()) {
+        return canvas.status();
     }
+    const int32_t canvas_w = canvas.value().buffer.width();
+    const int32_t canvas_h = canvas.value().buffer.height();
 
-    auto input_result = pack_image(letterboxed.value().buffer.view(), context);
+    auto input_result = pack_image(canvas.value().buffer.view(), context);
     if (!input_result.ok()) {
         return input_result.status();
     }
     NcnnTensor input = std::move(input_result).take_value();
+    // The reference canvas normalizes to x/127.5 - 1 (any exported ImageNet
+    // pair lives inside the converted graph); planes go out as BGR.
+    if (const Result<void> swapped = swap_planes_to_bgr(input); !swapped.ok()) {
+        return swapped.status();
+    }
     if (const Result<void> normalized = normalize_ppocr(input, context); !normalized.ok()) {
         return normalized.status();
     }
@@ -146,9 +213,9 @@ Result<std::vector<TextRegion>> PpOcrDetBackend::recognize(const ImageView& prep
         return output.status();
     }
     const NcnnTensor& probability = output.value();
-    if (probability.channels != 1 || probability.width != options_.det_side ||
-        probability.height != options_.det_side) {
-        return Status{ErrorCode::kBackendFailure, "det model must output a 1 x side x side probability map"};
+    if (probability.channels != 1 || probability.width != canvas_w || probability.height != canvas_h) {
+        return Status{ErrorCode::kBackendFailure,
+                      "det model must output a 1 x canvas_h x canvas_w probability map"};
     }
 
     // Probability floats -> Gray8 bytes for the M3 DB postprocess chain.
@@ -177,7 +244,8 @@ Result<std::vector<TextRegion>> PpOcrDetBackend::recognize(const ImageView& prep
         if (box.confidence < request.min_confidence) {
             continue;
         }
-        auto mapped = unletterbox_bounds(box.bounds, letterboxed.value().transform, prepared_image);
+        auto mapped = unpad_bounds(box.bounds, canvas.value().scale, canvas.value().pad_left, canvas.value().pad_top,
+                                   prepared_image);
         if (!mapped.ok()) {
             continue;  // box lived entirely in padding; deterministic drop
         }
@@ -245,19 +313,27 @@ Result<std::vector<TextRegion>> PpOcrRecBackend::recognize(const ImageView& prep
         return status;
     }
 
-    LetterboxRequest letterbox_request;
-    letterbox_request.dst_width = options_.rec_width;
-    letterbox_request.dst_height = options_.rec_height;
-    letterbox_request.pad_value = 0;
-    auto letterboxed = letterbox(prepared_image, letterbox_request, options_.work_budget_bytes);
-    if (!letterboxed.ok()) {
-        return letterboxed.status();
+    // Reference rec preprocessing: resize the line to rec_height with the
+    // aspect ratio preserved (no padding — the model is fully convolutional
+    // and CTC drops the implied trailing blanks); rec_width caps the line
+    // width for budget bounds (ppocrv5.cpp `get_rotate_crop_image`).
+    const int64_t scaled_width =
+        static_cast<int64_t>(prepared_image.width) * static_cast<int64_t>(options_.rec_height);
+    const auto line_width = std::clamp<int32_t>(
+        static_cast<int32_t>(std::lround(static_cast<double>(scaled_width) / prepared_image.height)), 1,
+        options_.rec_width);
+    auto line_image = resize_area(prepared_image, line_width, options_.rec_height, options_.work_budget_bytes);
+    if (!line_image.ok()) {
+        return line_image.status();
     }
-    auto input_result = pack_image(letterboxed.value().buffer.view(), context);
+    auto input_result = pack_image(line_image.value().view(), context);
     if (!input_result.ok()) {
         return input_result.status();
     }
     NcnnTensor input = std::move(input_result).take_value();
+    if (const Result<void> swapped = swap_planes_to_bgr(input); !swapped.ok()) {
+        return swapped.status();
+    }
     if (const Result<void> normalized = normalize_ppocr(input, context); !normalized.ok()) {
         return normalized.status();
     }
