@@ -20,5 +20,7 @@ bilinear114 是明确配置，不称与 OpenCV 逐位等价；ncnn 字节插值�
 旋转元数据仍按像素已定向契约处理，不能称模型对物理旋转不变。
 
 - [x] YP-01：实现 profile、预算、身份和同一路诊断输入。
-- [ ] YP-02：默认等价、非连续 stride/奇数尺寸/变换/取消/预算，真实模型回归。
+- [x] YP-02：默认等价、非连续 stride/奇数尺寸/变换/取消/预算，真实模型回归。
 - [ ] YP-03：ASAN/UBSAN、文档与 PR/CI 证据。
+
+验证证据：[真实模型与坐标](../benchmarks/linux-x64-yolo-preprocessing-2026-10.md)。Release 与 ASAN/UBSAN 各 58/58；静态分析及 PR/CI 收尾中。

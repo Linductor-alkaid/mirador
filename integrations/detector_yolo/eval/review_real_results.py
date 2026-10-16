@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import html
 import json
+import math
 import subprocess
 from pathlib import Path
 
@@ -66,7 +67,7 @@ def match(reference, actual, min_iou=.99, max_score=.001):
 def ground_truth(case, actual):
     if 'targets' not in case:
         return None
-    used, hits = set(), []
+    used, hits, details = set(), [], []
     for target in case['targets']:
         pool = [(iou(target['bounds'],a['bounds']),i) for i,a in enumerate(actual)
                 if i not in used and a['class'] == target['class']]
@@ -74,9 +75,14 @@ def ground_truth(case, actual):
         if overlap >= .5:
             used.add(index)
             hits.append(target['name'])
+            bounds, gt = actual[index]['bounds'], target['bounds']
+            cx, cy = bounds[0]+bounds[2]/2, bounds[1]+bounds[3]/2
+            details.append(dict(name=target['name'], iou=overlap,
+                                center_error_px=math.hypot(cx-gt[0]-gt[2]/2, cy-gt[1]-gt[3]/2),
+                                center_inside_gt=gt[0] <= cx < gt[0]+gt[2] and gt[1] <= cy < gt[1]+gt[3]))
     return dict(targets=len(case['targets']), matched=len(hits), detections=len(actual),
                 precision=len(hits)/len(actual) if actual else (1. if not case['targets'] else 0.),
-                recall=len(hits)/len(case['targets']) if case['targets'] else 1., matched_names=hits)
+                recall=len(hits)/len(case['targets']) if case['targets'] else 1., matched_names=hits, matched_coordinates=details)
 
 
 def annotate(path, actual, targets, out):

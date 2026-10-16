@@ -11,11 +11,11 @@
 #include <mirador/frame.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_view.hpp>
-#include <mirador/letterbox.hpp>
 #include <mirador/perception_session.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
 #include <mirador/status.hpp>
+#include "yolo_preprocess.hpp"
 
 #include <algorithm>
 #include <chrono>

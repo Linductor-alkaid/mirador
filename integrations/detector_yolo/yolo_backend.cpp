@@ -8,11 +8,11 @@
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_view.hpp>
-#include <mirador/letterbox.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
 #include <mirador/status.hpp>
 #include <mirador/transform.hpp>
+#include "yolo_preprocess.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -130,8 +130,9 @@ BackendInfo make_info(const YoloModelIdentity& identity) {
 }  // namespace
 
 Result<YoloDetectorBackend> YoloDetectorBackend::create(const YoloDetectorOptions& options) {
-    if (options.interpolation != YoloInterpolation::kArea && options.interpolation != YoloInterpolation::kBilinear)
+    if (options.interpolation != YoloInterpolation::kArea && options.interpolation != YoloInterpolation::kBilinear) {
         return Status{ErrorCode::kInvalidArgument, "unknown YOLO interpolation"};
+    }
     if (options.num_classes < 1) {
         return Status{ErrorCode::kInvalidArgument, "num_classes must be >= 1"};
     }
@@ -173,7 +174,9 @@ mirador::Result<std::vector<mirador::DetectionRegion>> YoloDetectorBackend::dete
 
     auto letterboxed = prepare_yolo_input(prepared_image, options_.input_side, options_.interpolation,
                                           options_.pad_value, options_.work_budget_bytes, context);
-    if (!letterboxed) return letterboxed.status();
+    if (!letterboxed) {
+        return letterboxed.status();
+    }
     auto output = runtime_.run("x", letterboxed.value().tensor, "out", context);
     if (!output.ok()) {
         return output.status();
