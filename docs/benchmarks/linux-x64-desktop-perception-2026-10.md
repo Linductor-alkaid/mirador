@@ -75,7 +75,8 @@ taskset -c 0 build/release/benchmarks/mirador_bench_desktop_perception /path/to/
 ## 验证记录
 
 Release warnings-as-errors 全部 53 个 CTest 目标通过（含架构测试）。
-ASAN、UBSAN 全部 53 个 CTest 目标通过；ASAN 初轮与 UBSAN 编译并行时，
-现有 privacy 用例扫描 `/tmp` 误将编译临时文件当作库写盘，停止编译后的全量重跑通过，
-没有压低断言或跳过测试。新增描边、长区域取消、同 dHash 精细比较三项回归
-分别链接基线实现验证均失败，候选通过。静态检查结果随 DP-05 记录。
+ASAN、UBSAN 全部 53 个 CTest 目标通过；本机共享 `/tmp` 的隐私检查曾观察到
+并行编译临时文件与其他任务的 `repro3.cpp`。最终为测试设置独立
+`TMPDIR=$PWD/build/validation-tmp`，保留原始写盘检查与断言，全量串行通过。新增描边、长区域取消、同 dHash 精细比较三项回归
+分别链接基线实现验证均失败，候选通过。clang-format 与修改的 8 个编译单元 clang-tidy（warnings-as-errors）通过；
+关闭 geometry 的默认 benchmark 构建通过。远端跨平台检查状态见 PR #37。

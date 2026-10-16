@@ -254,7 +254,9 @@ Result<ChangeReport> detect_change_signatures(const ChangeSignature& previous, c
 Result<ChangeSignature> signature_with_fingerprint(const ImageView& frame, const ChangeDetectionParams& params,
                                                    uint64_t frame_fingerprint) noexcept {
     auto thumbnail = image_internal::gray_thumbnail(frame, params.thumbnail_size, kChangeDetectionBudgetBytes);
-    if (!thumbnail.ok()) return thumbnail.status();
+    if (!thumbnail.ok()) {
+        return thumbnail.status();
+    }
     ChangeSignature signature;
     signature.frame_width = frame.width;
     signature.frame_height = frame.height;

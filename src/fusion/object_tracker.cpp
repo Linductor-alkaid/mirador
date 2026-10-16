@@ -371,13 +371,18 @@ struct SurfacePeak {
     };
     const auto first = covering_roi(window_at(grid.dx_min, grid.dy_min), view);
     const auto last = covering_roi(window_at(grid.dx_min + grid.cols - 1, grid.dy_min + grid.rows - 1), view);
-    if (!first || !last)
+    if (!first || !last) {
         return Status{ErrorCode::kInvalidArgument, "verify_track: track bounds cover no pixel of the view"};
+    }
     const RectI union_roi{first->x, first->y, last->x + last->width - first->x, last->y + last->height - first->y};
     auto cropped_union = crop(view, union_roi, budget);
-    if (!cropped_union) return cropped_union.status();
+    if (!cropped_union) {
+        return cropped_union.status();
+    }
     auto gray_union = convert_color(cropped_union.value().view(), PixelFormat::kGray8, budget);
-    if (!gray_union) return gray_union.status();
+    if (!gray_union) {
+        return gray_union.status();
+    }
     size_t index = 0;
     for (int64_t row = 0; row < grid.rows; ++row) {
         if (is_cancelled(context)) {

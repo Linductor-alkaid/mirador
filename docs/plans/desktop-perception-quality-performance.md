@@ -32,8 +32,12 @@ PSR 门槛代替优化。Mirage pin 的升级与合并不在本 PR 范围。
 建立 `perf/desktop-perception` 独立工作树。Mirage 的真实帧已在本机受控目录，
 不提交原图；baseline 与 candidate 用相同输入、预热和重复次数。
 
-2026-10-16：DP-01…04 Done。Release（warnings-as-errors）、ASAN、UBSAN 各
+2026-10-16：DP-01…04 Completed。Release（warnings-as-errors）、ASAN、UBSAN 各
 53/53 CTest 目标通过。新增三项回归分别链接基线实现均失败；保留原始断言。
-ASAN 初轮并行编译触发 `/tmp` 隐私检查噪声，全量串行重跑通过。
+共享 `/tmp` 的外部编译/文件活动曾触发隐私检查；最终设置独立 TMPDIR，
+保留所有原始断言，全量串行重跑通过。关闭 geometry 的默认 benchmark 构建通过。
 真实图与合成图的[对照基准](../benchmarks/linux-x64-desktop-perception-2026-10.md)
-及 CSV 已保存；原图未入仓。真实截图线段叠加已视觉复核。DP-05 等待静态检查与 PR CI。
+及 CSV 已保存；原图未入仓。真实截图线段叠加已视觉复核。clang-format 与本次 8 个修改编译单元的 clang-tidy（warnings-as-errors）通过。
+DP-05 已创建 [PR #37](https://github.com/Linductor-alkaid/mirador/pull/37)，
+跨平台 CI 正在运行；负责人为 Mirador 维护者，CI 结束后按 PR checks 逐项验收，
+失败时按对应 job 日志重跑并修复，不将尚未完成的平台标记为通过。
