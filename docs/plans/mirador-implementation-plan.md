@@ -1,11 +1,17 @@
 # Mirador 实施总计划
 
+2026-10-16：维护者授权直接处理[桌面感知质量与性能维护](desktop-perception-quality-performance.md)
+（DP-01…05，In Progress），对应 issue #36；同步无内部并发、预算与隐私边界不变。
+
 > 状态：Active
-> 版本：1.29
+> 版本：1.30
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-09-29
+> 更新日期：2026-10-16
+>
+> 1.30 修订（2026-10-16）：登记 DP-01…05 桌面实测驱动的维护，见 DEC-023；
+> 不扩大 M7 Experimental API 的冻结或发布范围。
 >
 > 1.29 修订（2026-09-29）：M7 新增收口工作项 `M7-14`（里程碑收口：六预设
 > 完整门禁与退出条件核验，`M6-06` 先例）——1.28 修订登记的"里程碑退出

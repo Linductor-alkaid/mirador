@@ -1,6 +1,10 @@
 # Benchmarks produce wall-clock evidence on the machine that runs them; they
 # are executables, not ctest entries, so CI only verifies that they build.
 
+add_executable(mirador_bench_desktop_perception desktop_perception_bench.cpp)
+target_link_libraries(mirador_bench_desktop_perception PRIVATE mirador::fusion mirador::geometry)
+mirador_apply_warnings(mirador_bench_desktop_perception)
+
 add_executable(mirador_bench_change_detection change_detection_bench.cpp)
 target_link_libraries(mirador_bench_change_detection PRIVATE mirador::image)
 mirador_apply_warnings(mirador_bench_change_detection)
