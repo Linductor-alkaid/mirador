@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "purpose": "explicit offline evaluation only; no downloads from backend/default CI",
+  "ncnn_commit": "e54f7b1f88434e1d844ea0551b880a1cfb079ce1",
+  "assets": {
+    "yolov5n_onnx": {
+      "url": "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5n.onnx",
+      "sha256": "04f0e55c26f58d17145b36045780fe1250d5bd2187543e11568e5141d05b3262",
+      "bytes": 3981910,
+      "license": "GPL-3.0"
+    },
+    "ui_checkpoint": {
+      "url": "https://huggingface.co/microsoft/OmniParser-v2.0/resolve/f55d0750e5b94db2125ef0b45b0fa4a85ddc59b4/icon_detect/model.pt",
+      "sha256": "dab3d4351ad00b035db829909a4db98354d5a90f6990e4ac00222a9a95d4bf57",
+      "bytes": 40623819,
+      "license": "AGPL-3.0"
+    },
+    "pnnx_archive": {
+      "url": "https://github.com/pnnx/pnnx/releases/download/20260526/pnnx-20260526-linux.zip",
+      "sha256": "dde08ce2e2e1744a4ddce576910b451a860663af91d2aeed0d21ebee4fa69955",
+      "bytes": 28592427,
+      "license": "BSD-3-Clause",
+      "license_scope": "pnnx source SPDX BSD-3-Clause; prebuilt executable not redistributed; bundled build dependencies retain upstream licenses",
+      "license_evidence": "https://github.com/Tencent/ncnn/blob/e54f7b1f88434e1d844ea0551b880a1cfb079ce1/tools/pnnx/src/main.cpp"
+    },
+    "pnnx_executable": {
+      "url": "https://github.com/pnnx/pnnx/releases/tag/20260526",
+      "sha256": "c3555c48e054245e50fa434a7673fbdad2b8f8c6cdca8c1579601f9882f474a0",
+      "bytes": 87017576,
+      "license": "BSD-3-Clause"
+    },
+    "bus": {
+      "url": "https://raw.githubusercontent.com/ultralytics/yolov5/915bbf294bb74c859f0b41f1c23bc395014ea679/data/images/bus.jpg",
+      "sha256": "33b198a1d2839bb9ac4c65d61f9e852196793cae9a0781360859425f6022b69c",
+      "bytes": 487438,
+      "license": "upstream YOLOv5 example; not redistributed"
+    },
+    "zidane": {
+      "url": "https://raw.githubusercontent.com/ultralytics/yolov5/915bbf294bb74c859f0b41f1c23bc395014ea679/data/images/zidane.jpg",
+      "sha256": "356dad2107bb0254e4e4a81bc1d9c7140043e88569d546e5b404b19bffa77d0a",
+      "bytes": 168949,
+      "license": "upstream YOLOv5 example; not redistributed"
+    }
+  },
+  "export": {
+    "ultralytics": "8.3.0",
+    "torch": "2.1.2+cpu",
+    "onnx": "1.17.0",
+    "onnxruntime": "1.19.2",
+    "opset": 12,
+    "side": 640,
+    "UI_source_output": [
+      1,
+      5,
+      8400
+    ],
+    "UI_classes": {
+      "0": "icon"
+    }
+  }
+}

@@ -503,4 +503,33 @@ TEST(ChangeSignature, RejectsMismatchedThumbnailsAndBadParameters) {
     ASSERT_FALSE(bad_size.ok());
 }
 
+TEST(ChangeDetection, ExplicitBlockComparisonSeesEqualDhashBrightnessChange) {
+    auto before = make_gray(64, 64, 71, 100);
+    auto after = make_gray(64, 64, 71, 120);
+    ChangeDetectionParams params;
+    auto coarse = detect_change(before.view, after.view, params);
+    ASSERT_TRUE(coarse.ok());
+    EXPECT_EQ(coarse.value().classification, ChangeClassification::kNone);
+    params.fingerprint_early_exit = false;
+    auto fine = detect_change(before.view, after.view, params);
+    ASSERT_TRUE(fine.ok());
+    EXPECT_EQ(fine.value().classification, ChangeClassification::kGlobal);
+    EXPECT_EQ(fine.value().reason, ChangeReason::kBlockDiff);
+    auto a = mirador::make_change_signature(before.view, params);
+    auto b = mirador::make_change_signature(after.view, params);
+    ASSERT_TRUE(a.ok());
+    ASSERT_TRUE(b.ok());
+    auto signed_fine = detect_change(a.value(), b.value(), params);
+    ASSERT_TRUE(signed_fine.ok());
+    EXPECT_EQ(signed_fine.value().changed_regions, fine.value().changed_regions);
+    EXPECT_EQ(signed_fine.value().changed_area_ratio, fine.value().changed_area_ratio);
+    params.ignored_regions = {{0, 0, 64, 64}};
+    EXPECT_EQ(detect_change(a.value(), b.value(), params).value().classification, ChangeClassification::kNone);
+    params.ignored_regions.clear();
+    auto identical = detect_change(before.view, before.view, params);
+    ASSERT_TRUE(identical.ok());
+    EXPECT_EQ(identical.value().classification, ChangeClassification::kNone);
+    EXPECT_EQ(identical.value().reason, ChangeReason::kBlockDiff);
+}
+
 }  // namespace

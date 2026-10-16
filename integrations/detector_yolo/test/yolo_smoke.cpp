@@ -8,11 +8,10 @@
 // test fixture data, never real model weights; no network access, nothing
 // printed or persisted beyond pass/fail lines.
 //
-// param adaptation for the pinned ncnn: the Convolution line omits keys 7+
-// (key 8 is int8_scale_term, key 11 is kernel_h); kernel_h/stride_h default
-// to kernel_w/stride_w, so the 64x64 stride-64 kernel collapses the 64x64x3
-// input to 24 channels x 1 x 1, and the Reshape (keys 0=w 1=h 2=c) yields the
-// frozen contract shape: channels=1, height=3 proposals, width=8 = 5 + 3.
+// Global average pool followed by a 1x1 convolution yields the same constant
+// proposals without a 64x64/stride64 convolution. The latter triggers signed
+// overflow in pinned ncnn's x86 SGEMM heuristic under strict UBSAN; no runtime
+// suppression or dependency modification is used to make this fixture pass.
 
 #include "yolo_backend.hpp"
 
@@ -65,15 +64,16 @@ void expect_code(const mirador::Status& status, mirador::ErrorCode expected, con
 
 constexpr int32_t k_input_side = 64;
 constexpr int32_t k_num_classes = 3;
-constexpr int32_t k_row_width = 8;          // 5 + classes
-constexpr int32_t k_conv_outputs = 24;      // 3 proposals x 8 values
-constexpr int32_t k_weight_count = 294912;  // 24 outputs x 3 channels x 64 x 64
-constexpr int32_t k_prepared_side = 128;    // letterbox scale 0.5 -> inverse x2
+constexpr int32_t k_row_width = 8;        // 5 + classes
+constexpr int32_t k_conv_outputs = 24;    // 3 proposals x 8 values
+constexpr int32_t k_weight_count = 72;    // 24 outputs x 3 channels x 1 x 1
+constexpr int32_t k_prepared_side = 128;  // letterbox scale 0.5 -> inverse x2
 
 constexpr std::string_view kParamText = R"(7767517
-3 3
+4 4
 Input data 0 1 x 0=64 1=64 2=3
-Convolution conv0 1 1 x conv_out 0=24 1=64 2=1 3=64 4=0 5=1 6=294912
+Pooling pool0 1 1 x pooled 0=1 4=1
+Convolution conv0 1 1 pooled conv_out 0=24 1=1 5=1 6=72
 Reshape reshape0 1 1 conv_out out 0=8 1=3 2=1
 )";
 
@@ -97,7 +97,7 @@ bool write_file(const std::filesystem::path& path, const void* data, size_t size
 
 bool write_model(const std::filesystem::path& dir) {
     const bool param_ok = write_file(dir / "model.param", kParamText.data(), kParamText.size());
-    // ncnn .bin container: flag word (0 = raw float32) + 294912 all-zero
+    // ncnn .bin container: flag word (0 = raw float32) + 72 all-zero
     // kernel weights + 24 raw bias floats (no flag on the bias blob).
     constexpr size_t k_bias_offset = 4U + static_cast<size_t>(k_weight_count) * 4U;
     std::vector<std::byte> bin(k_bias_offset + static_cast<size_t>(k_conv_outputs) * 4U, std::byte{0});

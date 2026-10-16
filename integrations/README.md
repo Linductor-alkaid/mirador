@@ -44,3 +44,19 @@ ctest --test-dir build/integrations -R mirador.integrations
 真实模型的评测数字按 `DEC-011` 环境与归因口径发布（Core 外层开销与 runtime
 耗时分列）；跟踪后端的合成冒烟只验证管线与解码正确性，跟踪质量证据归
 M7-13 及后续真实评估（`DOD-05`/`RISK-2026-13`）。
+
+
+YOLO 的真实权重验证另见 [离线工具与复现](detector_yolo/eval/README.md)和
+[2026-10-16 实测](../docs/benchmarks/linux-x64-yolo-real-model-2026-10.md)。
+显式 `MIRADOR_BUILD_YOLO_EVAL=ON` 只构建评测 CLI；模型仍由调用方提供，
+原有合成 smoke 不承担精度证明。
+
+### YOLO explicit preprocessing (DEC-024)
+
+`YoloDetectorOptions::interpolation` defaults to `kArea`, `pad_value` to 0.
+Models trained with bilinear/pad114 must explicitly select `kBilinear` and 114.
+The optional `bilinear114` argument on `mirador_yolo_real_eval` selects that profile.
+The ncnn byte interpolation kernel has bounded rounding differences from OpenCV;
+it is not a claim of bit-identical upstream preprocessing. `prepare_yolo_input`
+is the shared adapter diagnostic path; the transform reflects executed integer
+resized dimensions and odd padding, rather than an ideal scalar ratio.

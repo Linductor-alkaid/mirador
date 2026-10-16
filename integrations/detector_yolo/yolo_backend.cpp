@@ -8,11 +8,11 @@
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_view.hpp>
-#include <mirador/letterbox.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
 #include <mirador/status.hpp>
 #include <mirador/transform.hpp>
+#include "yolo_preprocess.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -35,22 +35,6 @@ Status precheck(const mirador::ImageView& image, const mirador::ExecutionContext
         return Status{ErrorCode::kTimeout, "deadline reached before inference"};
     }
     return Status::success();
-}
-
-/// YOLO normalization: x / 255 with pad-0 letterbox (unlike PP-OCR's
-/// x/127.5 - 1). Polls cancellation per channel plane.
-Result<void> normalize_yolo(NcnnTensor& tensor, const mirador::ExecutionContext& context) {
-    const size_t plane = static_cast<size_t>(tensor.width) * tensor.height;
-    for (int c = 0; c < tensor.channels; ++c) {
-        if (c % 8 == 0 && is_cancelled(context)) {
-            return Status{ErrorCode::kCancelled, "cancelled while normalizing"};
-        }
-        float* plane_data = tensor.data.data() + static_cast<size_t>(c) * plane;
-        for (size_t i = 0; i < plane; ++i) {
-            plane_data[i] = plane_data[i] / 255.0F;
-        }
-    }
-    return Result<void>{Status::success()};
 }
 
 /// Maps a model-space box back to prepared-image space through the inverse
@@ -81,8 +65,7 @@ Result<mirador::RectF> unletterbox_bounds(const mirador::RectF& bounds, const mi
 /// both under the complexity bound.
 Result<std::vector<DetectionRegion>> decode_proposals(const YoloDetectorOptions& options,
                                                       const mirador::DetectionRequest& request,
-                                                      const NcnnTensor& proposals,
-                                                      const mirador::LetterboxResult& letterboxed,
+                                                      const NcnnTensor& proposals, const YoloPreparedInput& letterboxed,
                                                       const mirador::ImageView& prepared,
                                                       const mirador::ExecutionContext& context) {
     const int32_t row_width = 5 + options.num_classes;
@@ -147,6 +130,9 @@ BackendInfo make_info(const YoloModelIdentity& identity) {
 }  // namespace
 
 Result<YoloDetectorBackend> YoloDetectorBackend::create(const YoloDetectorOptions& options) {
+    if (options.interpolation != YoloInterpolation::kArea && options.interpolation != YoloInterpolation::kBilinear) {
+        return Status{ErrorCode::kInvalidArgument, "unknown YOLO interpolation"};
+    }
     if (options.num_classes < 1) {
         return Status{ErrorCode::kInvalidArgument, "num_classes must be >= 1"};
     }
@@ -168,6 +154,10 @@ Result<YoloDetectorBackend> YoloDetectorBackend::create(const YoloDetectorOption
     backend.options_ = options;
     backend.runtime_ = std::move(runtime).take_value();
     backend.info_ = make_info(options.identity);
+    backend.info_.implementation_version = "0.2.0-" + std::to_string(options.input_side) + "-" +
+                                           std::to_string(static_cast<int>(options.interpolation)) + "-" +
+                                           std::to_string(options.pad_value);
+
     return backend;
 }
 
@@ -182,25 +172,12 @@ mirador::Result<std::vector<mirador::DetectionRegion>> YoloDetectorBackend::dete
         return status;
     }
 
-    mirador::LetterboxRequest letterbox_request;
-    letterbox_request.dst_width = options_.input_side;
-    letterbox_request.dst_height = options_.input_side;
-    letterbox_request.pad_value = 0;
-    auto letterboxed = mirador::letterbox(prepared_image, letterbox_request, options_.work_budget_bytes);
-    if (!letterboxed.ok()) {
+    auto letterboxed = prepare_yolo_input(prepared_image, options_.input_side, options_.interpolation,
+                                          options_.pad_value, options_.work_budget_bytes, context);
+    if (!letterboxed) {
         return letterboxed.status();
     }
-
-    auto input_result = pack_image(letterboxed.value().buffer.view(), context);
-    if (!input_result.ok()) {
-        return input_result.status();
-    }
-    NcnnTensor input = std::move(input_result).take_value();
-    if (const Result<void> normalized = normalize_yolo(input, context); !normalized.ok()) {
-        return normalized.status();
-    }
-
-    auto output = runtime_.run("x", input, "out", context);
+    auto output = runtime_.run("x", letterboxed.value().tensor, "out", context);
     if (!output.ok()) {
         return output.status();
     }

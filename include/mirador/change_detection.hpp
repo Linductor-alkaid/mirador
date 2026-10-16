@@ -66,6 +66,11 @@ struct ChangeDetectionParams {
     /// are still detected (conservative). Every region must be a valid RectI
     /// inside the current frame bounds.
     std::vector<RectI> ignored_regions;
+    /// Allow layer-1 dHash similarity to skip block comparison (default).
+    /// false always compares the grayscale thumbnails, including equal dHash
+    /// values. This remains thresholded thumbnail comparison, not pixel equality.
+    /// Appended for source aggregate compatibility; consumers must rebuild.
+    bool fingerprint_early_exit = true;
 };
 
 /// Outcome of one change detection (design section 11: similarity, changed-area

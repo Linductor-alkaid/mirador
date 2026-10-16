@@ -288,4 +288,48 @@ TEST(SegmentGrowing, SegmentCapFailsExplicitly) {
     ASSERT_EQ(detected.status().code(), ErrorCode::kBudgetExceeded);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest assertions across stroke/polarity matrix
+TEST(SegmentGrowing, OppositeRidgesOfTwoPixelOutlinesDoNotEraseLongEdges) {
+    for (const uint8_t background : {uint8_t{0}, uint8_t{255}}) {
+        for (const int thickness : {1, 2, 3, 4}) {
+            GrayImage image = make_image(201, 151, 211, background);
+            for (int y = 30; y < 110; ++y) {
+                for (int x = 40; x < 170; ++x) {
+                    if (x < 40 + thickness || x >= 170 - thickness || y < 30 + thickness || y >= 110 - thickness) {
+                        at(image, x, y) = static_cast<uint8_t>(255 - background);
+                    }
+                }
+            }
+            SegmentGrowingLineDetector detector;
+            const auto lines = detector.detect(image.view, {}, {});
+            ASSERT_TRUE(lines.ok());
+            int horizontal = 0;
+            int vertical = 0;
+            for (const auto& line : lines.value().segments) {
+                const auto angle = mirador::segment_angle_deg(line);
+                if (mirador::segment_length(line) > 110 && (angle < 1 || angle > 179)) {
+                    ++horizontal;
+                }
+                if (mirador::segment_length(line) > 60 && std::abs(angle - 90) < 1) {
+                    ++vertical;
+                }
+            }
+            EXPECT_GE(horizontal, 2) << "stroke=" << thickness;
+            EXPECT_GE(vertical, 2) << "stroke=" << thickness;
+        }
+    }
+}
+
+TEST(SegmentGrowing, CancellationIsPolledInsideOneLongRegion) {
+    auto image = make_image(12000, 8, 12007, 0);
+    draw_horizontal_line(image, 3, 3, 11997, 255);
+    int polls = 0;
+    ExecutionContext context;
+    context.is_cancelled = [&] { return ++polls >= 12; };
+    SegmentGrowingLineDetector detector;
+    auto result = detector.detect(image.view, {}, context);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.status().code(), ErrorCode::kCancelled);
+}
+
 }  // namespace

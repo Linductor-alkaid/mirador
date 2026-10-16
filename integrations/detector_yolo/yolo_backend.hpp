@@ -2,6 +2,7 @@
 #define MIRADOR_INTEGRATIONS_DETECTOR_YOLO_BACKEND_HPP
 
 #include "ncnn_runtime.hpp"
+#include "yolo_preprocess.hpp"
 
 #include <mirador/backend_info.hpp>
 #include <mirador/detection_postprocess.hpp>
@@ -47,6 +48,9 @@ struct YoloDetectorOptions {
     /// Explicit candidate budget (RULE-06): more survivors than this after
     /// confidence filtering fail with kBudgetExceeded.
     int32_t max_candidates = 1024;
+    /// Explicit training profile (issue #38); old callers retain area/pad0.
+    YoloInterpolation interpolation = YoloInterpolation::kArea;
+    uint8_t pad_value = 0;
 };
 
 /// YOLO-family reference detection backend (M5-03 sibling, DEC-015): one ncnn
@@ -58,7 +62,7 @@ struct YoloDetectorOptions {
 /// decode, sigmoid placement) must normalize to this layout in their param
 /// files; this reference deliberately does not reinvent head decoding.
 ///
-/// `detect` letterboxes the prepared image (pad 0, x/255), decodes surviving
+/// `detect` letterboxes the prepared image (configured interpolation/pad, x/255), decodes surviving
 /// rows, maps boxes back to prepared-image pixel space (DEC-012 contract),
 /// and applies the M3 `nms` reference. `request.min_confidence` is
 /// backend-owned; `roi`/`max_side`/`output_space`/`cache_policy` stay

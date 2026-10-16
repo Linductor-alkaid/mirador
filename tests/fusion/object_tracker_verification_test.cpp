@@ -33,6 +33,7 @@
 #include <mirador/crop.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
+#include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/patch_fingerprint.hpp>
 #include <mirador/pixel_format.hpp>
@@ -1281,6 +1282,95 @@ TEST(ObjectTrackerVerificationTest, ResetDropsBaselineSlots) {
     EXPECT_EQ(tracker.track_count(), 0U);
     const auto no_baseline = tracker.verify_track(7U, view, descriptors_of(0.5F, 0.5F, 0.5F));
     EXPECT_EQ(no_baseline.status().code(), ErrorCode::kInvalidArgument);  // unknown after reset
+}
+
+// DP-04: compare the optimized verifier with the original public
+// crop -> complete fingerprint -> NCC pipeline over every candidate. This
+// checks colored conversion, planar luma, fraction/edge covering and the
+// whole PSR surface, not only a perfect-match winning pixel.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest assertions and explicit independent oracle
+TEST(ObjectTrackerVerificationTest, SearchMatchesPublicCropFingerprintOracle) {
+    for (const auto format : {PixelFormat::kGray8, PixelFormat::kRgb8, PixelFormat::kBgra8, PixelFormat::kNv12}) {
+        for (const auto bounds : {RectF{5.25F, 4.5F, 6.25F, 4.75F}, RectF{0, 0, 6, 5}}) {
+            auto created = mirador::ImageBuffer::create(format, 19, 17, kGenerousBudget);
+            ASSERT_TRUE(created.ok());
+            auto image = created.take_value();
+            const int bytes = format == PixelFormat::kNv12 ? 1 : mirador::bytes_per_pixel(format);
+            for (int y = 0; y < 17; ++y) {
+                for (int x = 0; x < 19; ++x) {
+                    for (int c = 0; c < bytes; ++c) {
+                        image.data()[static_cast<int64_t>(y) * image.row_stride_bytes() +
+                                     static_cast<int64_t>(x) * bytes + c] =
+                            std::byte{noise_pixel(x + c * 19, y + c * 7)};
+                    }
+                }
+            }
+            ObjectTrackerOptions options;
+            options.template_thumb_side = 8;
+            options.verification_roi_diagonal_ratio = .75;
+            auto tracker = make_tracker(options);
+            auto view = image.view();
+            ASSERT_NO_FATAL_FAILURE(adopt_or_fail(tracker, view, 7, bounds));
+            // Different current pixels, so equivalence covers nontrivial scores.
+            image.data()[int64_t{5} * image.row_stride_bytes() + int64_t{6} * bytes] ^= std::byte{127};
+            const auto verified = tracker.verify_track(7, view, std::nullopt);
+            ASSERT_TRUE(verified.ok());
+            const auto roi = verified.value().verification_roi;
+            const int lo_x = static_cast<int>(std::ceil(static_cast<double>(roi.x) - bounds.x));
+            const int hi_x =
+                static_cast<int>(std::floor(static_cast<double>(roi.x + roi.width) - (bounds.x + bounds.width)));
+            const int lo_y = static_cast<int>(std::ceil(static_cast<double>(roi.y) - bounds.y));
+            const int hi_y =
+                static_cast<int>(std::floor(static_cast<double>(roi.y + roi.height) - (bounds.y + bounds.height)));
+            struct Sample {
+                int dx, dy;
+                double score;
+            };
+            std::vector<Sample> samples;
+            const auto& enrolled = tracker.find_track(7)->templates.front().fingerprint;
+            for (int dy = lo_y; dy <= hi_y; ++dy) {
+                for (int dx = lo_x; dx <= hi_x; ++dx) {
+                    const RectF window{bounds.x + static_cast<float>(dx), bounds.y + static_cast<float>(dy),
+                                       bounds.width, bounds.height};
+                    const auto fp = direct_template(view, covering_roi_of(window, view), 8);
+                    ASSERT_TRUE(fp.ok());
+                    samples.push_back({dx, dy, reference_ncc(fp.value(), enrolled)});
+                }
+            }
+            ASSERT_FALSE(samples.empty());
+            size_t best = 0;
+            for (size_t i = 1; i < samples.size(); ++i) {
+                const auto& a = samples[i];
+                const auto& b = samples[best];
+                const int ra = std::max(std::abs(a.dx), std::abs(a.dy));
+                const int rb = std::max(std::abs(b.dx), std::abs(b.dy));
+                if (a.score > b.score ||
+                    (a.score == b.score && (ra < rb || (ra == rb && (a.dy < b.dy || (a.dy == b.dy && a.dx < b.dx)))))) {
+                    best = i;
+                }
+            }
+            double sum = 0;
+            for (size_t i = 0; i < samples.size(); ++i) {
+                if (i != best) {
+                    sum += samples[i].score;
+                }
+            }
+            const auto count = static_cast<double>(samples.size() - 1);
+            const double mean = count > 0 ? sum / count : 0;
+            double variance = 0;
+            for (size_t i = 0; i < samples.size(); ++i) {
+                if (i != best) {
+                    const double d = samples[i].score - mean;
+                    variance += d * d;
+                }
+            }
+            const double psr = (samples[best].score - mean) / (std::sqrt(count > 0 ? variance / count : 0) + 1e-12);
+            EXPECT_EQ(verified.value().appearance.peak_ncc, samples[best].score);
+            EXPECT_EQ(verified.value().appearance.peak_sidelobe_ratio, psr);
+            EXPECT_EQ(verified.value().appearance.best_offset_dx, samples[best].dx);
+            EXPECT_EQ(verified.value().appearance.best_offset_dy, samples[best].dy);
+        }
+    }
 }
 
 }  // namespace

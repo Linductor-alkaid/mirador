@@ -11,7 +11,7 @@ namespace mirador {
 /// Tunables of the first-party segment-growing line detector (DEC-009, design
 /// section 15). The detector extracts gradient edge ridges (central
 /// differences, L1 magnitude), grows direction-aligned regions from scan-order
-/// seeds (8-connectivity, alignment to the seed gradient mod 180), fits one
+/// seeds (8-connectivity, same-polarity alignment to the seed gradient), fits one
 /// line per region by closed-form PCA, and splits regions whose orthogonal
 /// residuals exceed `deviation_tolerance` into contiguous inlier runs. A thin
 /// bright line therefore produces one ridge segment per side; callers unify

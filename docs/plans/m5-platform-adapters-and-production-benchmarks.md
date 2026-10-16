@@ -346,3 +346,10 @@ Independent-Verification-Agent 编写并执行，两轮）：
 - `v0.2.0` tag 打在 PR #12 合并提交 236df8f，与总计划里程碑索引一一对应；
   GitHub Release 发布说明取自 CHANGELOG `0.2.0` 段（含 `DEC-011` 限定表述与
   兼容性影响节）。状态行与总计划登记同步，无代码与构建影响。
+
+
+2026-10-16：M5-04 的真实权重后续验收由
+[YR-01…05](yolo-real-model-validation.md)承接；两套真实权重、14 个样本 / 57 个框
+通过独立 ONNX 对照，并记录真实误检/漏检、11 次采样性能和预处理差异 #38。
+[报告](../benchmarks/linux-x64-yolo-real-model-2026-10.md)不以 smoke 代替模型质量，
+也不将更大语料或跨平台性能视为已完成。
