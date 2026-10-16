@@ -188,14 +188,20 @@ private:
 /// Grows one 8-connected, seed-gradient-aligned region from `seed`
 /// (deterministic DFS with an explicit stack), recording pixels in
 /// `region` in discovery order.
-void grow_region(const ImageView& view, const RectI& interior, const SeedPoint& seed, const Gradient& seed_gradient,
-                 double sin_sq, const SegmentGrowingParams& params, VisitedMap& visited, Region& region) {
+Status grow_region(const ImageView& view, const RectI& interior, const SeedPoint& seed, const Gradient& seed_gradient,
+                   double sin_sq, const SegmentGrowingParams& params, VisitedMap& visited, Region& region,
+                   Region& stack, const ExecutionContext& context) {
     region.clear();
     region.push_back(seed);
     visited.mark(seed.x, seed.y);
-    Region stack;
+    stack.clear();
     stack.push_back(seed);
+    size_t processed = 0;
     while (!stack.empty()) {
+        if ((processed++ & 1023U) == 0) {
+            if (is_cancelled(context)) return {ErrorCode::kCancelled, "cancelled during region growth"};
+            if (deadline_reached(context)) return {ErrorCode::kTimeout, "deadline reached during region growth"};
+        }
         const SeedPoint current = stack.back();
         stack.pop_back();
         for (int32_t dy = -1; dy <= 1; ++dy) {
@@ -213,6 +219,12 @@ void grow_region(const ImageView& view, const RectI& interior, const SeedPoint& 
                 if (g.l1 < params.gradient_threshold) {
                     continue;
                 }
+                // Opposite sides of a thin stroke can touch in the gradient
+                // map. Merging opposite polarity widens the PCA band and
+                // interleaves outliers, deleting otherwise long straight runs.
+                const int64_t dot =
+                    static_cast<int64_t>(seed_gradient.gx) * g.gx + static_cast<int64_t>(seed_gradient.gy) * g.gy;
+                if (dot < 0) continue;
                 // |sin(angle between gradients)| <= sin(tolerance):
                 // cross^2 <= |a|^2 |b|^2 sin^2(tolerance).
                 const int64_t cross =
@@ -227,6 +239,7 @@ void grow_region(const ImageView& view, const RectI& interior, const SeedPoint& 
             }
         }
     }
+    return Status::success();
 }
 
 /// Fits one contiguous inlier run and appends the segment when it passes the
@@ -339,7 +352,7 @@ SegmentGrowingLineDetector::SegmentGrowingLineDetector(SegmentGrowingParams para
 BackendInfo SegmentGrowingLineDetector::info() const {
     BackendInfo info;
     info.name = "mirador-segment-growing";
-    info.implementation_version = "1.0.0";
+    info.implementation_version = "1.1.0";
     info.model_id.clear();  // model-free traditional detector
     info.model_revision.clear();
     info.accepted_formats = {PixelFormat::kGray8};
@@ -370,6 +383,7 @@ Result<LineSegmentSet> SegmentGrowingLineDetector::detect(const ImageView& gray,
     LineSegmentSet result;
     result.space = CoordinateSpaceId::kOriented;
     Region region;
+    Region stack;
     for (int32_t y = interior.y; y < interior.y + interior.height; ++y) {
         if (const Status stopped = context_status(context); !stopped.ok()) {
             return stopped;
@@ -382,7 +396,9 @@ Result<LineSegmentSet> SegmentGrowingLineDetector::detect(const ImageView& gray,
             if (seed_gradient.l1 < params_.gradient_threshold) {
                 continue;
             }
-            grow_region(gray, interior, SeedPoint{x, y}, seed_gradient, sin_sq, params_, visited, region);
+            const auto grown = grow_region(gray, interior, SeedPoint{x, y}, seed_gradient, sin_sq, params_, visited,
+                                           region, stack, context);
+            if (!grown.ok()) return grown;
             if (region.size() < 2) {
                 continue;
             }
