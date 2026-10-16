@@ -1137,9 +1137,9 @@ public:
     ///
     /// E1 template NCC (multi-template best with peak-sidelobe quality):
     /// every integer translation of the track bounds window that stays fully
-    /// inside the verification ROI is extracted with the adoption pipeline
-    /// (`crop` + `make_visual_patch_fingerprint` at
-    /// `options().template_thumb_side`) and NCC-scored against every stored
+    /// inside the verification ROI yields the same grayscale thumbnail as
+    /// the adoption pipeline (`crop` + `make_visual_patch_fingerprint` at
+    /// `options().template_thumb_side`) and is NCC-scored against every stored
     /// positive template with the M3-10 normalization (the `VisualIndex`
     /// template layer formula; negative templates are never read — the
     /// impostor veto is frozen for M7-06). Each template yields one response
@@ -1181,6 +1181,8 @@ public:
     /// response-surface storage — is checked against
     /// `options().verification_work_budget_bytes` before the scan starts;
     /// exceeding it fails with kBudgetExceeded before any pixel is read.
+    /// This conservative meter is retained even when the implementation shares
+    /// a grayscale search ROI and omits hashes unused by NCC (DEC-023).
     /// Metering precision: the plan sizes the window with the ceil of the
     /// bounds extents, while the per-offset crop follows the covering rule,
     /// so fractional bounds can read up to one pixel row/column more per

@@ -1,6 +1,7 @@
 #include <mirador/object_tracker.hpp>
 
 #include <mirador/change_detection.hpp>
+#include <mirador/color_convert.hpp>
 #include <mirador/crop.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
@@ -8,6 +9,7 @@
 #include <mirador/image_view.hpp>
 #include <mirador/patch_fingerprint.hpp>
 #include <mirador/pixel_format.hpp>
+#include <mirador/resize.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/shift_estimation.hpp>
@@ -24,6 +26,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -129,16 +132,16 @@ void truncate_text(std::string& text) noexcept {
 /// NCC of two same-size packed gray thumbnails: the exact normalization of
 /// the VisualIndex template layer (M3-10) — mean-adjusted correlation with
 /// its flat-side rule (identical flat thumbnails are a perfect match).
-[[nodiscard]] double thumbnail_ncc(const VisualPatchFingerprint& query, const VisualPatchFingerprint& entry) noexcept {
-    const size_t count = query.thumbnail_gray.size();
-    if (count == 0 || entry.thumbnail_gray.size() != count) {
+[[nodiscard]] double thumbnail_ncc(std::span<const std::byte> query, std::span<const std::byte> entry) noexcept {
+    const size_t count = query.size();
+    if (count == 0 || entry.size() != count) {
         return 0.0;
     }
     double query_mean = 0.0;
     double entry_mean = 0.0;
     for (size_t i = 0; i < count; ++i) {
-        query_mean += std::to_integer<uint8_t>(query.thumbnail_gray[i]);
-        entry_mean += std::to_integer<uint8_t>(entry.thumbnail_gray[i]);
+        query_mean += std::to_integer<uint8_t>(query[i]);
+        entry_mean += std::to_integer<uint8_t>(entry[i]);
     }
     query_mean /= static_cast<double>(count);
     entry_mean /= static_cast<double>(count);
@@ -146,17 +149,21 @@ void truncate_text(std::string& text) noexcept {
     double query_variance = 0.0;
     double entry_variance = 0.0;
     for (size_t i = 0; i < count; ++i) {
-        const double q = std::to_integer<uint8_t>(query.thumbnail_gray[i]) - query_mean;
-        const double e = std::to_integer<uint8_t>(entry.thumbnail_gray[i]) - entry_mean;
+        const double q = std::to_integer<uint8_t>(query[i]) - query_mean;
+        const double e = std::to_integer<uint8_t>(entry[i]) - entry_mean;
         covariance += q * e;
         query_variance += q * q;
         entry_variance += e * e;
     }
     const double denominator = std::sqrt(query_variance * entry_variance);
     if (denominator <= 0.0) {
-        return query.thumbnail_gray == entry.thumbnail_gray ? 1.0 : 0.0;
+        return std::equal(query.begin(), query.end(), entry.begin()) ? 1.0 : 0.0;
     }
     return covariance / denominator;
+}
+
+[[nodiscard]] double thumbnail_ncc(const VisualPatchFingerprint& query, const VisualPatchFingerprint& entry) noexcept {
+    return thumbnail_ncc(query.thumbnail_gray, entry.thumbnail_gray);
 }
 
 /// True when every descriptor quantity is finite and inside the frozen
@@ -356,6 +363,21 @@ struct SurfacePeak {
                                                      const OffsetGrid& grid, int64_t budget, int32_t thumb_side,
                                                      const ExecutionContext& context,
                                                      std::vector<std::vector<double>>& responses) noexcept {
+    // Cover exactly the union of searched integer crops. In particular, keep
+    // fractional covering and edge-clamped fallback identical to crop-per-offset.
+    const auto window_at = [&](int64_t dx, int64_t dy) {
+        return RectF{track.last_bounds.x + static_cast<float>(dx), track.last_bounds.y + static_cast<float>(dy),
+                     track.last_bounds.width, track.last_bounds.height};
+    };
+    const auto first = covering_roi(window_at(grid.dx_min, grid.dy_min), view);
+    const auto last = covering_roi(window_at(grid.dx_min + grid.cols - 1, grid.dy_min + grid.rows - 1), view);
+    if (!first || !last)
+        return Status{ErrorCode::kInvalidArgument, "verify_track: track bounds cover no pixel of the view"};
+    const RectI union_roi{first->x, first->y, last->x + last->width - first->x, last->y + last->height - first->y};
+    auto cropped_union = crop(view, union_roi, budget);
+    if (!cropped_union) return cropped_union.status();
+    auto gray_union = convert_color(cropped_union.value().view(), PixelFormat::kGray8, budget);
+    if (!gray_union) return gray_union.status();
     size_t index = 0;
     for (int64_t row = 0; row < grid.rows; ++row) {
         if (is_cancelled(context)) {
@@ -372,17 +394,22 @@ struct SurfacePeak {
             if (!candidate_roi.has_value()) {
                 return Status{ErrorCode::kInvalidArgument, "verify_track: track bounds cover no pixel of the view"};
             }
-            auto cropped = crop(view, *candidate_roi, budget);
-            if (!cropped.ok()) {
-                return cropped.status();
-            }
-            auto candidate =
-                make_visual_patch_fingerprint(cropped.value().view(), PatchFingerprintParams{thumb_side}, budget);
+            // Gray conversion is pointwise, so cropping this shared gray view
+            // yields exactly the old crop -> convert -> resize thumbnail.
+            ImageView candidate_view = gray_union.value().view();
+            candidate_view.data +=
+                static_cast<int64_t>(candidate_roi->y - union_roi.y) * candidate_view.row_stride_bytes +
+                candidate_roi->x - union_roi.x;
+            candidate_view.width = candidate_roi->width;
+            candidate_view.height = candidate_roi->height;
+            auto candidate = resize_area(candidate_view, thumb_side, thumb_side, budget);
             if (!candidate.ok()) {
                 return candidate.status();
             }
+            const std::span<const std::byte> thumbnail(candidate.value().view().data,
+                                                       static_cast<size_t>(thumb_side) * thumb_side);
             for (size_t t = 0; t < track.templates.size(); ++t) {
-                responses[t][index] = thumbnail_ncc(candidate.value(), track.templates[t].fingerprint);
+                responses[t][index] = thumbnail_ncc(thumbnail, track.templates[t].fingerprint.thumbnail_gray);
             }
         }
     }
