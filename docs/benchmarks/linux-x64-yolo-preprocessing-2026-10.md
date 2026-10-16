@@ -28,3 +28,9 @@ Backend 和诊断使用同一输入函数，图像保持内存隐私，只有显
 
 Release CTest 58/58；同一 Debug 构建同时启用 ASAN/UBSAN，58/58。Sanitizer 构建
 关闭 ncnn runtime CPU dispatch/AVX variants，仅作为内存/UB 验证，不作性能比较。
+
+严格 sanitizer 复核：初次可恢复 UBSAN 在旧常量模型的 64×64/stride64 卷积
+触发 pinned ncnn x86 SGEMM 成本启发式的 signed overflow；不是 YOLO 坐标变换。
+将测试模型改为全局均值池化 + 1×1 零权重卷积，仍生成相同常量 proposals，
+不抑制检测器、不修改 ncnn；以 `UBSAN_OPTIONS=halt_on_error=1` 重跑全量 58/58，
+无 sanitizer 诊断。该大核/大 stride 的 ncnn 限制仍存在，真实已验权重不含此组合。
