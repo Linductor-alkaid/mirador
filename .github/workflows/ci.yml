@@ -173,7 +173,7 @@ jobs:
       - name: Configure (fetches pinned ncnn; requires network)
         # Explicit compile database export: the integrations tidy step needs
         # it, and not every runner CMake exports it by default for Ninja.
-        run: cmake -S . -B build/integrations -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMIRADOR_BUILD_INTEGRATIONS=ON
+        run: cmake -S . -B build/integrations -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMIRADOR_BUILD_INTEGRATIONS=ON -DMIRADOR_BUILD_YOLO_EVAL=ON
       - name: Build
         run: cmake --build build/integrations
       - name: Test

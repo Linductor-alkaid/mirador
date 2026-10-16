@@ -1,0 +1,134 @@
+{
+  "coco-bus": {
+    "source_sha256": "79a66ad1ad163efe5d1ae264860fee4a679d3d3d470d1a2cc17681d0cb01db4c",
+    "targets": [
+      {
+        "name": "bus",
+        "class": 5,
+        "bounds": [
+          5,
+          225,
+          805,
+          545
+        ]
+      },
+      {
+        "name": "person-left",
+        "class": 0,
+        "bounds": [
+          50,
+          395,
+          195,
+          515
+        ]
+      },
+      {
+        "name": "person-middle",
+        "class": 0,
+        "bounds": [
+          218,
+          405,
+          132,
+          460
+        ]
+      },
+      {
+        "name": "person-right",
+        "class": 0,
+        "bounds": [
+          668,
+          385,
+          142,
+          500
+        ]
+      },
+      {
+        "name": "person-partial-edge",
+        "class": 0,
+        "bounds": [
+          0,
+          550,
+          75,
+          330
+        ]
+      }
+    ]
+  },
+  "coco-blank": {
+    "source_sha256": "9dda41395cbca417ec38f88277e4e92a098c3bbb169d06e16bde9aa651969df3",
+    "targets": []
+  },
+  "coco-form-light": {
+    "source_sha256": "a89e1e06c086930996cdb99c3d415a4391ae35b71ade0c32f153e1a5f5663be7",
+    "targets": []
+  },
+  "ui-form-light": {
+    "source_sha256": "a89e1e06c086930996cdb99c3d415a4391ae35b71ade0c32f153e1a5f5663be7",
+    "targets": [
+      {
+        "name": "name-input",
+        "class": 0,
+        "bounds": [
+          55,
+          253,
+          407,
+          53
+        ]
+      },
+      {
+        "name": "submit",
+        "class": 0,
+        "bounds": [
+          55,
+          377,
+          162,
+          51
+        ]
+      },
+      {
+        "name": "cancel-disabled",
+        "class": 0,
+        "bounds": [
+          229,
+          377,
+          158,
+          51
+        ]
+      },
+      {
+        "name": "save",
+        "class": 0,
+        "bounds": [
+          32,
+          520,
+          139,
+          51
+        ]
+      },
+      {
+        "name": "settings",
+        "class": 0,
+        "bounds": [
+          208,
+          520,
+          170,
+          51
+        ]
+      },
+      {
+        "name": "help",
+        "class": 0,
+        "bounds": [
+          415,
+          520,
+          139,
+          51
+        ]
+      }
+    ]
+  },
+  "ui-blank": {
+    "source_sha256": "9dda41395cbca417ec38f88277e4e92a098c3bbb169d06e16bde9aa651969df3",
+    "targets": []
+  }
+}
