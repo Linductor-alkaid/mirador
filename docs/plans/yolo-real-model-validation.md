@@ -20,5 +20,8 @@
 性能另采样 11 次。Release+integrations 57/57，ASAN/UBSAN 各53/53，真实模型 CLI
 与 adapter 额外 sanitizer 通过（ncnn 仍 Release）。
 [报告](../benchmarks/linux-x64-yolo-real-model-2026-10.md)和外部资产锁已保存。
-YR-05 等待最终静态检查与 PR；预处理组合差异 #38 属后续明确模型配置能力，
+最终 clang-format / clang-tidy 与 Python 编译检查均通过，未知转换器摘要拒绝路径通过。
+[PR #39](https://github.com/Linductor-alkaid/mirador/pull/39)已提交；YR-05 等待远端 CI，
+负责人为 Mirador 维护者，CI 结束后按 PR checks 验收，失败则按对应日志修复/补跑。
+预处理组合差异 [#38](https://github.com/Linductor-alkaid/mirador/issues/38) 属后续明确模型配置能力，
 本项完成定义为真实模型测试和问题取证，不保证模型达到产品质量，也不修改冻结 pad0 行为。
