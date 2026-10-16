@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### YOLO 真实模型验收
+
+- 新增显式启用的离线检测 CLI、固定版本 ONNX→ncnn 准备工具与独立 ONNX 框对照，
+  不引入默认模型下载；参考 integrations CI 构建 CLI 并运行静态检查。
+- 记录两套真实权重、14 个样本 / 57 个结果框、人工 GT、误检/漏检、性能及
+  转换器版本兼容限制；[验收报告](docs/benchmarks/linux-x64-yolo-real-model-2026-10.md)。
+  预处理适配差异另列 issue #38，未修改既有 YOLO 默认行为或 Mirage pin。
+
 ### 新增（M7 跨帧目标跟踪，`DEC-019`，Experimental）
 
 - M7 立项生效（2026-09-21，负责人批准）：[DEC-019](docs/decisions/DEC-019-cross-frame-object-tracking.md)

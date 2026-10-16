@@ -44,3 +44,9 @@ ctest --test-dir build/integrations -R mirador.integrations
 真实模型的评测数字按 `DEC-011` 环境与归因口径发布（Core 外层开销与 runtime
 耗时分列）；跟踪后端的合成冒烟只验证管线与解码正确性，跟踪质量证据归
 M7-13 及后续真实评估（`DOD-05`/`RISK-2026-13`）。
+
+
+YOLO 的真实权重验证另见 [离线工具与复现](detector_yolo/eval/README.md)和
+[2026-10-16 实测](../docs/benchmarks/linux-x64-yolo-real-model-2026-10.md)。
+显式 `MIRADOR_BUILD_YOLO_EVAL=ON` 只构建评测 CLI；模型仍由调用方提供，
+原有合成 smoke 不承担精度证明。

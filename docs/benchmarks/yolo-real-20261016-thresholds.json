@@ -1,0 +1,128 @@
+[
+  {
+    "case": "coco-bus",
+    "threshold": 0.1,
+    "targets": 5,
+    "matched": 5,
+    "detections": 6,
+    "precision": 0.8333333333333334,
+    "recall": 1.0,
+    "matched_names": [
+      "bus",
+      "person-left",
+      "person-middle",
+      "person-right",
+      "person-partial-edge"
+    ]
+  },
+  {
+    "case": "coco-bus",
+    "threshold": 0.25,
+    "targets": 5,
+    "matched": 4,
+    "detections": 4,
+    "precision": 1.0,
+    "recall": 0.8,
+    "matched_names": [
+      "bus",
+      "person-left",
+      "person-middle",
+      "person-right"
+    ]
+  },
+  {
+    "case": "coco-bus",
+    "threshold": 0.5,
+    "targets": 5,
+    "matched": 4,
+    "detections": 4,
+    "precision": 1.0,
+    "recall": 0.8,
+    "matched_names": [
+      "bus",
+      "person-left",
+      "person-middle",
+      "person-right"
+    ]
+  },
+  {
+    "case": "coco-bus",
+    "threshold": 0.8,
+    "targets": 5,
+    "matched": 1,
+    "detections": 1,
+    "precision": 1.0,
+    "recall": 0.2,
+    "matched_names": [
+      "person-middle"
+    ]
+  },
+  {
+    "case": "ui-form-light",
+    "threshold": 0.1,
+    "targets": 6,
+    "matched": 6,
+    "detections": 8,
+    "precision": 0.75,
+    "recall": 1.0,
+    "matched_names": [
+      "name-input",
+      "submit",
+      "cancel-disabled",
+      "save",
+      "settings",
+      "help"
+    ]
+  },
+  {
+    "case": "ui-form-light",
+    "threshold": 0.25,
+    "targets": 6,
+    "matched": 6,
+    "detections": 7,
+    "precision": 0.8571428571428571,
+    "recall": 1.0,
+    "matched_names": [
+      "name-input",
+      "submit",
+      "cancel-disabled",
+      "save",
+      "settings",
+      "help"
+    ]
+  },
+  {
+    "case": "ui-form-light",
+    "threshold": 0.5,
+    "targets": 6,
+    "matched": 6,
+    "detections": 7,
+    "precision": 0.8571428571428571,
+    "recall": 1.0,
+    "matched_names": [
+      "name-input",
+      "submit",
+      "cancel-disabled",
+      "save",
+      "settings",
+      "help"
+    ]
+  },
+  {
+    "case": "ui-form-light",
+    "threshold": 0.8,
+    "targets": 6,
+    "matched": 6,
+    "detections": 6,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_names": [
+      "name-input",
+      "submit",
+      "cancel-disabled",
+      "save",
+      "settings",
+      "help"
+    ]
+  }
+]
