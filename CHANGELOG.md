@@ -12,6 +12,16 @@
 - 记录两套真实权重、14 个样本 / 57 个结果框、人工 GT、误检/漏检、性能及
   转换器版本兼容限制；[验收报告](docs/benchmarks/linux-x64-yolo-real-model-2026-10.md)。
   预处理适配差异另列 issue #38，未修改既有 YOLO 默认行为或 Mirage pin。
+### 桌面感知维护（DEC-023，issue #36）
+
+- 跟踪 E1 扫描复用一次灰度搜索区域，省去逐候选 crop/灰度、完整指纹哈希与缩略图复制；
+  NCC/PSR、搜索顺序、默认阈值和保守预算接纳公式不变。跨格式与分数边界有公开组合差分测试。
+- view 变化检测在进入 block diff 时复用已计算的 dHash，避免重复全帧读取。
+- `ChangeDetectionParams` 追加 `fingerprint_early_exit=true`；false 强制比较灰度缩略图块，
+  可识别部分同 dHash 的变化。旧 aggregate 字段顺序不变，但结构大小变化，消费者须重新编译。
+- 修复细描边相反梯度合并导致线段遗漏；区域生长复用栈并检查取消/deadline。
+  `mirador-segment-growing` implementation_version 升为 1.1.0，几何输出可变化。
+- 新增可复现桌面感知基准；[环境、结果与限制](docs/benchmarks/linux-x64-desktop-perception-2026-10.md)。
 
 ### 新增（M7 跨帧目标跟踪，`DEC-019`，Experimental）
 

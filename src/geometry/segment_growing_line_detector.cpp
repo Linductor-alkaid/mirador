@@ -185,17 +185,52 @@ private:
     return RectI{left, top, right - left, bottom - top};
 }
 
+/// Context polls for pre-checks and stage boundaries; messages are generic
+/// because callers act on the Status code.
+[[nodiscard]] Status context_status(const ExecutionContext& context) noexcept {
+    if (is_cancelled(context)) {
+        return {ErrorCode::kCancelled, "cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return {ErrorCode::kTimeout, "deadline reached"};
+    }
+    return Status::success();
+}
+
+[[nodiscard]] bool matches_seed_gradient(const Gradient& seed, const Gradient& g, double sin_sq,
+                                         int32_t threshold) noexcept {
+    if (g.l1 < threshold) {
+        return false;
+    }
+    // Opposite thin-stroke edges must not form a single, overly wide PCA band.
+    const int64_t dot = static_cast<int64_t>(seed.gx) * g.gx + static_cast<int64_t>(seed.gy) * g.gy;
+    if (dot < 0) {
+        return false;
+    }
+    // |sin(angle)| <= sin(tolerance), without trigonometry per neighbor.
+    const int64_t cross = static_cast<int64_t>(seed.gx) * g.gy - static_cast<int64_t>(seed.gy) * g.gx;
+    return static_cast<double>(cross * cross) <=
+           static_cast<double>(seed.square) * static_cast<double>(g.square) * sin_sq;
+}
+
 /// Grows one 8-connected, seed-gradient-aligned region from `seed`
 /// (deterministic DFS with an explicit stack), recording pixels in
 /// `region` in discovery order.
-void grow_region(const ImageView& view, const RectI& interior, const SeedPoint& seed, const Gradient& seed_gradient,
-                 double sin_sq, const SegmentGrowingParams& params, VisitedMap& visited, Region& region) {
+Status grow_region(const ImageView& view, const RectI& interior, const SeedPoint& seed, const Gradient& seed_gradient,
+                   double sin_sq, const SegmentGrowingParams& params, VisitedMap& visited, Region& region,
+                   Region& stack, const ExecutionContext& context) {
     region.clear();
     region.push_back(seed);
     visited.mark(seed.x, seed.y);
-    Region stack;
+    stack.clear();
     stack.push_back(seed);
+    size_t processed = 0;
     while (!stack.empty()) {
+        if ((processed++ & 1023U) == 0) {
+            if (const auto stopped = context_status(context); !stopped.ok()) {
+                return stopped;
+            }
+        }
         const SeedPoint current = stack.back();
         stack.pop_back();
         for (int32_t dy = -1; dy <= 1; ++dy) {
@@ -210,15 +245,7 @@ void grow_region(const ImageView& view, const RectI& interior, const SeedPoint& 
                     continue;
                 }
                 const Gradient g = gradient_at(view, nx, ny);
-                if (g.l1 < params.gradient_threshold) {
-                    continue;
-                }
-                // |sin(angle between gradients)| <= sin(tolerance):
-                // cross^2 <= |a|^2 |b|^2 sin^2(tolerance).
-                const int64_t cross =
-                    static_cast<int64_t>(seed_gradient.gx) * g.gy - static_cast<int64_t>(seed_gradient.gy) * g.gx;
-                if (static_cast<double>(cross * cross) >
-                    static_cast<double>(seed_gradient.square) * static_cast<double>(g.square) * sin_sq) {
+                if (!matches_seed_gradient(seed_gradient, g, sin_sq, params.gradient_threshold)) {
                     continue;
                 }
                 visited.mark(nx, ny);
@@ -227,6 +254,7 @@ void grow_region(const ImageView& view, const RectI& interior, const SeedPoint& 
             }
         }
     }
+    return Status::success();
 }
 
 /// Fits one contiguous inlier run and appends the segment when it passes the
@@ -292,18 +320,6 @@ void grow_region(const ImageView& view, const RectI& interior, const SeedPoint& 
     return Status::success();
 }
 
-/// Context polls for pre-checks and stage boundaries; messages are generic
-/// because callers act on the Status code.
-[[nodiscard]] Status context_status(const ExecutionContext& context) noexcept {
-    if (is_cancelled(context)) {
-        return {ErrorCode::kCancelled, "cancelled"};
-    }
-    if (deadline_reached(context)) {
-        return {ErrorCode::kTimeout, "deadline reached"};
-    }
-    return Status::success();
-}
-
 /// Validates the request, view and ROI; returns the scan rectangle.
 [[nodiscard]] Result<RectI> resolve_scan(const SegmentGrowingParams& params, const ImageView& gray,
                                          const LineDetectRequest& request) noexcept {
@@ -339,7 +355,7 @@ SegmentGrowingLineDetector::SegmentGrowingLineDetector(SegmentGrowingParams para
 BackendInfo SegmentGrowingLineDetector::info() const {
     BackendInfo info;
     info.name = "mirador-segment-growing";
-    info.implementation_version = "1.0.0";
+    info.implementation_version = "1.1.0";
     info.model_id.clear();  // model-free traditional detector
     info.model_revision.clear();
     info.accepted_formats = {PixelFormat::kGray8};
@@ -370,6 +386,7 @@ Result<LineSegmentSet> SegmentGrowingLineDetector::detect(const ImageView& gray,
     LineSegmentSet result;
     result.space = CoordinateSpaceId::kOriented;
     Region region;
+    Region stack;
     for (int32_t y = interior.y; y < interior.y + interior.height; ++y) {
         if (const Status stopped = context_status(context); !stopped.ok()) {
             return stopped;
@@ -382,7 +399,11 @@ Result<LineSegmentSet> SegmentGrowingLineDetector::detect(const ImageView& gray,
             if (seed_gradient.l1 < params_.gradient_threshold) {
                 continue;
             }
-            grow_region(gray, interior, SeedPoint{x, y}, seed_gradient, sin_sq, params_, visited, region);
+            const auto grown = grow_region(gray, interior, SeedPoint{x, y}, seed_gradient, sin_sq, params_, visited,
+                                           region, stack, context);
+            if (!grown.ok()) {
+                return grown;
+            }
             if (region.size() < 2) {
                 continue;
             }

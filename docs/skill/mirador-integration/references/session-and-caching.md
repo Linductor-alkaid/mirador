@@ -8,6 +8,8 @@ The per-source perception loop: gate work on change detection, reuse results whi
 
 ```cpp
 ChangeDetectionParams params;
+// Optional for small UI changes: bypass dHash early exit and compare blocks.
+// params.fingerprint_early_exit = false;
 params.ignored_regions = {RectI{280, 0, 40, 20}};  // clock area, current-frame pixels
 
 ChangeReport change = session.analyze_change(frame, params).value();
@@ -30,6 +32,7 @@ if (change.classification != ChangeClassification::kNone) {
 - `CachePolicy::kRefresh` overwrites the entry other `kReadWrite` requests read; the policy is execution control, not part of the key. A different `roi`, `max_side`, `backend_params`, or a new `model_revision` already produces a different key.
 - Cache hits return regions identical to the stored ones; if you need to know that a call executed, count backend invocations, not region differences.
 - Cache budgets (`frame_cache_bytes`, `result_cache_bytes`) default to 4/16 MiB and non-positive values are rejected, not clamped. Overflow surfaces as `kBudgetExceeded` — budgets are explicit errors, never silent truncation.
+- Disabling `fingerprint_early_exit` also catches equal-dHash frames when their thumbnail blocks differ enough. Tune `thumbnail_size`, `block_size`, and `block_diff_threshold` to the source; this does not guarantee pixel-level change detection. The default remains true.
 - `analyze_change` stores only a compact signature of the frame (fingerprint + thumbnail), never the pixels.
 
 ## Next

@@ -211,7 +211,7 @@ Result<ChangeReport> detect_change_signatures(const ChangeSignature& previous, c
     // Layer 1: frames indistinguishable at fingerprint resolution keep every
     // cached result and skip the block diff entirely.
     if (const double similarity = fingerprint_similarity(previous.fingerprint, current.fingerprint);
-        similarity >= params.fingerprint_similarity_threshold) {
+        params.fingerprint_early_exit && similarity >= params.fingerprint_similarity_threshold) {
         return make_early_exit_report(previous.fingerprint, current.fingerprint, params);
     }
 
@@ -249,6 +249,22 @@ Result<ChangeReport> detect_change_signatures(const ChangeSignature& previous, c
     return report;
 }
 
+// The caller has validated the view/parameters and already computed dHash.
+// Reuse it on the block path rather than resampling the full frame twice.
+Result<ChangeSignature> signature_with_fingerprint(const ImageView& frame, const ChangeDetectionParams& params,
+                                                   uint64_t frame_fingerprint) noexcept {
+    auto thumbnail = image_internal::gray_thumbnail(frame, params.thumbnail_size, kChangeDetectionBudgetBytes);
+    if (!thumbnail.ok()) {
+        return thumbnail.status();
+    }
+    ChangeSignature signature;
+    signature.frame_width = frame.width;
+    signature.frame_height = frame.height;
+    signature.fingerprint = frame_fingerprint;
+    signature.thumbnail = thumbnail.take_value();
+    return signature;
+}
+
 }  // namespace
 
 Result<ChangeSignature> make_change_signature(const ImageView& frame, const ChangeDetectionParams& params) noexcept {
@@ -263,18 +279,7 @@ Result<ChangeSignature> make_change_signature(const ImageView& frame, const Chan
     if (!frame_fingerprint.ok()) {
         return frame_fingerprint.status();
     }
-    Result<ImageBuffer> thumbnail =
-        image_internal::gray_thumbnail(frame, params.thumbnail_size, kChangeDetectionBudgetBytes);
-    if (!thumbnail.ok()) {
-        return thumbnail.status();
-    }
-
-    ChangeSignature signature;
-    signature.frame_width = frame.width;
-    signature.frame_height = frame.height;
-    signature.fingerprint = frame_fingerprint.value();
-    signature.thumbnail = thumbnail.take_value();
-    return signature;
+    return signature_with_fingerprint(frame, params, frame_fingerprint.value());
 }
 
 Result<ChangeReport> detect_change(const ChangeSignature& previous, const ChangeSignature& current,
@@ -329,17 +334,20 @@ Result<ChangeReport> detect_change(const ImageView& previous, const ImageView& c
     if (!current_fingerprint.ok()) {
         return current_fingerprint.status();
     }
-    if (fingerprint_similarity(previous_fingerprint.value(), current_fingerprint.value()) >=
-        params.fingerprint_similarity_threshold) {
+    if (params.fingerprint_early_exit &&
+        fingerprint_similarity(previous_fingerprint.value(), current_fingerprint.value()) >=
+            params.fingerprint_similarity_threshold) {
         return make_early_exit_report(previous_fingerprint.value(), current_fingerprint.value(), params);
     }
 
     // Layer 2: build the comparison signatures and run the shared block diff.
-    const Result<ChangeSignature> previous_signature = make_change_signature(previous, params);
+    const Result<ChangeSignature> previous_signature =
+        signature_with_fingerprint(previous, params, previous_fingerprint.value());
     if (!previous_signature.ok()) {
         return previous_signature.status();
     }
-    const Result<ChangeSignature> current_signature = make_change_signature(current, params);
+    const Result<ChangeSignature> current_signature =
+        signature_with_fingerprint(current, params, current_fingerprint.value());
     if (!current_signature.ok()) {
         return current_signature.status();
     }
