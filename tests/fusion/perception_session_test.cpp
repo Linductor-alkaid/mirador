@@ -22,6 +22,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -609,6 +610,26 @@ TEST(SessionChangeFlow, FirstFrameGlobalThenNoneThenPartial) {
     const auto global = session.analyze_change(frame_rotated.frame);
     ASSERT_TRUE(global.ok());
     EXPECT_EQ(global.value().classification, ChangeClassification::kGlobal);
+}
+
+TEST(SessionChangeFlow, ExplicitBlockComparisonDetectsEqualDHashFrames) {
+    auto previous = make_frame(64, 64, 67, PixelFormat::kGray8, Rotation::k0);
+    auto current = make_frame(64, 64, 67, PixelFormat::kGray8, Rotation::k0);
+    std::fill(previous.bytes.begin(), previous.bytes.end(), std::byte{100});
+    std::fill(current.bytes.begin(), current.bytes.end(), std::byte{120});
+    auto session = make_session();
+    ASSERT_TRUE(session.analyze_change(previous.frame).ok());
+    const auto coarse = session.analyze_change(current.frame);
+    ASSERT_TRUE(coarse.ok());
+    EXPECT_EQ(coarse.value().classification, ChangeClassification::kNone);
+    // Reset the previous signature, then change only the policy, not its shape.
+    ASSERT_TRUE(session.analyze_change(previous.frame).ok());
+    mirador::ChangeDetectionParams params;
+    params.fingerprint_early_exit = false;
+    const auto fine = session.analyze_change(current.frame, params);
+    ASSERT_TRUE(fine.ok());
+    EXPECT_EQ(fine.value().classification, ChangeClassification::kGlobal);
+    EXPECT_EQ(fine.value().reason, ChangeReason::kBlockDiff);
 }
 
 TEST(SessionChangeFlow, FramesFromOtherSourcesAreRejected) {
