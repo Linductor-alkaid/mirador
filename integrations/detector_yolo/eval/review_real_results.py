@@ -118,7 +118,8 @@ def main():
             raise ValueError('image digest differs: '+case['id'])
         subprocess.run([str(args.executable.resolve()),model['param'],model['bin'],str(model['classes']),
                         case['image'],str(prefix),str(args.iterations),str(case.get('confidence',.25)),
-                        str(int(case.get('contract',False)))],check=True,timeout=300)
+                        str(int(case.get('contract',False)))] +
+                       ([model['preprocessing']] if model.get('preprocessing') else []),check=True,timeout=300)
         result = json.loads(prefix.with_suffix('.json').read_text())
         input_tensor = np.fromfile(str(prefix)+'.input.f32',np.float32).reshape(1,3,640,640)
         session = sessions[case['model']]

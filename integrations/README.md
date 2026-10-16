@@ -50,3 +50,13 @@ YOLO 的真实权重验证另见 [离线工具与复现](detector_yolo/eval/READ
 [2026-10-16 实测](../docs/benchmarks/linux-x64-yolo-real-model-2026-10.md)。
 显式 `MIRADOR_BUILD_YOLO_EVAL=ON` 只构建评测 CLI；模型仍由调用方提供，
 原有合成 smoke 不承担精度证明。
+
+### YOLO explicit preprocessing (DEC-024)
+
+`YoloDetectorOptions::interpolation` defaults to `kArea`, `pad_value` to 0.
+Models trained with bilinear/pad114 must explicitly select `kBilinear` and 114.
+The optional `bilinear114` argument on `mirador_yolo_real_eval` selects that profile.
+The ncnn byte interpolation kernel has bounded rounding differences from OpenCV;
+it is not a claim of bit-identical upstream preprocessing. `prepare_yolo_input`
+is the shared adapter diagnostic path; the transform reflects executed integer
+resized dimensions and odd padding, rather than an ideal scalar ratio.

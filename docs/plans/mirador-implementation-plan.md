@@ -1,5 +1,7 @@
 # Mirador 实施总计划
 
+2026-10-16：[DEC-024](../decisions/DEC-024-yolo-preprocessing-profiles.md) 登记 YP-01…03，维护者要求修复模型预处理并供 Mirage 接入，In Progress。
+
 2026-10-16：[YOLO 真实权重验收](yolo-real-model-validation.md)补齐 M5-04 的
 后续实测，独立报告推理/后处理正确性、逐图质量与性能；新发现的预处理适配差异见 #38。
 

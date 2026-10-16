@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### YOLO 模型预处理（DEC-024，issue #38）
+
+- 显式 area/bilinear 与 padding 配置，旧调用保持 area/pad0；新增 adapter-only
+  prepare_yolo_input，诊断与真实推理复用同一输入，配置进入 Backend 实现身份。
+- 预算覆盖并存的预处理 float 张量；配置为结构尾部追加，消费者须重新编译。
+
+
 ### YOLO 真实模型验收
 
 - 新增显式启用的离线检测 CLI、固定版本 ONNX→ncnn 准备工具与独立 ONNX 框对照，

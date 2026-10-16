@@ -205,9 +205,9 @@ void check_contract(mi::YoloDetectorBackend& backend, const mi::YoloDetectorOpti
     require(take(backend.detect(image, high, {})).empty(), "confidence=1 did not remove proposals");
     check_session(backend, image, request, expected);
 }
-void report(const std::string& prefix, const Picture& picture, const mi::NcnnTensor& raw, const m::LetterboxResult& box,
-            const std::vector<m::DetectionRegion>& regions, double load_us, Timing full, Timing forward, bool contract,
-            int64_t backend_rss) {
+void report(const std::string& prefix, const Picture& picture, const mi::NcnnTensor& raw,
+            const mi::YoloPreparedInput& box, const std::vector<m::DetectionRegion>& regions, double load_us,
+            Timing full, Timing forward, bool contract, int64_t backend_rss) {
     std::ofstream out(prefix + ".json");
     out << std::setprecision(17) << "{\"width\":" << picture.width << ",\"height\":" << picture.height
         << ",\"raw_shape\":[" << raw.channels << ',' << raw.height << ',' << raw.width << "],\"resized\":["
@@ -233,11 +233,18 @@ void report(const std::string& prefix, const Picture& picture, const mi::NcnnTen
 
 int main(int argc, char** argv) {
     try {
-        require(argc == 9, "usage: eval param bin classes input.ppm output-prefix iterations confidence contract(0/1)");
+        require(
+            argc == 9 || argc == 10,
+            "usage: eval param bin classes input.ppm output-prefix iterations confidence contract(0/1) [bilinear114]");
         mi::YoloDetectorOptions options;
         options.param_path = argv[1];
         options.bin_path = argv[2];
         options.num_classes = std::stoi(argv[3]);
+        if (argc == 10) {
+            require(std::string(argv[9]) == "bilinear114", "unknown preprocessing profile");
+            options.interpolation = mi::YoloInterpolation::kBilinear;
+            options.pad_value = 114;
+        }
         options.identity = {"offline-evaluation", "explicit-local-model"};
         const auto picture = load(argv[4]);
         const std::string prefix = argv[5];
@@ -262,14 +269,9 @@ int main(int argc, char** argv) {
         getrusage(RUSAGE_SELF, &backend_usage);
         backend_rss = backend_usage.ru_maxrss;
 #endif
-        m::LetterboxRequest letterbox;
-        letterbox.dst_width = options.input_side;
-        letterbox.dst_height = options.input_side;
-        const auto boxed = take(m::letterbox(image, letterbox, kBudget));
-        auto input = take(mi::pack_image(boxed.buffer.view(), {}));
-        for (auto& x : input.data) {
-            x /= 255.0F;
-        }
+        const auto boxed = take(
+            mi::prepare_yolo_input(image, options.input_side, options.interpolation, options.pad_value, kBudget, {}));
+        const auto& input = boxed.tensor;
         auto runtime = take(mi::NcnnRuntime::create({options.param_path, options.bin_path, 1}));
         const auto raw = take(runtime.run("x", input, "out", {}));
         const auto forward = measure(iterations, [&] { (void)take(runtime.run("x", input, "out", {})); });
