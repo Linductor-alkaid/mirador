@@ -129,3 +129,8 @@ session 源码。仅新增方案和验收协议，未执行真实权重基准、
   之后、后端调用之前"的 deadline 检查无法无钩子确定性触发（同函数内相邻检查，
   风险可忽略）；ncnn 前向 extract 失败路径的 stderr `pool allocator` 噪声为 M5
   既有问题，另立跟进不阻塞 M8。Windows/Android 仅构建级验证，随 CI 补充。
+  另观察到一个既有 flake（与本里程碑无关）：
+  `ShiftEstimation.EstimationWritesNoFiles` 与
+  `TrackerBackendOrchestration.OrchestrationWritesNoFiles*` 对 /tmp 做前后快照，
+  窗口内有并发进程写入即误报（本机复现 2 次、复跑即过；CI 干净环境稳定通过），
+  建议后续将快照范围改为测试专属目录。
