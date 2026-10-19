@@ -32,6 +32,7 @@ add_library(mirador_core
     src/core/transform.cpp
     src/core/execution_context.cpp
     src/core/backend_info.cpp
+    src/core/ocr_batch.cpp
 )
 add_library(mirador::core ALIAS mirador_core)
 
