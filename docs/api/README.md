@@ -19,6 +19,7 @@ Mirador 的公共 API 即 [`include/mirador/`](../../include/mirador/) 下的头
 | `backend_info.hpp` | `BackendInfo` 能力与线程安全声明（`DEC-012`） |
 | `execution_context.hpp` | 取消与 deadline 的轻量通道（`RULE-03`） |
 | `ocr_backend.hpp` / `detector_backend.hpp` / `line_detector.hpp` | 同步 Backend SPI：请求分层、prepared 空间输出契约（`DEC-012`，设计 §9/§13/§14/§15） |
+| `ocr_batch.hpp` | 预算 OCR 契约（`DEC-025`，M8-02 冻结）：独立 `BudgetedOcrBackend` SPI 与 `OcrBatchRequest`/`OcrBatchResult`——rec K 限额、调用方优先级、逐框 recognized/deferred 完成态、软预算与硬 deadline 分离、报告不变量校验；旧 `OcrBackend` 全有或全无语义不变，不支持新能力显式 `kBackendUnavailable` |
 | `tracker_backend.hpp` | 有状态跟踪 Backend SPI：会话句柄制三段式（`initialize` → `update` × N → 析构丢弃，一会话一目标）、状态归会话与失败可见（`kBackendFailure` 即弃置会话、重建恢复，不返回陈旧结果）、同步/取消语义（`RULE-03` 适用不豁免；冻结裁定校验先于取消，M7-05/06 池先例）、缓存豁免（会话状态不进能力结果缓存；`DEC-012` 第 6 条「相同输入相同结果」对 `update` 显式不适用，适用范围注记见 [DEC-012](../decisions/DEC-012-backend-spi-contract.md)）、prepared 像素空间输出（`DEC-020`，设计 §2 行 D/§6.2；**Experimental**：M7-10 判定 GO（合成口径，判定记录见 [M7 里程碑](../plans/m7-cross-frame-object-tracking.md)）；契约冻结评审草案 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)（Proposed）待批——批准前不计兼容性承诺；本面为 `DEC-022` 阶段 1 所列三处之外新增的第四处 Experimental 面，须随其评审一并纳入冻结范围） |
 | `version.hpp` | 库版本查询 |
 
@@ -120,7 +121,7 @@ attach 为 owning-reference 语义：仅成功路径消费句柄、任何错误�
 | `adapters/capture-linux/` | X11 窗口/整屏采集 → `Frame`，含 `window_display_transform`（`DEC-016`） | `MIRADOR_BUILD_ADAPTERS_CAPTURE_LINUX` |
 | `adapters/capture-windows/` | GDI 采集适配示例（编译验证级） | `MIRADOR_BUILD_ADAPTERS_CAPTURE_WINDOWS` |
 | `adapters/capture-android/` | MediaProjection + Accessibility 适配示例（NDK 部分编译验证级） | `MIRADOR_BUILD_ADAPTERS_CAPTURE_ANDROID` |
-| `integrations/ocr_ppocr/`、`integrations/detector_yolo/` | ncnn 参考能力后端（冒烟层无权重可运行；`DEC-015`） | `MIRADOR_BUILD_INTEGRATIONS` |
+| `integrations/ocr_ppocr/`、`integrations/detector_yolo/` | ncnn 参考能力后端（冒烟层无权重可运行；`DEC-015`）；ocr_ppocr 另含预算后端 `PpOcrBudgetedBackend`（`DEC-025`，M8-03：有界 rec、软预算、逐框完成态；合成模型冒烟可运行，真实权重经用户显式路径） | `MIRADOR_BUILD_INTEGRATIONS` |
 | `integrations/tracker_nanotrack/` | NanoTrack ncnn 参考跟踪后端——`TrackerBackend` SPI（`tracker_backend.hpp`，Experimental，`DEC-020`）的首个参考实现；冻结双模型契约、逐序列位确定性、字节预算；合成模型冒烟可运行，真实权重经用户显式路径（`RISK-2026-13`） | `MIRADOR_BUILD_INTEGRATIONS` |
 
 ## 使用示例索引
@@ -129,6 +130,7 @@ attach 为 owning-reference 语义：仅成功路径消费句柄、任何错误�
 | --- | --- |
 | `examples/change_detection_tour.cpp` | 提交帧 → 变化检测 → ROI/指纹 → 帧缓存 |
 | `examples/perception_session_tour.cpp` | 会话闭环：变化分析 → Stub OCR → 缓存复用 |
+| `examples/budgeted_ocr_tour.cpp` | 预算 OCR（DEC-025）：K 限额 → 优先级 → 软/硬预算 → deferred 几何查询 → 缓存隔离 |
 | `examples/road_segments_tour.cpp` | 线段检测 → 过滤 → 共线合并（非 Agent 语义） |
 | `examples/icon_state_index_tour.cpp` | 图标状态入库 → 扰动查询 → 复用策略 |
 | `examples/hybrid_localization_tour.cpp` | 融合 → 稳定 ID → SoM → generation 校验 |

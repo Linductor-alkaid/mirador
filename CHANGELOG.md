@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+### 密集 OCR 交互预算（DEC-025，issue #41，M8-01…04）
+
+- 新增公共契约 `ocr_batch.hpp`（M8-02 冻结）：独立 opt-in 的 `BudgetedOcrBackend`
+  SPI 与 `OcrBatchRequest`/`OcrBatchResult`——rec 数量限额 K、调用方 ROI 优先级、
+  逐框 recognized/deferred 完成态、软预算/硬 deadline/取消三分、显式停止原因与
+  det 覆盖诊断；新增文件，旧 `OcrBackend`/`run_ocr` 签名与全有或全无语义零变化，
+  不支持的调用显式 `kBackendUnavailable`。新类型消费者需重新编译。
+- `PerceptionSession::run_ocr_budgeted`（M8-04）：复用 run_ocr 预处理链与坐标
+  恢复（0/90/180/270、奇数尺寸、非连续 stride、ROI 往返），报告绑定 source/帧
+  序/ROI/后端身份；预算入口首版不读写能力结果缓存，partial 报告不发布快照。
+- PP-OCR 预算参考后端 `PpOcrBudgetedBackend`（M8-03）：冻结 det 阶段 + 有界
+  rec（阅读序/分数/优先级选择、逐框状态、软预算提前收尾、det 触顶探测可见），
+  阶段耗时诊断供基准使用；合成模型冒烟可运行，真实权重路径不变。
+- 无权重基准 harness `mirador_bench_ocr_budget`（M8-01）：确定性合成密集/稀疏/
+  长行场景、baseline/budgeted 双路径、p50/p95/max 与逐调用 CSV；
+  [OCR 预算协议](docs/benchmarks/ocr-budget-protocol.md)补入实际入口与结果格式。
+  真实模型 5 秒门槛未实测，不作性能声明。
+- 示例 `examples/budgeted_ocr_tour.cpp`：K 限额、优先级、软/硬预算、deferred
+  几何查询与缓存隔离的运行时无依赖演示。
+
 ### YOLO 模型预处理（DEC-024，issue #38）
 
 - 显式 area/bilinear 与 padding 配置，旧调用保持 area/pad0；新增 adapter-only
