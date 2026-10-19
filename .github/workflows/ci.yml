@@ -264,7 +264,7 @@ jobs:
       - name: Run clang-tidy
         run: |
           clang-tidy --version
-          # integrations/, the platform capture adapters and the OCR budget
-          # harness (integrations-only build) are linted in their own jobs
+          # integrations/, the platform capture adapters and the OCR benchmark
+          # tools (integrations-only build) are linted in their own jobs
           # against their own compile databases.
-          git ls-files '*.cpp' '*.cc' ':!integrations/**' ':!benchmarks/ocr_budget_bench.cpp' ':!adapters/capture-linux/**' ':!adapters/capture-windows/**' ':!adapters/capture-android/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug
+          git ls-files '*.cpp' '*.cc' ':!integrations/**' ':!benchmarks/ocr_budget_bench.cpp' ':!benchmarks/ocr_rec_experiment.cpp' ':!adapters/capture-linux/**' ':!adapters/capture-windows/**' ':!adapters/capture-android/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug
