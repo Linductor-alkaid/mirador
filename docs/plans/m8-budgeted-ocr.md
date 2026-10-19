@@ -180,3 +180,11 @@ Mirage 工程本机已持有适配于 Mirador 契约的 PP-OCRv5-mobile 权重 b
   结论不受影响）；语料为渲染短中长文本与短行 dense 格子，不代表真实桌面混合
   宽度密度；5 秒判定仍以 M8-06 冻结参考机为准。数字与完整方法见
   [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)。
+- **工程门禁与 CI**：integrations ctest 61/61（含架构扫描与 ppocr 冒烟回归）；
+  debug+ASAN/UBSAN（leak 检测、no-recover）四臂冒烟干净；三文件 clang-tidy
+  0 错误。CI 首轮暴露一处边界冲突——架构扫描禁止 benchmarks/*.cpp 出现小写
+  runtime 令牌而 include-cleaner 要求直接包含 runtime 头——修复为把宽度策略变体
+  下沉到 `ppocr_detail::run_rec_variant`/`create_rec_runtime`（kDynamic 委托
+  `run_rec_line`，默认路径零变更），另按 M8-01 先例把全树 tidy 范围排除该工具、
+  标注一处 va_list 分析器误报。PR #44 终轮 CI（run `39291634207`，commits
+  `48f2018`/`5bc1a42`）14/14 job 全绿。
