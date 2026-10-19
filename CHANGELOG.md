@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### M8-05 rec 优化实验（DEC-025，issue #41）
+
+- 新增 `mirador_bench_ocr_rec_experiment` 与确定性语料生成脚本
+  `benchmarks/tools/render_ocr_corpus.py`：在真实调用方路径权重上对照单行成本
+  分解、固定/分桶宽度、横向 packing、ncnn 线程扩展与 dense 端到端；跨次确定性门
+  与逐单元无内容 CSV。
+- 实验收口为有证据的全 no-go：batching 能力性不支持（pinned 图/运行时无 batch
+  轴）、packing 与固定/分桶宽度文本一致率 82–97% 违反采纳门槛、线程扩展经 ABBA
+  顺序对照证实为冷启动伪影。库代码与默认值零变更，有界逐行实现保持；
+  [实验报告](docs/benchmarks/ocr-rec-opt-experiment-2026-10.md)。
+
 ### 密集 OCR 交互预算（DEC-025，issue #41，M8-01…04）
 
 - 新增公共契约 `ocr_batch.hpp`（M8-02 冻结）：独立 opt-in 的 `BudgetedOcrBackend`
