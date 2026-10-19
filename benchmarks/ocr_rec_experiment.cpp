@@ -1,16 +1,16 @@
 // M8-05 (DEC-025 section 7, AC8-09): independent recognition optimization
 // experiment on REAL caller-provided PP-OCR weights — single-line cost
 // decomposition, dynamic-vs-fixed width, width bucketing, horizontal line
-// packing and ncnn thread scaling. The tool produces the measurement evidence
+// packing and model-runtime thread scaling. The tool produces the measurement evidence
 // for the M8-05 adopt/no-go decision; it changes no library code and freezes no
 // default. Weights, dictionary and corpus stay caller-provided paths (DEC-015);
 // nothing enters the repository.
 //
 // Arms (all share the frozen unit pipeline; only the width policy varies):
 //   serial      dynamic width capped at rec_width (the frozen semantics)
-//   threads2/4  serial width with ncnn num_threads 2/4 — contract tension: the
-//               reference determinism contract (DEC-012) pins threads=1, so any
-//               comparison here needs same-process ordering controls
+//   threads2/4  serial width with model-runtime num_threads 2/4 — contract
+//               tension: the reference determinism contract (DEC-012) pins
+//               threads=1, so any comparison here needs same-process controls
 //   pad320      aspect resize then right-pad zeros to exactly rec_width
 //   bucket32/64 aspect resize then right-pad zeros to the next 32/64 px
 //               multiple (cap-bound)
@@ -20,7 +20,7 @@
 //               upper bound of what packing could reach, NOT a contract
 //               setting
 // Batching has no arm by construction: the pinned rec graph declares a 3-dim
-// Input (no batch axis) and the pinned ncnn Extractor feeds one Mat per
+// Input (no batch axis) and the pinned runtime executes one sample per
 // forward, so a "batch" arm would be fake — AC8-09 excludes fake batches; the
 // capability evidence is documented in the experiment report instead.
 //
@@ -29,8 +29,6 @@
 // I/O errors. Model weights are never written; the CSV carries timings and
 // confidences, never image bytes.
 
-#include "ctc_decode.hpp"
-#include "ncnn_runtime.hpp"
 #include "ppocr_backend.hpp"
 #include "ppocr_budgeted.hpp"
 #include "ppocr_internal.hpp"
@@ -40,7 +38,6 @@
 #include <mirador/image_view.hpp>
 #include <mirador/ocr_batch.hpp>
 #include <mirador/pixel_format.hpp>
-#include <mirador/resize.hpp>
 #include <mirador/result.hpp>
 #include <mirador/status.hpp>
 
@@ -74,21 +71,16 @@ using mirador::OcrBatchResult;
 using mirador::PixelFormat;
 using mirador::Result;
 using mirador::Status;
-using mirador::integrations::ctc_decode_greedy;
-using mirador::integrations::NcnnRuntime;
-using mirador::integrations::NcnnRuntimeOptions;
-using mirador::integrations::NcnnTensor;
-using mirador::integrations::pack_image;
 using mirador::integrations::PpOcrBudgetedBackend;
 using mirador::integrations::PpOcrBudgetedOptions;
 using mirador::integrations::PpOcrRecOptions;
-using mirador::integrations::ppocr_detail::normalize_ppocr;
-using mirador::integrations::ppocr_detail::swap_planes_to_bgr;
+using mirador::integrations::ppocr_detail::create_rec_runtime;
+using mirador::integrations::ppocr_detail::load_charset;
 using RecLineOutput = mirador::integrations::ppocr_detail::RecLineOutput;
 using RecUnitTiming = mirador::integrations::ppocr_detail::RecUnitTiming;
-using mirador::integrations::ppocr_detail::kRecBlankClass;
-using mirador::integrations::ppocr_detail::load_charset;
+using mirador::integrations::ppocr_detail::RecWidthPolicy;
 using mirador::integrations::ppocr_detail::run_rec_line;
+using mirador::integrations::ppocr_detail::run_rec_variant;
 
 constexpr int64_t kBufferBudgetBytes = int64_t{64} * 1024 * 1024;
 constexpr int32_t kPackGapPixels = 8;
@@ -115,25 +107,23 @@ struct Options {
     int dense_reps = 5;
 };
 
-enum class WidthPolicy : std::uint8_t { kDynamic, kFixed, kBucket32, kBucket64 };
-
 struct ArmSpec {
     const char* name = nullptr;
-    WidthPolicy policy = WidthPolicy::kDynamic;
+    RecWidthPolicy policy = RecWidthPolicy::kDynamic;
     int num_threads = 1;
     bool pack4 = false;
     int32_t rec_width = 320;
 };
 
 constexpr std::array<ArmSpec, 8> kArmTable{{
-    {"serial", WidthPolicy::kDynamic, 1, false, 320},
-    {"threads2", WidthPolicy::kDynamic, 2, false, 320},
-    {"threads4", WidthPolicy::kDynamic, 4, false, 320},
-    {"pad320", WidthPolicy::kFixed, 1, false, 320},
-    {"bucket32", WidthPolicy::kBucket32, 1, false, 320},
-    {"bucket64", WidthPolicy::kBucket64, 1, false, 320},
-    {"pack4cap", WidthPolicy::kDynamic, 1, true, 320},
-    {"pack4wide", WidthPolicy::kDynamic, 1, true, kPackWideCap},
+    {"serial", RecWidthPolicy::kDynamic, 1, false, 320},
+    {"threads2", RecWidthPolicy::kDynamic, 2, false, 320},
+    {"threads4", RecWidthPolicy::kDynamic, 4, false, 320},
+    {"pad320", RecWidthPolicy::kFixed, 1, false, 320},
+    {"bucket32", RecWidthPolicy::kBucket32, 1, false, 320},
+    {"bucket64", RecWidthPolicy::kBucket64, 1, false, 320},
+    {"pack4cap", RecWidthPolicy::kDynamic, 1, true, 320},
+    {"pack4wide", RecWidthPolicy::kDynamic, 1, true, kPackWideCap},
 }};
 
 constexpr std::array<const char*, kClassCount> kClassNames{{"short", "medium", "long", "overlong"}};
@@ -146,6 +136,15 @@ std::string path_in(const std::string& dir, const std::string& name) {
     path += '/';
     path += name;
     return path;
+}
+
+// Width the frozen unit path resizes to: aspect-preserved at rec_height,
+// clamped to [1, rec_width] (pure reporting arithmetic; the unit itself lives
+// in the integration).
+int32_t rec_resized_width(int32_t src_width, int32_t src_height, const PpOcrRecOptions& options) {
+    const int64_t scaled_width = static_cast<int64_t>(src_width) * static_cast<int64_t>(options.rec_height);
+    const auto width = static_cast<int32_t>(std::lround(static_cast<double>(scaled_width) / src_height));
+    return std::clamp<int32_t>(width, 1, options.rec_width);
 }
 
 int64_t elapsed_ns(std::chrono::steady_clock::time_point begin) {
@@ -402,84 +401,6 @@ Result<ImageBuffer> join_lines(const std::vector<LineImage>& lines, size_t first
     return buffer;
 }
 
-// ---------------------------------------------------------------------------
-// Width-policy variant of the recognition unit. The frozen `run_rec_line`
-// stays untouched; the variant reproduces its pipeline (resize -> pack -> BGR
-// swap -> normalize -> one forward -> CTC decode) with a different destination
-// width, so an arm difference is attributable to the width policy alone.
-
-int32_t dynamic_rec_width(const ImageView& line_image, const PpOcrRecOptions& options) {
-    const int64_t scaled_width = static_cast<int64_t>(line_image.width) * static_cast<int64_t>(options.rec_height);
-    const auto width = static_cast<int32_t>(std::lround(static_cast<double>(scaled_width) / line_image.height));
-    return std::clamp<int32_t>(width, 1, options.rec_width);
-}
-
-Result<RecLineOutput> run_padded_line(const PpOcrRecOptions& options, const std::vector<std::string>& charset,
-                                      const NcnnRuntime& runtime, const ImageView& line_image, int32_t padded_width,
-                                      RecUnitTiming& timing, const ExecutionContext& context) {
-    const auto begin = std::chrono::steady_clock::now();
-    const int32_t line_width = dynamic_rec_width(line_image, options);
-    auto resized = mirador::resize_area(line_image, line_width, options.rec_height, options.work_budget_bytes);
-    if (!resized.ok()) {
-        return resized.status();
-    }
-    auto padded = ImageBuffer::create(PixelFormat::kRgb8, padded_width, options.rec_height, options.work_budget_bytes);
-    if (!padded.ok()) {
-        return padded.status();
-    }
-    ImageBuffer padded_buffer = std::move(padded).take_value();
-    // The zero-initialized buffer already carries the right-pad value (pixel 0
-    // -> normalized -1, the pad-0 letterbox convention of normalize_ppocr).
-    const int64_t padded_stride = padded_buffer.row_stride_bytes();
-    const int64_t resized_stride = resized.value().row_stride_bytes();
-    for (int32_t y = 0; y < options.rec_height; ++y) {
-        std::memcpy(padded_buffer.data() + static_cast<int64_t>(y) * padded_stride,
-                    resized.value().view().data + static_cast<int64_t>(y) * resized_stride,
-                    static_cast<size_t>(line_width) * 3U);
-    }
-    auto input_result = pack_image(padded_buffer.view(), context);
-    if (!input_result.ok()) {
-        return input_result.status();
-    }
-    NcnnTensor input = std::move(input_result).take_value();
-    if (const Result<void> swapped = swap_planes_to_bgr(input); !swapped.ok()) {
-        return swapped.status();
-    }
-    if (const Result<void> normalized = normalize_ppocr(input, context); !normalized.ok()) {
-        return normalized.status();
-    }
-    timing.preprocess_ns = elapsed_ns(begin);
-
-    const auto forward_begin = std::chrono::steady_clock::now();
-    auto output = runtime.run("x", input, "out", context);
-    if (!output.ok()) {
-        return output.status();
-    }
-    timing.forward_ns = elapsed_ns(forward_begin);
-
-    const auto decode_begin = std::chrono::steady_clock::now();
-    const NcnnTensor& scores = output.value();
-    if (scores.height != 1 || scores.width < 2 || scores.channels < 1 ||
-        scores.data.size() != static_cast<size_t>(scores.channels) * static_cast<size_t>(scores.width)) {
-        return Status{mirador::ErrorCode::kBackendFailure,
-                      "rec model output must be CHW with channels=time steps and width=class count"};
-    }
-    auto line = ctc_decode_greedy(scores.data.data(), scores.channels, scores.width, kRecBlankClass);
-    if (!line.ok()) {
-        return line.status();
-    }
-    RecLineOutput decoded;
-    for (const int32_t class_index : line.value().class_indices) {
-        if (class_index < 1 || static_cast<size_t>(class_index) > charset.size()) {
-            return Status{mirador::ErrorCode::kBackendFailure, "model emitted a class outside the charset"};
-        }
-        decoded.utf8_text += charset[static_cast<size_t>(class_index) - 1];
-    }
-    decoded.confidence = line.value().confidence;
-    timing.decode_ns = elapsed_ns(decode_begin);
-    return decoded;
-}
-
 // One arm unit: a single corpus line (normal arms) or a joined strip (pack
 // arms), driven through the frozen unit path with the arm's width settings.
 struct UnitOutput {
@@ -492,8 +413,8 @@ struct UnitOutput {
 };
 
 Result<UnitOutput> run_unit(const PpOcrRecOptions& options, const std::vector<std::string>& charset,
-                            const NcnnRuntime& runtime, const LineImage* line, const ImageBuffer* joined,
-                            WidthPolicy policy, const ExecutionContext& context) {
+                            const auto& runtime, const LineImage* line, const ImageBuffer* joined,
+                            RecWidthPolicy policy, const ExecutionContext& context) {
     UnitOutput out;
     RecUnitTiming timing;
     const auto begin = std::chrono::steady_clock::now();
@@ -502,16 +423,8 @@ Result<UnitOutput> run_unit(const PpOcrRecOptions& options, const std::vector<st
         decoded = run_rec_line(options, charset, runtime, joined->view(), context, &timing);
     } else if (line == nullptr) {
         return Status{mirador::ErrorCode::kInvalidArgument, "unit needs a line or a joined strip"};
-    } else if (policy == WidthPolicy::kDynamic) {
-        decoded = run_rec_line(options, charset, runtime, line_view(*line), context, &timing);
     } else {
-        int32_t padded_width = options.rec_width;
-        if (policy == WidthPolicy::kBucket32 || policy == WidthPolicy::kBucket64) {
-            const int32_t multiple = policy == WidthPolicy::kBucket32 ? 32 : 64;
-            const int32_t dynamic_width = dynamic_rec_width(line_view(*line), options);
-            padded_width = std::min<int32_t>(((dynamic_width + multiple - 1) / multiple) * multiple, options.rec_width);
-        }
-        decoded = run_padded_line(options, charset, runtime, line_view(*line), padded_width, timing, context);
+        decoded = run_rec_variant(options, charset, runtime, line_view(*line), policy, context, &timing);
     }
     if (!decoded.ok()) {
         return decoded.status();
@@ -573,7 +486,7 @@ UnitInput unit_input(const ArmSpec& spec, const Corpus& corpus, const std::vecto
 
 int warmup_arm(const ArmSpec& spec, const PpOcrRecOptions& arm_options, const std::vector<std::string>& charset,
                const Corpus& corpus, const std::vector<ImageBuffer>& joined, const Options& options,
-               const NcnnRuntime& runtime) {
+               const auto& runtime) {
     const size_t units = unit_count(spec, corpus.lines.size());
     const ExecutionContext context;
     for (int w = 0; w < options.warmup; ++w) {
@@ -592,8 +505,7 @@ int warmup_arm(const ArmSpec& spec, const PpOcrRecOptions& arm_options, const st
 
 int run_arm(const ArmSpec& spec, const PpOcrRecOptions& base_options, const std::vector<std::string>& charset,
             const Corpus& corpus, const std::vector<ImageBuffer>& joined, const Options& options, ArmResult& result) {
-    auto runtime =
-        NcnnRuntime::create(NcnnRuntimeOptions{base_options.param_path, base_options.bin_path, spec.num_threads});
+    auto runtime = create_rec_runtime(base_options, spec.num_threads);
     if (!runtime.ok()) {
         std::fprintf(stderr, "arm %s: runtime creation failed: %s\n", spec.name, runtime.status().message().c_str());
         return 3;
@@ -634,7 +546,7 @@ int run_arm(const ArmSpec& spec, const PpOcrRecOptions& base_options, const std:
                        result.rep0_confs[u] != decoded.value().confidence) {
                 // threads=1 is the frozen deterministic configuration (DEC-012):
                 // a cross-rep mismatch there invalidates the measurement. With
-                // ncnn num_threads > 1 a mismatch is a REPORTED finding about
+                // runtime num_threads > 1 a mismatch is a REPORTED finding about
                 // that configuration, not a harness failure.
                 if (spec.num_threads == 1) {
                     std::fprintf(stderr, "arm %s: nondeterministic output at unit %zu rep %d\n", spec.name, u, rep);
@@ -740,7 +652,7 @@ void print_serial_class_summary(SummarySink& sink, const ArmResult& serial, cons
             if (line.width_class != klass) {
                 continue;
             }
-            widths.push_back(static_cast<double>(dynamic_rec_width(line_view(line), serial_options)));
+            widths.push_back(static_cast<double>(rec_resized_width(line.width, line.height, serial_options)));
             for (int rep = 0; rep < reps; ++rep) {
                 totals.push_back(ns_to_us(serial.samples[static_cast<size_t>(rep) * units + u].total_ns));
             }
