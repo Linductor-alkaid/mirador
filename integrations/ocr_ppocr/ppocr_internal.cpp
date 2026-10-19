@@ -247,4 +247,101 @@ Result<RecLineOutput> run_rec_line(const PpOcrRecOptions& options, const std::ve
     return decoded;
 }
 
+int32_t variant_rec_width(const ImageView& line_image, const PpOcrRecOptions& options) {
+    const int64_t scaled_width = static_cast<int64_t>(line_image.width) * static_cast<int64_t>(options.rec_height);
+    const auto width = static_cast<int32_t>(std::lround(static_cast<double>(scaled_width) / line_image.height));
+    return std::clamp<int32_t>(width, 1, options.rec_width);
+}
+
+Result<RecLineOutput> run_padded_line(const PpOcrRecOptions& options, const std::vector<std::string>& charset,
+                                      const NcnnRuntime& runtime, const ImageView& line_image, int32_t padded_width,
+                                      RecUnitTiming& timing, const ExecutionContext& context) {
+    const auto begin = std::chrono::steady_clock::now();
+    const int32_t line_width = variant_rec_width(line_image, options);
+    auto resized = resize_area(line_image, line_width, options.rec_height, options.work_budget_bytes);
+    if (!resized.ok()) {
+        return resized.status();
+    }
+    auto padded = ImageBuffer::create(PixelFormat::kRgb8, padded_width, options.rec_height, options.work_budget_bytes);
+    if (!padded.ok()) {
+        return padded.status();
+    }
+    ImageBuffer padded_buffer = std::move(padded).take_value();
+    // The zero-initialized buffer already carries the right-pad value (pixel 0
+    // -> normalized -1, the pad-0 letterbox convention of normalize_ppocr).
+    const int64_t padded_stride = padded_buffer.row_stride_bytes();
+    const int64_t resized_stride = resized.value().row_stride_bytes();
+    for (int32_t y = 0; y < options.rec_height; ++y) {
+        std::memcpy(padded_buffer.data() + static_cast<int64_t>(y) * padded_stride,
+                    resized.value().view().data + static_cast<int64_t>(y) * resized_stride,
+                    static_cast<size_t>(line_width) * bytes_per_pixel(PixelFormat::kRgb8));
+    }
+    auto input_result = pack_image(padded_buffer.view(), context);
+    if (!input_result.ok()) {
+        return input_result.status();
+    }
+    NcnnTensor input = std::move(input_result).take_value();
+    if (const Result<void> swapped = swap_planes_to_bgr(input); !swapped.ok()) {
+        return swapped.status();
+    }
+    if (const Result<void> normalized = normalize_ppocr(input, context); !normalized.ok()) {
+        return normalized.status();
+    }
+    timing.preprocess_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin).count();
+
+    const auto forward_begin = std::chrono::steady_clock::now();
+    auto output = runtime.run("x", input, "out", context);
+    if (!output.ok()) {
+        return output.status();
+    }
+    timing.forward_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - forward_begin).count();
+
+    const auto decode_begin = std::chrono::steady_clock::now();
+    const NcnnTensor& scores = output.value();
+    if (scores.height != 1 || scores.width < 2 || scores.channels < 1 ||
+        scores.data.size() != static_cast<size_t>(scores.channels) * static_cast<size_t>(scores.width)) {
+        return Status{ErrorCode::kBackendFailure,
+                      "rec model output must be CHW with channels=time steps and width=class count"};
+    }
+    auto line = ctc_decode_greedy(scores.data.data(), scores.channels, scores.width, kRecBlankClass);
+    if (!line.ok()) {
+        return line.status();
+    }
+    RecLineOutput decoded;
+    for (const int32_t class_index : line.value().class_indices) {
+        if (class_index < 1 || static_cast<size_t>(class_index) > charset.size()) {
+            return Status{ErrorCode::kBackendFailure, "model emitted a class outside the charset"};
+        }
+        decoded.utf8_text += charset[static_cast<size_t>(class_index) - 1];
+    }
+    decoded.confidence = line.value().confidence;
+    timing.decode_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - decode_begin).count();
+    return decoded;
+}
+
+Result<RecLineOutput> run_rec_variant(const PpOcrRecOptions& options, const std::vector<std::string>& charset,
+                                      const NcnnRuntime& runtime, const ImageView& line_image, RecWidthPolicy policy,
+                                      const ExecutionContext& context, RecUnitTiming* timing) {
+    if (policy == RecWidthPolicy::kDynamic) {
+        return run_rec_line(options, charset, runtime, line_image, context, timing);
+    }
+    int32_t padded_width = options.rec_width;
+    if (policy == RecWidthPolicy::kBucket32 || policy == RecWidthPolicy::kBucket64) {
+        const int32_t multiple = policy == RecWidthPolicy::kBucket32 ? 32 : 64;
+        const int32_t dynamic_width = variant_rec_width(line_image, options);
+        padded_width = std::min<int32_t>(((dynamic_width + multiple - 1) / multiple) * multiple, options.rec_width);
+    }
+    RecUnitTiming local_timing;
+    auto decoded = run_padded_line(options, charset, runtime, line_image, padded_width,
+                                   timing == nullptr ? local_timing : *timing, context);
+    return decoded;
+}
+
+Result<NcnnRuntime> create_rec_runtime(const PpOcrRecOptions& options, int num_threads) {
+    return NcnnRuntime::create(NcnnRuntimeOptions{options.param_path, options.bin_path, num_threads});
+}
+
 }  // namespace mirador::integrations::ppocr_detail
