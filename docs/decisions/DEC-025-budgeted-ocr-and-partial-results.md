@@ -1,6 +1,6 @@
 # DEC-025：密集 OCR 的候选预算、部分结果与优化顺序
 
-> 状态：Proposed
+> 状态：Accepted（M8-02 冻结，2026-10-19；性能配置仍在 M8-06 实测后冻结）
 > 日期：2026-10-19
 > 负责人：linductor（Mirador 维护者）
 > 冻结里程碑：M8-02；性能配置在 M8-06 实测后冻结
@@ -159,3 +159,36 @@ runtime 代码只在 `integrations/`；本 Issue 明确授权修复该适配，p
 DEC-012、DEC-015、DEC-021、DEC-024；M8-01…07；后续
 [DEC-026](DEC-026-continuous-perception-and-attention.md)。本文件为待评审方案，未宣称
 API 已存在、性能达标或既有决策已被替代。
+
+## M8-02 冻结记录（2026-10-19）
+
+随 M8-01…04 实现（`feat/m8-budget-contract` 分支）冻结以下名称与语义；实现以头文件
+注释为准，本节记录与上文"暂定"措辞的差异：
+
+- 名称定稿：`BudgetedOcrBackend::recognize_budgeted`（独立抽象类，不继承
+  `OcrBackend`）、`OcrBatchRequest`/`OcrBatchResult`/`OcrLineRecord`/
+  `OcrPriorityEntry`、`OcrCompletionState`/`OcrBatchStopReason`/
+  `OcrBatchCompletion`/`OcrSelectionStrategy`；会话侧
+  `PerceptionSession::run_ocr_budgeted(frame, BudgetedOcrBackend*, BudgetedOcrRequest,
+  ExecutionContext)` 返回 `BudgetedOcrReport`（执行报告 + source/帧序/executed_roi/
+  output_space/后端身份/请求摘要绑定，行几何已恢复到 output_space）。
+- `min_confidence` 只在 det 阶段过滤候选；rec 分数如实报告、不按它扣文本——旧
+  rec "低于阈值返回空"的语义不带入预算报告（否则空文本会与"识别为空"混淆）。
+- 软预算拆成两个显式旋钮：入口相对 `soft_budget` 与截止相对 `finalize_reserve`
+  （后者必须配硬 deadline，否则会话入口拒绝）；任一触发都以
+  `kSoftBudget` 停止新行并返回 partial。
+- det 触顶可见化：预算后端用 max_boxes+1 内部探测截断（前缀与原限幅逐位一致），
+  `det_limit_hit=true`；旧路径在超限时仍整体报 `kBudgetExceeded`，行为不变。
+- 限额常量 `kOcrBatchMaxPriorityEntries=64`、`kOcrBatchMaxPriorityBytes=64 KiB`、
+  `kOcrBatchMaxReportBytes=16 MiB` 只能调小；`max_rec_lines` 必须显式为正。
+  参考配置以命名常量 `kOcrBatchReferenceMaxRecLines=64`/
+  `kOcrBatchReferenceFinalizeReserve=500ms` 存在，库不隐式应用；
+  `rec_unit_upper_bound` 初值 0（待 M8-01 实测校准、M8-06 冻结）。
+- 报告不变量（计数守恒、唯一 candidate_id、执行序号恰为 {0..N-1} 排列、deferred
+  无文本/分数、stop/completion 自洽）由核心自由函数
+  `ocr_batch_result_consistent` 固化，会话入口对后端报告强制校验。
+- 优先级语义：`resolve_ocr_line_priority` 取相交条目的最高优先级，0 仅表示
+  "无相交条目"；负优先级有效（排在未指定行之后），NaN 排最后——`OcrPriorityEntry`
+  "任意有限 float" 的契约由此成立。
+- 缓存隔离：预算入口首版不读写能力结果缓存（请求类型不设 cache_policy 字段），
+  与上文第 5 条一致。

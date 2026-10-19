@@ -88,8 +88,41 @@ M8-06 对 AC8-01…10 逐项填写 PASS/FAIL/未执行，主报告明确：
 - 可选优化不满足采用门槛时给出 no-go，对其余交互修复单独判定。
 
 报告附生成器/runner 准确命令、环境、全部配置和逐次无内容 CSV/JSON 摘要、退出码，
-缺数据或权重应非零退出，不把 skip 写成通过。runner 尚未实现，本文件不提供看似
-可运行的虚构 CLI；M8-01 交付时必须补入实际入口、参数和结果格式。
+缺数据或权重应非零退出，不把 skip 写成通过。实际入口与结果格式（M8-01 交付）：
+
+### 4.1 runner 入口（M8-01，已入仓）
+
+目标：`mirador_bench_ocr_budget`（`benchmarks/ocr_budget_bench.cpp`，仅
+`MIRADOR_BUILD_INTEGRATIONS=ON` 预设构建；链接 `mirador_ocr_ppocr` 与
+`mirador::fusion`）。场景在内存中确定性生成，不落盘、不入仓；权重经显式路径
+提供，缺失时 exit 3。两套路径：
+
+- `--mode baseline`：冻结的 `PpOcrBackend` 全量逐行识别（AC8-01 复现用，不限时，
+  `--det-threads/--rec-threads` 参与配置矩阵）。
+- `--mode budgeted`（默认）：`PpOcrBudgetedBackend` 经
+  `PerceptionSession::run_ocr_budgeted` 执行，主计时从会话入口开始（协议 §3 边界）。
+
+关键参数：`--scenario dense359|dense512|longlines|sparse`（`--sparse-n N`）、
+`--max-boxes`、`--k`、`--soft-budget-ms`、`--finalize-reserve-ms`（<0 关闭；
+启用时硬 deadline 固定为入口后 5,000 ms）、`--warmup`（默认 2）、`--iterations`
+（默认 20）、`--csv PATH`、`--model-id/--model-revision`（记入行）。det/rec 模型与
+charset 分别经 `--det-param/--det-bin/--rec-param/--rec-bin/--charset` 传入。
+
+输出：stdout 每配置两行 `SUMMARY`（调用数与 p50/p95/max，nearest-rank；末次工作量
+计数 detected/recognized/deferred/forwards/nonempty/stop/partial/det_limit_hit）；
+`--csv` 逐调用记录 total 与 det_canvas/det_pack/det_forward/det_post/select/crop/
+rec_pre/rec_forward/rec_decode/finalize 毫秒及无内容计数列。退出码：0 通过；2 参数
+错误；3 缺模型输入；4 场景 gate 未达（如 dense512 未触到 max_boxes 框）；5 执行失败。
+环境（CPU 型号/频点/governor、ncnn pin、编译选项）由执行者按 §1 记录在报告附页，
+runner 本身只固化测量口径。
+
+当前限制：仓内场景为伪字形压力图案（协议 §1 允许的"压力复现"），不可读，不满足
+AC8-02 的"至少 32 行非空且与基线一致"质量门槛；可读文本场景与 512 框真实链仍需
+负责人提供受控数据后按本协议补跑（M8-06/M8-07）。合成模型冒烟另有夹具约束：
+常数概率图的合成 det 模型对整幅场景只产生一个全幅候选（如 1600×1000），其裁剪
+按高度 48 等比缩放后宽度约 77 px——固定输入宽度的合成 rec 卷积核必须按该宽度
+生成才能走通（真实 PP-OCR rec 为全卷积动态宽度，无此约束；独立验证已用匹配
+内核跑通 baseline 与 budgeted 双模式）。
 
 当前未执行原因：本次范围为决策与计划制定，未启用真实权重和 Mirage 实测。负责人
 linductor 在提供受控模型/图像路径及调用链、完成 M8-01 runner 后按此协议补跑。

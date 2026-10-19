@@ -15,6 +15,7 @@ RSS 与体积。性能验收必须发布基准环境与数字（设计文档 §2
 | `mirador_bench_proposal_reuse` | 实验性几何 Proposal 的跨帧关联稳定性探针（8 实体 × 6 帧 ±2 px 抖动）与 Geometry-gated VisualIndex 命中对照（distinct/ambiguous 双变体） | M6-05；数字见 [linux-x64-geometric-proposal-reuse-2026-09](../docs/benchmarks/linux-x64-geometric-proposal-reuse-2026-09.md) |
 | `mirador_bench_object_tracking` | 跨帧目标跟踪合成验证 harness：A/B/C/D 方法 × 六场景（`*-static-page`/`*-scroll`/`*-dialog`/`*-theme-switch`/`*-similar-icons`/`*-partial-anim`）× §8 全套指标与门槛初值校准证据；oracle Detector 粗召回，kLost 静止零触发 / 池预算 / 逐位确定性内建断言 | M7-09；数字见 [linux-x64-object-tracking-2026-09](../docs/benchmarks/linux-x64-object-tracking-2026-09.md) |
 | `mirador_bench_desktop_perception [P6-file [iterations]]` | E1 验证、变化检测同帧/变帧、2px 描边；默认确定性 400×240 合成 RGB，外部 P6 用 98×27 的固定桌面 ROI（55,530），需包含该区域 | DP-01；[方法、结果与限制](../docs/benchmarks/linux-x64-desktop-perception-2026-10.md) |
+| `mirador_bench_ocr_budget` | 交互 OCR 预算 harness：确定性合成密集/稀疏/长行场景 × baseline 全量与 budgeted 有界路径，阶段耗时分解与逐调用无内容 CSV；权重经显式路径，缺失 exit 3 | M8-01；方法与门槛见 [OCR 预算协议](../docs/benchmarks/ocr-budget-protocol.md)，真实权重实测待 M8-06 |
 | `measure_sizes.sh <build-dir>` | 模块静态库与可执行文件体积表 | M5-06；数字见 [linux-x64-change-detection-sizes-2026-09](../docs/benchmarks/linux-x64-change-detection-sizes-2026-09.md) |
 
 评测集场景清单与离线数据接入约定见

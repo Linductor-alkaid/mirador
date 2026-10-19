@@ -10,6 +10,13 @@ if(TARGET mirador::fusion)
     add_executable(mirador_example_perception_session perception_session_tour.cpp)
     target_link_libraries(mirador_example_perception_session PRIVATE mirador::fusion)
     mirador_apply_warnings(mirador_example_perception_session)
+
+    # M8-02/M8-04 (DEC-025): the budgeted OCR loop with a fake backend —
+    # per-line completion states, deferred geometry, soft vs hard budget and
+    # the untouched capability cache.
+    add_executable(mirador_example_budgeted_ocr budgeted_ocr_tour.cpp)
+    target_link_libraries(mirador_example_budgeted_ocr PRIVATE mirador::fusion)
+    mirador_apply_warnings(mirador_example_budgeted_ocr)
 endif()
 
 # M3-11: the two design-section-24 demos proving the library is not bound to

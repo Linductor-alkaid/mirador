@@ -31,6 +31,13 @@ mirador_add_test(
     SOURCES backend_test.cpp
     LABELS unit)
 
+# M8-02 (DEC-025): budgeted OCR contract — request validation, deterministic
+# orders, report invariants and the request digest.
+mirador_add_test(
+    NAME mirador.core.ocr_batch
+    SOURCES ocr_batch_test.cpp
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.core.transform_property
     SOURCES transform_property_test.cpp

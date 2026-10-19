@@ -1,10 +1,10 @@
 # M8：密集 OCR 的交互预算闭环
 
-> 状态：Planned
+> 状态：In Progress（M8-01…04 实现落地；M8-01 真实权重实测、M8-05…07 未开始）
 > 负责人：linductor（Mirador 维护者；以下各工作项同责）
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M2/M5 已有 SPI、缓存和参考后端；基于主干 `cb45a102`
-> 决策：[DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)（Proposed，M8-02 冻结）
+> 决策：[DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)（Accepted，M8-02 冻结）
 > 建议发布点：独立 integrations 修复交付；公共增量接口随下一 minor，版本号发布前确认
 > 更新日期：2026-10-19
 
@@ -23,10 +23,10 @@ Core runtime/内部并发。M9 连续感知、实体关系和事件不是本里�
 
 | 工作项 | 状态 | 可评审交付物 | 依赖 | 验收 |
 | --- | --- | --- | --- | --- |
-| M8-01 | Planned | 入仓无权重基准 harness、复现指南；359 框报告复核与 512 框压力数据，分解 det/裁剪/预处理/forward/解码/收尾，固定参考环境与时间余量 | 无 | AC8-01、02 |
-| M8-02 | Planned | 冻结 DEC-025、新领域结果/可选能力、伪 Backend 套件、旧 API 兼容样例；记录配置与内存限额 | M8-01 | AC8-03、04、08 |
-| M8-03 | Planned | PP-OCR 有界 rec 选择与软预算执行，逐框完成态、执行序和停止诊断，未识别几何可查询 | M8-02 | AC8-03…06 |
-| M8-04 | Planned | 会话新入口、坐标恢复、source 绑定与完整缓存隔离；无新能力时显式失败 | M8-02、03 | AC8-04、07、08 |
+| M8-01 | In Progress（harness 已交付；真实权重实测待补） | 入仓无权重基准 harness、复现指南；359 框报告复核与 512 框压力数据，分解 det/裁剪/预处理/forward/解码/收尾，固定参考环境与时间余量 | 无 | AC8-01、02 |
+| M8-02 | Delivered（契约与套件已落地） | 冻结 DEC-025、新领域结果/可选能力、伪 Backend 契约套件、旧 API 兼容样例；记录配置与内存限额 | M8-01 | AC8-03、04、08 |
+| M8-03 | Delivered（合成模型验证；真实模型部分随 M8-06） | PP-OCR 有界 rec 选择与软预算执行，逐框完成态、执行序和停止诊断，未识别几何可查询 | M8-02 | AC8-03…06 |
+| M8-04 | Delivered | 会话新入口、坐标恢复、source 绑定与完整缓存隔离；无新能力时显式失败 | M8-02、03 | AC8-04、07、08 |
 | M8-05 | Planned | 单行成本/packing/动态宽度及 batching 的独立实验报告，给出采用或 no-go 与理由；采用时单独 MR 回归 | M8-01…04 | AC8-09；no-go 不阻塞 M8-06 |
 | M8-06 | Planned | 同机真实模型基准、质量对照和 5 秒配置判定，冻结参考 K/收尾预留与适用平台 | M8-01…04 | AC8-01、02、05、10 |
 | M8-07 | Planned | Mirage 连续 3 次调用验收、故障/边界/sanitizer/CI 证据，API/示例/兼容性/CHANGELOG 同步 | M8-06；M8-05 的判定报告 | AC8-06…10 与全部退出条件 |
@@ -90,3 +90,56 @@ det 的 `max_boxes`、rec 的 K、候选/优先级字节限额分别测试零、
 session 源码。仅新增方案和验收协议，未执行真实权重基准、运行测试或下游验收；
 所有实现项/退出条件未勾选。后续证据按工作项追加日期、commit、环境、准确命令、
 结果、失败和补跑条件，禁止将 Issue 报告的中位数当作本计划实测。
+
+2026-10-19：M8-01…04 实现（分支 `feat/m8-budget-contract`，基于计划提交
+`cac1cba`；测试由 Independent-Verification-Agent 独立编写与执行，主循环仅实现与修复）：
+
+- **M8-02 契约**：`include/mirador/ocr_batch.hpp` + `src/core/ocr_batch.cpp`
+  （`BudgetedOcrBackend` SPI、请求/报告类型、校验/全序/字节核算/一致性/摘要自由
+  函数）；DEC-025 转 Accepted 并附冻结记录（负优先级有效、0 仅表示无相交条目、
+  NaN 排最后；`min_confidence` 只过滤 det 候选；软预算拆 `soft_budget` +
+  `finalize_reserve` 两旋钮；det 触顶用 max_boxes+1 内部探测截断）。
+  独立证据：`mirador.core.ocr_batch` 52/52（debug + UBSAN，零警告）。
+- **M8-04 会话接线**：`PerceptionSession::run_ocr_budgeted` + `BudgetedOcrRequest`/
+  `BudgetedOcrReport`；示例 `examples/budgeted_ocr_tour.cpp`（旧 API 兼容样例同
+  场景演示，运行 exit 0）。独立证据：`mirador.fusion.session_budgeted_ocr` 30/30
+  （k0/k90/k180/k270、33x17 奇数尺寸 + 145 stride、ROI 往返 ≤1e-4 px、入口即
+  取消/超时零后端调用、取消优先、不一致报告 kBackendFailure、缓存隔离、绑定
+  字段、`static_assert` 两 SPI 互不继承）；回归 core+fusion 26 套件全绿。
+- **M8-03 PP-OCR 有界执行**：`integrations/ocr_ppocr/ppocr_budgeted.{hpp,cpp}` +
+  共享助手重构 `ppocr_internal.{hpp,cpp}`（旧路径行为不变，`ppocr_smoke` 40/40）。
+  独立证据：`mirador.integrations.ppocr_budgeted_smoke` 131/131——含输入敏感
+  1x1 卷积 det 夹具产生 6 候选的确定性多行场景：K<N 选择与 3 次重复逐位相同、
+  优先级执行序、det_limit_hit==true 截断（4 块 + max_boxes=3）、probe 饱和边界
+  （kept ≥ cap+2 整调用显式 `kBudgetExceeded`，与旧 postprocess 失败语义同源，
+  是否放宽待 M8-06 真实密度数据）、finalize 软停止（`rec_unit_upper_bound=1h`
+  确定性触发）、rec 单行合成内核宽度 165 实测推导记录于测试文件头。
+- **M8-01 harness**：`benchmarks/ocr_budget_bench.cpp`（确定性合成场景
+  dense359/dense512/longlines/sparse、baseline/budgeted 双路径、阶段分解与逐调用
+  无内容 CSV、无权重 exit 3、dense512 gate exit 4）；协议文档 §4.1 补入实际入口
+  与结果格式及夹具约束。独立证据：匹配内核合成模型下 baseline/budgeted 双模式
+  exit 0（SUMMARY/CSV/计数正确），缺权重 exit 3。
+- **工程门禁**：debug/release/warnings/asan/ubsan/tsan 六预设 + integrations
+  预设构建零警告；ctest debug 56/56、release 55/55、warnings 55/55、asan 55/55、
+  ubsan 55/55、tsan 55/55、integrations 61/61。CI（PR #43，commit `a5bd220`）
+  14/14 job 全绿，含 gcc integrations-ncnn（integrations 构建 + 冒烟 +
+  integrations 范围 clang-tidy）、clang-format/clang-tidy 全树 job、msvc 与
+  ndk/arm64-v8a（Windows/Android 构建级证据）。CI 修复过程：clang-format
+  158 处机械违规、integrations 范围 clang-tidy 54 处（直接包含/const 移动/计时
+  助手封装/复杂度拆分，测试侧由 IVA 修复）、全树 clang-tidy 范围调整
+  （integrations-only 的 benchmark harness 归入 integrations job 的 tidy）及
+  其余文件的 tidy 修复。实现修复两处自查契约缺陷（K<N
+  全部执行完的 stop reason；execution_order 为执行序排列而非阅读序递增）与一处
+  IVA 发现的语义不一致（负优先级钳 0 → 按冻结文档改为有效值）。
+- **限制与补跑条件**：AC8-01/02/05/10 需真实权重与受控场景（路径提供后按协议
+  §4.1 命令补跑）；det_limit_hit 在真实密度下的行为随 M8-06 复核；会话"入口预检
+  之后、后端调用之前"的 deadline 检查无法无钩子确定性触发（同函数内相邻检查，
+  风险可忽略）；ncnn 前向 extract 失败路径的 stderr `pool allocator` 噪声为 M5
+  既有问题，另立跟进不阻塞 M8。Windows/Android 仅构建级验证，随 CI 补充。
+  另观察到一个既有 flake（与本里程碑无关）：
+  `ShiftEstimation.EstimationWritesNoFiles` 与
+  `TrackerBackendOrchestration.OrchestrationWritesNoFiles*` 对 /tmp 做前后快照，
+  窗口内有并发进程写入即误报（本机复现 2 次、复跑即过；CI 干净环境稳定通过），
+  建议后续将快照范围改为测试专属目录。
+- **CI 状态**：计划 PR #42 与实现 PR #43 均 14/14 job 全绿（2026-10-19）。
+  Windows/Android 结论维持"构建级验证"，不声明性能。

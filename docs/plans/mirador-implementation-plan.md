@@ -578,7 +578,8 @@ run 35917953109 14/14 job 全绿，待合入）。
 - [ ] `SCOPE-14` 密集 OCR 交互预算：rec 数量上限、调用方优先级、显式完成度与
   部分报告、提前收尾、坐标/缓存隔离及真实模型 5 秒门槛；见
   [M8](m8-budgeted-ocr.md) 与 [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)
-  （Proposed）。完整旧 API 保持全有或全无，batching 为独立 go/no-go 实验。
+  （Accepted，M8-02 冻结；M8-01…04 实现落地，真实模型验收待 M8-06/07）。
+  完整旧 API 保持全有或全无，batching 为独立 go/no-go 实验。
 - [ ] `SCOPE-15` 连续增量感知（Proposed）：实体重复/从属/重叠关系、调用方注意与
   重要性策略、覆盖与陈旧结果绑定、跨帧语义稳定化、有界选择性事件；见
   [M9](m9-continuous-perception.md) 与
@@ -632,7 +633,7 @@ run 35917953109 14/14 job 全绿，待合入）。
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Completed | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
 | M6 | 几何区域 Proposal 实验（实验轨道） | M5 | `v0.3.0` | Completed | [m6-geometric-region-proposal-experiment.md](m6-geometric-region-proposal-experiment.md) |
 | M7 | 跨帧目标跟踪（低负载 SOT 与级联重检测） | M6 | `v0.4.0`（暂定） | In Progress | [m7-cross-frame-object-tracking.md](m7-cross-frame-object-tracking.md) |
-| M8 | 密集 OCR 的交互预算闭环 | M2/M5；DEC-025 待 M8-02 冻结 | integrations 独立修复；公共增量随下一 minor（待定） | Planned | [m8-budgeted-ocr.md](m8-budgeted-ocr.md) |
+| M8 | 密集 OCR 的交互预算闭环 | M2/M5；DEC-025 已随 M8-02 冻结 | integrations 独立修复；公共增量随下一 minor（待定） | In Progress | [m8-budgeted-ocr.md](m8-budgeted-ocr.md) |
 | M9 | 任务焦点驱动的增量视觉状态与通知 | M8 契约、M4/M7 原语；DEC-026 待评审 | Experimental，版本待定 | Proposed | [m9-continuous-perception.md](m9-continuous-perception.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
@@ -647,7 +648,7 @@ run 35917953109 14/14 job 全绿，待合入）。
 | [DEC-009](../decisions/DEC-009-elsed-integration.md) | ELSED 集成方式 | 已冻结：一方等价实现进 M3，ELSED 本体为可选适配延后（见 [DEC-009](../decisions/DEC-009-elsed-integration.md)） | linductor | M3 |
 | [DEC-010](../decisions/DEC-010-stable-id-matching.md) | 稳定 ID 匹配算法 | 已冻结：门控后贪心一对一匹配起步，分裂/合并做事件识别与 generation 递增（见 [DEC-010](../decisions/DEC-010-stable-id-matching.md)） | linductor | M4 |
 | [DEC-011](../decisions/DEC-011-benchmark-environments.md) | 基准设备清单 | 已冻结：Linux x64 主基准环境 + 方法口径；物理 Android/Windows 记录补跑条件（见 [DEC-011](../decisions/DEC-011-benchmark-environments.md)） | linductor | M5 |
-| [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md) | OCR 候选预算与部分结果 | Proposed：独立 opt-in 能力；K=64/收尾预留 500 ms 为参考配置初值；旧错误/完整缓存语义保留 | linductor | M8-02 契约；M8-06 实测冻结配置 |
+| [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md) | OCR 候选预算与部分结果 | Accepted（M8-02 冻结）：独立 opt-in 能力，契约见 `ocr_batch.hpp` 与冻结记录；K=64/收尾预留 500 ms 仍为参考初值，实测后冻结 | linductor | M8-02 契约已冻结；M8-06 实测冻结配置 |
 | [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) | 连续感知与注意策略 | Proposed：fusion 同步协调原语、关系视图、2 次有效观测确认、额外状态 8 MiB；均待验证 | linductor | M9-01 契约；M9-07 转正判定 |
 
 已生效决策见 [docs/decisions/](../decisions/)：`DEC-001` 同步 API 与无 executor、`DEC-002`
@@ -916,3 +917,18 @@ Independent-Verification-Agent 独立编写与执行）：
   实现/退出条件没有完成勾选。验证环境为当前 Linux 工作区，未运行 C++ 构建/测试。
 - 限制：5 秒、质量及增量收益均为拟定门槛，未执行模型或 Mirage 实测；负责人 linductor
   在提供显式模型/数据/下游路径并完成相应 harness 后，按 M8-01/06/07 与 M9-06/07 补跑。
+
+2026-10-19：M8-01…04 实现落地（分支 `feat/m8-budget-contract`，基于计划提交
+`cac1cba`；测试由 Independent-Verification-Agent 独立编写与执行）：
+
+- 交付：`ocr_batch.hpp` 预算契约（DEC-025 随 M8-02 冻结为 Accepted）、
+  `PerceptionSession::run_ocr_budgeted` 会话入口与缓存隔离、PP-OCR 预算参考后端
+  `PpOcrBudgetedBackend`、无权重基准 harness `mirador_bench_ocr_budget` 与示例
+  `examples/budgeted_ocr_tour.cpp`；协议/API 索引/CHANGELOG/设计文档同步。
+- 实际验证：六预设 + integrations 构建零警告；ctest debug 56/56、release 55/55、
+  warnings 55/55、asan 55/55、ubsan 55/55、tsan 55/55、integrations 61/61；
+  独立测试证据（契约 52、会话 30、PP-OCR 预算冒烟 131、harness 双模式冒烟）
+  与限制详见 [M8 验收记录](m8-budgeted-ocr.md)。
+- 限制：AC8-01/02/05/10 真实权重/下游验收未执行，待受控模型路径后按
+  [OCR 基准协议](../benchmarks/ocr-budget-protocol.md) §4.1 补跑；
+  Windows/Android 为构建级验证；未宣称 5 秒达标。

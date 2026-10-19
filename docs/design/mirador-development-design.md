@@ -291,13 +291,13 @@ OCR 在 Mirador 中被拆为文本检测、方向分类和文本识别三个可�
 
 输入包含图像、ROI、语言提示、最小置信度、最长边、是否需要逐字符信息和输出坐标空间。输出包含 UTF-8 文本、多边形或矩形、置信度以及可选字符级结果。上层若只需要查找某个文字，可以在结果层做匹配，不应要求 OCR Backend 理解 Agent 意图。M2 冻结的 `OcrRequest`（`DEC-012`）不含逐字符开关与字符级结果字段；它们随首个真实需要的 Backend 引入，避免为不存在的消费者固化 schema。M3 交付的参考后处理组件（DB AABB 后处理、轮廓框恢复、行合并、文本规范化）落在 `mirador::image`，参考适配范围见 `DEC-014`。
 
-Issue #41 的增量设计候选（2026-10-19，**Proposed，尚未实现**）见
-[DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)：保留上述完整 SPI，
-另提供显式启用的预算识别能力；det 几何与 rec 数量预算分开，按调用方优先级选择
-候选，每框区分已识别/复用/未识别。软预算在硬截止前主动收尾可产生 partial 报告；
-硬超时、取消和失败仍按既有 Status 返回错误。预算入口首版与完整缓存隔离，部分
-报告不自动进入动作/SoM 授权。batching 在真实模型支持独立样本维度后按门槛验证，
-不作为交互修复前置。公开类型、配置和兼容性由 M8-02 冻结后实施。
+Issue #41 的增量设计（2026-10-19，[DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)
+已随 M8-02 冻结为 Accepted 并实施）：保留上述完整 SPI，
+另提供显式启用的预算识别能力 `BudgetedOcrBackend`（`ocr_batch.hpp`）；det 几何与
+rec 数量预算分开，按调用方优先级选择候选，每框区分已识别/复用/未识别。软预算在
+硬截止前主动收尾可产生 partial 报告；硬超时、取消和失败仍按既有 Status 返回错误。
+预算入口首版与完整缓存隔离，部分报告不自动进入动作/SoM 授权。batching 在真实模型
+支持独立样本维度后按门槛验证，不作为交互修复前置。
 
 ## 14. 目标检测与 UI 区域提议
 
@@ -444,14 +444,16 @@ M6 已于 2026-09-20 收口：`DEC-017` 第 6 条四项晋升门槛初值在合�
 
 把 §16 的稳定 ID 从"相邻快照关联"扩展为带时间维度的持续跟踪：在 `PerceptionSession` 内对同一视觉对象维持身份与位置估计，常态以 §10/§11 变化检测门控短路（画面未变或变化 ROI 与目标外推不相交时近零成本复用），局部变化时以模板 NCC（峰值+峰旁瓣质量）与已冻结的 `GeometricRegionProposal` 闭合结构一致性做双通道邻域验证，丢失时以显式状态机（`kTracking/kUncertain/kLost/kTerminated`）与预算化原语支持上层按需触发 Detector 重检测并做候选身份复核。位置-时间先验作为条件化软证据参与门控：静止期全权重，经全局运动补偿后覆盖滚动期，布局代际递增时清零降权——先验只作门控与占位，身份确认需外观或语义证据。能力落在 `mirador::fusion`（状态机、有界目标池、条件化证据融合），`mirador::image` 新增纯 CPU 确定性全局位移估计原语，零新依赖、不触及核心链接闭包；`ObjectTracker` 契约在 M7 内保持 Experimental，go/no-go 判定 GO 后经决策冻结。详细设计（统计模型、状态机、管线、指标与 A/B/C/D 基准矩阵）见[跨帧目标跟踪设计](object-tracking-design.md)，工作项见 M7 里程碑，能力边界与转正路径见 [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)。轻量深度 tracker 经 `TrackerBackend` SPI 注入（契约语义见 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md)）作为可选增强通道：NanoTrack ncnn 参考后端随 M7 落于 `integrations/`（复用 `DEC-015` ncnn 基础设施，权重不入仓），未注入时管线零变化；CF tracker 仍为延后项 `POST-07`，触发条件随决策记录冻结。
 
-### M8：密集 OCR 的交互预算闭环（Planned）
+### M8：密集 OCR 的交互预算闭环（In Progress）
 
 针对 [Issue #41](https://github.com/Linductor-alkaid/mirador/issues/41)，先提供候选
 限额、调用方优先级、显式部分报告与提前收尾，再测单行和 batching 优化，独立于
-后续连续感知交付。旧完整接口、错误和缓存语义不变，新契约待 DEC-025 评审冻结。
-5 秒是待验证的完整调用预算，验收同时要求有效文本和保留几何；方法、原始环境与
-平台限制按 [OCR 基准协议](../benchmarks/ocr-budget-protocol.md)记录，未实测不作
-性能保证。工作项与门槛见 [M8](../plans/m8-budgeted-ocr.md)。
+后续连续感知交付。旧完整接口、错误和缓存语义不变；新契约已随 M8-02 冻结
+（DEC-025 Accepted，`ocr_batch.hpp` + `run_ocr_budgeted` + PP-OCR 预算后端），
+实现与工程门禁进行中。5 秒是待验证的完整调用预算，验收同时要求有效文本和保留
+几何；方法、原始环境与平台限制按
+[OCR 基准协议](../benchmarks/ocr-budget-protocol.md)记录，未实测不作性能保证。
+工作项与门槛见 [M8](../plans/m8-budgeted-ocr.md)。
 
 ### M9：任务焦点驱动的增量视觉状态与通知（Proposed）
 

@@ -8,6 +8,14 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M8-04 (DEC-025): run_ocr_budgeted wiring — coordinate recovery, source
+# binding, cache isolation, report enforcement and the error contract.
+mirador_add_test(
+    NAME mirador.fusion.session_budgeted_ocr
+    SOURCES perception_session_budgeted_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 mirador_add_test(
     NAME mirador.fusion.evidence_set
     SOURCES evidence_set_test.cpp
