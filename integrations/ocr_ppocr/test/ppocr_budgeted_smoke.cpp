@@ -43,16 +43,20 @@
 // (key 11); .bin blobs carry a leading flag word (0 = raw float32) while conv
 // bias blobs are raw float32 without a flag word.
 
+#include "ppocr_backend.hpp"
 #include "ppocr_budgeted.hpp"
 
+#include <mirador/backend_info.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_view.hpp>
+#include <mirador/ocr_backend.hpp>
 #include <mirador/ocr_batch.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/status.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -371,7 +375,7 @@ void check_happy_path(mirador::integrations::PpOcrBudgetedBackend& backend, cons
         std::printf("  happy status: %s\n", outcome.status().message().c_str());
         return;
     }
-    const mirador::OcrBatchResult result = outcome.value();
+    const mirador::OcrBatchResult& result = outcome.value();
 
     expect_true(result.detected_count == 1, "happy: exactly one candidate detected");
     expect_true(result.recognized_count == 1, "happy: recognized_count == 1");
@@ -427,7 +431,7 @@ void check_rec_scores_not_gated(mirador::integrations::PpOcrBudgetedBackend& bac
     if (!outcome.ok()) {
         return;
     }
-    const mirador::OcrBatchResult result = outcome.value();
+    const mirador::OcrBatchResult& result = outcome.value();
     expect_true(result.detected_count == 1 && result.recognized_count == 1,
                 "rec-gating: the ~0.9 det box passes min_confidence=0.5 and is recognized");
     if (result.lines.size() == 1) {
@@ -447,7 +451,7 @@ void check_k_boundaries(mirador::integrations::PpOcrBudgetedBackend& backend,
     const auto large_k = backend.recognize_budgeted(view, batch_request(64), never_cancelled);
     expect_true(large_k.ok(), "K=64 (N=1): recognize_budgeted succeeds");
     if (large_k.ok()) {
-        const mirador::OcrBatchResult result = large_k.value();
+        const mirador::OcrBatchResult& result = large_k.value();
         expect_true(result.recognized_count == 1 && result.deferred_count == 0 && result.rec_forward_count == 1,
                     "K=64 (N=1): min(K, N)=1 line recognized, nothing deferred");
         expect_true(result.stop_reason == mirador::OcrBatchStopReason::kCompleted &&
@@ -461,7 +465,7 @@ void check_k_boundaries(mirador::integrations::PpOcrBudgetedBackend& backend,
     const auto empty_set = backend.recognize_budgeted(view, filtered, never_cancelled);
     expect_true(empty_set.ok(), "min_confidence=0.95: recognize_budgeted succeeds");
     if (empty_set.ok()) {
-        const mirador::OcrBatchResult result = empty_set.value();
+        const mirador::OcrBatchResult& result = empty_set.value();
         expect_true(result.detected_count == 0 && result.lines.empty(),
                     "min_confidence=0.95: the ~0.9 det box is filtered before selection");
         expect_true(result.recognized_count == 0 && result.rec_forward_count == 0,
@@ -490,7 +494,7 @@ void check_soft_budget(mirador::integrations::PpOcrBudgetedBackend& backend,
         std::printf("  soft budget status: %s\n", outcome.status().message().c_str());
         return;
     }
-    const mirador::OcrBatchResult result = outcome.value();
+    const mirador::OcrBatchResult& result = outcome.value();
     expect_true(result.rec_forward_count == 0 && result.recognized_count == 0, "soft budget 0 ms: no rec forward ran");
     expect_true(result.deferred_count == 1, "soft budget 0 ms: the candidate is deferred");
     expect_true(result.stop_reason == mirador::OcrBatchStopReason::kSoftBudget,
@@ -541,7 +545,7 @@ void check_deadline_guards(mirador::integrations::PpOcrBudgetedBackend& backend,
         tight.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{1};
         const auto outcome = backend.recognize_budgeted(view, request, tight);
         if (outcome.ok()) {
-            const mirador::OcrBatchResult result = outcome.value();
+            const mirador::OcrBatchResult& result = outcome.value();
             std::printf("info: finalize-guard run produced a report (stop=%s recognized=%ld deferred=%ld)\n",
                         stop_reason_name(result.stop_reason), static_cast<long>(result.recognized_count),
                         static_cast<long>(result.deferred_count));
@@ -586,7 +590,7 @@ void check_finalize_guard_soft_stop(const std::filesystem::path& dir, const std:
         std::printf("  finalize soft stop status: %s\n", outcome.status().message().c_str());
         return;
     }
-    const mirador::OcrBatchResult result = outcome.value();
+    const mirador::OcrBatchResult& result = outcome.value();
     expect_true(result.detected_count == 1,
                 "finalize soft stop: det ran and detected the candidate (no guard before det)");
     expect_true(result.stop_reason == mirador::OcrBatchStopReason::kSoftBudget,
@@ -622,7 +626,7 @@ void check_det_limit_report(const std::filesystem::path& dir, const std::vector<
     if (!outcome.ok()) {
         return;
     }
-    const mirador::OcrBatchResult result = outcome.value();
+    const mirador::OcrBatchResult& result = outcome.value();
     expect_true(result.det_limit == 1, "det_limit=1: det_limit reports the configured cap");
     expect_true(!result.det_limit_hit, "det_limit=1: exactly one box does not hit a cap of 1");
     expect_true(result.detected_count == 1 && result.recognized_count == 1 && result.rec_forward_count == 1,
@@ -750,30 +754,25 @@ mirador::integrations::PpOcrBudgetedOptions sensitive_budgeted_options(const std
     return options;
 }
 
-// Multi-candidate scenarios: reading order over 6 lines, K<N deferral with
-// bitwise-stable repeats, caller-priority execution order, det_limit_hit
-// truncation (4-block scene: kept == cap+1) and the probe-saturation boundary.
-void check_multi_candidate_scenarios(const std::filesystem::path& dir) {
-    const std::vector<BlockPos> six_blocks = {{40, 15}, {180, 15}, {320, 15}, {40, 38}, {180, 38}, {320, 38}};
-    const std::vector<std::byte> scene = make_block_scene(kFrameWidth, kFrameHeight, six_blocks);
-    const mirador::ImageView view = make_rgb_view(scene, kFrameWidth, kFrameHeight);
+// Multi-candidate scenario calibration: writes the input-sensitive fixtures,
+// measures the live det boxes and derives the rec kernel width the budgeted
+// rec stage will actually see (integer crop ROI, then the same resize
+// rounding as run_rec_line). Returns the measured kernel width, or 0 after
+// reporting a failure.
+int32_t check_sensitive_calibration(const std::filesystem::path& dir, const mirador::ImageView& view) {
     const mirador::ExecutionContext never_cancelled;
-
-    // Calibration: measure the live det boxes, derive the rec kernel width the
-    // budgeted rec stage will actually see (integer crop ROI, then the same
-    // resize rounding as run_rec_line), and pin the fixture to it.
     expect_true(write_sensitive_det_model(dir), "sensitive det fixture written");
     auto det_result = mirador::integrations::PpOcrDetBackend::create(sensitive_det_options(dir, 256));
     expect_true(det_result.ok(), "sensitive det backend loads");
     if (!det_result.ok()) {
         std::printf("  sensitive det create status: %s\n", det_result.status().message().c_str());
-        return;
+        return 0;
     }
     auto det = std::move(det_result).take_value();
     const auto regions = det.recognize(view, mirador::OcrRequest{}, never_cancelled);
     expect_true(regions.ok() && regions.value().size() == 6, "sensitive det finds exactly 6 blocks");
     if (!regions.ok() || regions.value().size() != 6) {
-        return;
+        return 0;
     }
     const mirador::RectF measured = regions.value().front().bounds;
     expect_true(bounds_close(measured, static_cast<float>(40 - kUnclipOffset), static_cast<float>(15 - kUnclipOffset),
@@ -796,192 +795,217 @@ void check_multi_candidate_scenarios(const std::filesystem::path& dir) {
     expect_true(crop_w == 48 && crop_h == 14 && kernel_w == 165,
                 "crop rounds to 48x14 and the rec kernel width is 165 (round(48*48/14))");
     expect_true(write_rec_model_with_kernel(dir, kernel_w), "sensitive rec fixture written for the measured kernel");
+    return kernel_w;
+}
 
-    // Check A: multi-line happy path — every candidate recognized, report in
-    // reading order (rows top-to-bottom, then columns left-to-right).
-    {
-        auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 256));
-        expect_true(backend_result.ok(), "multi-line: budgeted backend (max_boxes=256) loads");
-        if (!backend_result.ok()) {
-            return;
-        }
-        auto backend = std::move(backend_result).take_value();
-        const auto outcome = backend.recognize_budgeted(view, batch_request(64), never_cancelled);
-        expect_true(outcome.ok(), "multi-line: recognize_budgeted succeeds with K=64");
-        if (!outcome.ok()) {
-            std::printf("  multi-line status: %s\n", outcome.status().message().c_str());
-            return;
-        }
-        const mirador::OcrBatchResult result = outcome.value();
-        expect_true(result.detected_count == 6 && result.recognized_count == 6 && result.deferred_count == 0 &&
-                        result.rec_forward_count == 6,
-                    "multi-line: all 6 candidates recognized with 6 forwards");
-        expect_true(result.stop_reason == mirador::OcrBatchStopReason::kCompleted &&
-                        result.completion == mirador::OcrBatchCompletion::kComplete && !result.det_limit_hit &&
-                        result.det_limit == 256,
-                    "multi-line: kCompleted/kComplete, cap 256 not hit");
-        bool lines_ok = result.lines.size() == 6;
-        for (int32_t index = 0; lines_ok && index < 6; ++index) {
-            const mirador::OcrLineRecord& line = result.lines[static_cast<size_t>(index)];
-            const int32_t expect_x = (index % 3 == 0) ? 40 : (index % 3 == 1 ? 180 : 320);
-            const int32_t expect_y = index < 3 ? 15 : 38;
-            lines_ok = lines_ok && line.candidate_id == index && line.utf8_text == "ABCD" &&
-                       line.state == mirador::OcrCompletionState::kRecognized && line.execution_order == index &&
-                       line.rec_confidence.has_value() && line.det_confidence > 0.75F && line.det_confidence <= 0.85F &&
-                       bounds_close(line.bounds, static_cast<float>(expect_x - kUnclipOffset),
-                                    static_cast<float>(expect_y - kUnclipOffset),
-                                    static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
-                                    static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
-        }
-        expect_true(lines_ok,
-                    "multi-line: candidate ids 0..5 in reading order (y asc, x asc), each decodes to \"ABCD\"");
-        expect_true(ocr_batch_result_consistent(result), "multi-line: report is consistent");
+// Check A: multi-line happy path — every candidate recognized, report in
+// reading order (rows top-to-bottom, then columns left-to-right).
+void check_multi_line_happy(const std::filesystem::path& dir, const mirador::ImageView& view) {
+    const mirador::ExecutionContext never_cancelled;
+    auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 256));
+    expect_true(backend_result.ok(), "multi-line: budgeted backend (max_boxes=256) loads");
+    if (!backend_result.ok()) {
+        return;
     }
+    auto backend = std::move(backend_result).take_value();
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), never_cancelled);
+    expect_true(outcome.ok(), "multi-line: recognize_budgeted succeeds with K=64");
+    if (!outcome.ok()) {
+        std::printf("  multi-line status: %s\n", outcome.status().message().c_str());
+        return;
+    }
+    const mirador::OcrBatchResult& result = outcome.value();
+    expect_true(result.detected_count == 6 && result.recognized_count == 6 && result.deferred_count == 0 &&
+                    result.rec_forward_count == 6,
+                "multi-line: all 6 candidates recognized with 6 forwards");
+    expect_true(result.stop_reason == mirador::OcrBatchStopReason::kCompleted &&
+                    result.completion == mirador::OcrBatchCompletion::kComplete && !result.det_limit_hit &&
+                    result.det_limit == 256,
+                "multi-line: kCompleted/kComplete, cap 256 not hit");
+    static constexpr std::array<int32_t, 3> kColumnX = {40, 180, 320};
+    bool lines_ok = result.lines.size() == 6;
+    for (int32_t index = 0; lines_ok && index < 6; ++index) {
+        const mirador::OcrLineRecord& line = result.lines[static_cast<size_t>(index)];
+        const int32_t expect_x = kColumnX[index % 3];
+        const int32_t expect_y = index < 3 ? 15 : 38;
+        lines_ok = lines_ok && line.candidate_id == index && line.utf8_text == "ABCD" &&
+                   line.state == mirador::OcrCompletionState::kRecognized && line.execution_order == index &&
+                   line.rec_confidence.has_value() && line.det_confidence > 0.75F && line.det_confidence <= 0.85F &&
+                   bounds_close(line.bounds, static_cast<float>(expect_x - kUnclipOffset),
+                                static_cast<float>(expect_y - kUnclipOffset),
+                                static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
+                                static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
+    }
+    expect_true(lines_ok,
+                "multi-line: candidate ids 0..5 in reading order (y asc, x asc), each decodes to \"ABCD\"");
+    expect_true(ocr_batch_result_consistent(result), "multi-line: report is consistent");
+}
 
-    // Check B: K < N — the reading-order prefix runs, the tail is deferred,
-    // and repeated runs are bitwise identical.
-    {
-        auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 6));
-        expect_true(backend_result.ok(), "K<N: budgeted backend (max_boxes=6) loads");
-        if (!backend_result.ok()) {
-            return;
-        }
-        auto backend = std::move(backend_result).take_value();
-        const auto first_outcome = backend.recognize_budgeted(view, batch_request(4), never_cancelled);
-        expect_true(first_outcome.ok(), "K<N: recognize_budgeted succeeds with K=4");
-        if (!first_outcome.ok()) {
-            return;
-        }
-        const mirador::OcrBatchResult first = first_outcome.value();
-        expect_true(first.detected_count == 6 && !first.det_limit_hit && first.det_limit == 6,
-                    "K<N: 6 candidates, cap 6 reported, not hit");
-        expect_true(first.recognized_count == 4 && first.deferred_count == 2 && first.rec_forward_count == 4,
-                    "K<N: 4 recognized, 2 deferred, 4 forwards");
-        expect_true(first.stop_reason == mirador::OcrBatchStopReason::kRecLineLimit &&
-                        first.completion == mirador::OcrBatchCompletion::kPartial,
-                    "K<N: stop kRecLineLimit, completion kPartial");
-        bool executed_ok = true;
-        for (int32_t index = 0; executed_ok && index < 4; ++index) {
-            const mirador::OcrLineRecord& line = first.lines[static_cast<size_t>(index)];
-            executed_ok = executed_ok && line.candidate_id == index && line.execution_order == index &&
-                          line.state == mirador::OcrCompletionState::kRecognized && line.utf8_text == "ABCD";
-        }
-        expect_true(executed_ok, "K<N: the reading-order prefix 0..3 is executed in order");
-        bool deferred_ok = true;
-        for (int32_t index = 4; deferred_ok && index < 6; ++index) {
-            const mirador::OcrLineRecord& line = first.lines[static_cast<size_t>(index)];
-            const int32_t expect_x = index == 4 ? 180 : 320;
-            deferred_ok = deferred_ok && line.candidate_id == index &&
-                          line.state == mirador::OcrCompletionState::kDeferred && line.utf8_text.empty() &&
-                          !line.rec_confidence.has_value() && line.execution_order == -1 &&
-                          bounds_close(line.bounds, static_cast<float>(expect_x - kUnclipOffset),
-                                       static_cast<float>(38 - kUnclipOffset),
-                                       static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
-                                       static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
-        }
-        expect_true(deferred_ok, "K<N: deferred lines 4..5 keep queryable det geometry with no text");
-        expect_true(ocr_batch_result_consistent(first), "K<N: report is consistent");
-        bool deterministic = true;
-        for (int repeat = 0; repeat < 2; ++repeat) {
-            const auto outcome = backend.recognize_budgeted(view, batch_request(4), never_cancelled);
-            deterministic = deterministic && outcome.ok() && outcome.value() == first;
-        }
-        expect_true(deterministic, "K<N: three repeated runs are bitwise identical (operator==)");
+// Check B: K < N — the reading-order prefix runs, the tail is deferred, and
+// repeated runs are bitwise identical.
+void check_k_less_than_n(const std::filesystem::path& dir, const mirador::ImageView& view) {
+    const mirador::ExecutionContext never_cancelled;
+    auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 6));
+    expect_true(backend_result.ok(), "K<N: budgeted backend (max_boxes=6) loads");
+    if (!backend_result.ok()) {
+        return;
     }
+    auto backend = std::move(backend_result).take_value();
+    const auto first_outcome = backend.recognize_budgeted(view, batch_request(4), never_cancelled);
+    expect_true(first_outcome.ok(), "K<N: recognize_budgeted succeeds with K=4");
+    if (!first_outcome.ok()) {
+        return;
+    }
+    const mirador::OcrBatchResult& first = first_outcome.value();
+    expect_true(first.detected_count == 6 && !first.det_limit_hit && first.det_limit == 6,
+                "K<N: 6 candidates, cap 6 reported, not hit");
+    expect_true(first.recognized_count == 4 && first.deferred_count == 2 && first.rec_forward_count == 4,
+                "K<N: 4 recognized, 2 deferred, 4 forwards");
+    expect_true(first.stop_reason == mirador::OcrBatchStopReason::kRecLineLimit &&
+                    first.completion == mirador::OcrBatchCompletion::kPartial,
+                "K<N: stop kRecLineLimit, completion kPartial");
+    bool executed_ok = true;
+    for (int32_t index = 0; executed_ok && index < 4; ++index) {
+        const mirador::OcrLineRecord& line = first.lines[static_cast<size_t>(index)];
+        executed_ok = executed_ok && line.candidate_id == index && line.execution_order == index &&
+                      line.state == mirador::OcrCompletionState::kRecognized && line.utf8_text == "ABCD";
+    }
+    expect_true(executed_ok, "K<N: the reading-order prefix 0..3 is executed in order");
+    bool deferred_ok = true;
+    for (int32_t index = 4; deferred_ok && index < 6; ++index) {
+        const mirador::OcrLineRecord& line = first.lines[static_cast<size_t>(index)];
+        const int32_t expect_x = index == 4 ? 180 : 320;
+        deferred_ok = deferred_ok && line.candidate_id == index &&
+                      line.state == mirador::OcrCompletionState::kDeferred && line.utf8_text.empty() &&
+                      !line.rec_confidence.has_value() && line.execution_order == -1 &&
+                      bounds_close(line.bounds, static_cast<float>(expect_x - kUnclipOffset),
+                                   static_cast<float>(38 - kUnclipOffset),
+                                   static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
+                                   static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
+    }
+    expect_true(deferred_ok, "K<N: deferred lines 4..5 keep queryable det geometry with no text");
+    expect_true(ocr_batch_result_consistent(first), "K<N: report is consistent");
+    bool deterministic = true;
+    for (int repeat = 0; repeat < 2; ++repeat) {
+        const auto outcome = backend.recognize_budgeted(view, batch_request(4), never_cancelled);
+        deterministic = deterministic && outcome.ok() && outcome.value() == first;
+    }
+    expect_true(deterministic, "K<N: three repeated runs are bitwise identical (operator==)");
+}
 
-    // Check C: caller priority overrides reading order for execution while the
-    // report stays in reading order.
-    {
-        auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 6));
-        expect_true(backend_result.ok(), "priority: budgeted backend loads");
-        if (!backend_result.ok()) {
-            return;
-        }
-        auto backend = std::move(backend_result).take_value();
-        mirador::OcrBatchRequest request = batch_request(2);
-        // ROI around the reading-order LAST line (candidate 5 at x=320, row
-        // y=38), padded so only that line intersects it.
-        request.priorities.push_back(mirador::OcrPriorityEntry{
-            mirador::RectF{320.0F - kUnclipOffset - 5.0F, 38.0F - kUnclipOffset - 5.0F,
-                           kBlockWidth + 2 * kUnclipOffset + 10.0F, kBlockHeight + 2 * kUnclipOffset + 10.0F},
-            1.0F});
-        const auto outcome = backend.recognize_budgeted(view, request, never_cancelled);
-        expect_true(outcome.ok(), "priority: recognize_budgeted succeeds with K=2 and a priority ROI");
-        if (!outcome.ok()) {
-            return;
-        }
-        const mirador::OcrBatchResult result = outcome.value();
-        expect_true(result.recognized_count == 2 && result.deferred_count == 4 && result.rec_forward_count == 2,
-                    "priority: 2 recognized, 4 deferred, 2 forwards");
-        expect_true(result.stop_reason == mirador::OcrBatchStopReason::kRecLineLimit &&
-                        result.completion == mirador::OcrBatchCompletion::kPartial,
-                    "priority: stop kRecLineLimit, completion kPartial");
-        bool order_ok = result.lines.size() == 6;
-        for (int32_t index = 0; order_ok && index < 6; ++index) {
-            order_ok = order_ok && result.lines[static_cast<size_t>(index)].candidate_id == index;
-        }
-        expect_true(order_ok, "priority: report lines stay in reading order (candidate ids 0..5)");
-        expect_true(result.lines[5].execution_order == 0 &&
-                        result.lines[5].state == mirador::OcrCompletionState::kRecognized &&
-                        result.lines[5].utf8_text == "ABCD" && result.lines[5].rec_confidence.has_value(),
-                    "priority: the highest-bounds line (candidate 5) executes first and is recognized");
-        expect_true(
-            result.lines[0].execution_order == 1 && result.lines[0].state == mirador::OcrCompletionState::kRecognized,
-            "priority: the reading-order first line executes second");
-        bool middle_deferred = true;
-        for (int32_t index = 1; middle_deferred && index < 5; ++index) {
-            middle_deferred = middle_deferred && result.lines[static_cast<size_t>(index)].execution_order == -1 &&
-                              result.lines[static_cast<size_t>(index)].state == mirador::OcrCompletionState::kDeferred;
-        }
-        expect_true(middle_deferred, "priority: lines 1..4 stay deferred without execution orders");
-        expect_true(ocr_batch_result_consistent(result), "priority: report is consistent");
+// Check C: caller priority overrides reading order for execution while the
+// report stays in reading order.
+void check_priority_execution_order(const std::filesystem::path& dir, const mirador::ImageView& view) {
+    const mirador::ExecutionContext never_cancelled;
+    auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 6));
+    expect_true(backend_result.ok(), "priority: budgeted backend loads");
+    if (!backend_result.ok()) {
+        return;
     }
+    auto backend = std::move(backend_result).take_value();
+    mirador::OcrBatchRequest request = batch_request(2);
+    // ROI around the reading-order LAST line (candidate 5 at x=320, row
+    // y=38), padded so only that line intersects it.
+    request.priorities.push_back(mirador::OcrPriorityEntry{
+        mirador::RectF{320.0F - kUnclipOffset - 5.0F, 38.0F - kUnclipOffset - 5.0F,
+                       kBlockWidth + 2 * kUnclipOffset + 10.0F, kBlockHeight + 2 * kUnclipOffset + 10.0F},
+        1.0F});
+    const auto outcome = backend.recognize_budgeted(view, request, never_cancelled);
+    expect_true(outcome.ok(), "priority: recognize_budgeted succeeds with K=2 and a priority ROI");
+    if (!outcome.ok()) {
+        return;
+    }
+    const mirador::OcrBatchResult& result = outcome.value();
+    expect_true(result.recognized_count == 2 && result.deferred_count == 4 && result.rec_forward_count == 2,
+                "priority: 2 recognized, 4 deferred, 2 forwards");
+    expect_true(result.stop_reason == mirador::OcrBatchStopReason::kRecLineLimit &&
+                    result.completion == mirador::OcrBatchCompletion::kPartial,
+                "priority: stop kRecLineLimit, completion kPartial");
+    bool order_ok = result.lines.size() == 6;
+    for (int32_t index = 0; order_ok && index < 6; ++index) {
+        order_ok = order_ok && result.lines[static_cast<size_t>(index)].candidate_id == index;
+    }
+    expect_true(order_ok, "priority: report lines stay in reading order (candidate ids 0..5)");
+    expect_true(result.lines[5].execution_order == 0 &&
+                    result.lines[5].state == mirador::OcrCompletionState::kRecognized &&
+                    result.lines[5].utf8_text == "ABCD" && result.lines[5].rec_confidence.has_value(),
+                "priority: the highest-bounds line (candidate 5) executes first and is recognized");
+    expect_true(
+        result.lines[0].execution_order == 1 && result.lines[0].state == mirador::OcrCompletionState::kRecognized,
+        "priority: the reading-order first line executes second");
+    bool middle_deferred = true;
+    for (int32_t index = 1; middle_deferred && index < 5; ++index) {
+        middle_deferred = middle_deferred && result.lines[static_cast<size_t>(index)].execution_order == -1 &&
+                          result.lines[static_cast<size_t>(index)].state == mirador::OcrCompletionState::kDeferred;
+    }
+    expect_true(middle_deferred, "priority: lines 1..4 stay deferred without execution orders");
+    expect_true(ocr_batch_result_consistent(result), "priority: report is consistent");
+}
 
-    // Check D: det_limit_hit truncation. With exactly cap+1 kept boxes the
-    // max_boxes+1 probe returns cap+1, the run keeps the cap-sized prefix and
-    // reports the hit; full recognition of the prefix still completes.
-    {
-        const std::vector<BlockPos> four_blocks = {{40, 15}, {180, 15}, {40, 38}, {180, 38}};
-        const std::vector<std::byte> scene4 = make_block_scene(kFrameWidth, kFrameHeight, four_blocks);
-        const mirador::ImageView view4 = make_rgb_view(scene4, kFrameWidth, kFrameHeight);
-        auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 3));
-        expect_true(backend_result.ok(), "det_limit_hit: budgeted backend (max_boxes=3) loads");
-        if (!backend_result.ok()) {
-            return;
-        }
-        auto backend = std::move(backend_result).take_value();
-        const auto outcome = backend.recognize_budgeted(view4, batch_request(64), never_cancelled);
-        expect_true(outcome.ok(), "det_limit_hit: recognize_budgeted succeeds (4 boxes vs cap 3)");
-        if (!outcome.ok()) {
-            std::printf("  det_limit_hit status: %s\n", outcome.status().message().c_str());
-            return;
-        }
-        const mirador::OcrBatchResult result = outcome.value();
-        expect_true(result.det_limit == 3 && result.det_limit_hit,
-                    "det_limit_hit: cap 3 reported, hit flag set (probe returned 4)");
-        expect_true(result.detected_count == 3, "det_limit_hit: only the cap-sized prefix became candidates");
-        expect_true(result.recognized_count == 3 && result.rec_forward_count == 3 && result.deferred_count == 0,
-                    "det_limit_hit: the 3 kept candidates are all recognized");
-        expect_true(result.stop_reason == mirador::OcrBatchStopReason::kCompleted &&
-                        result.completion == mirador::OcrBatchCompletion::kComplete,
-                    "det_limit_hit: completion is kComplete although coverage is truncated (check the hit flag)");
-        expect_true(ocr_batch_result_consistent(result), "det_limit_hit: report is consistent");
+// Check D: det_limit_hit truncation. With exactly cap+1 kept boxes the
+// max_boxes+1 probe returns cap+1, the run keeps the cap-sized prefix and
+// reports the hit; full recognition of the prefix still completes.
+void check_det_limit_hit_truncation(const std::filesystem::path& dir) {
+    const mirador::ExecutionContext never_cancelled;
+    const std::vector<BlockPos> four_blocks = {{40, 15}, {180, 15}, {40, 38}, {180, 38}};
+    const std::vector<std::byte> scene4 = make_block_scene(kFrameWidth, kFrameHeight, four_blocks);
+    const mirador::ImageView view4 = make_rgb_view(scene4, kFrameWidth, kFrameHeight);
+    auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 3));
+    expect_true(backend_result.ok(), "det_limit_hit: budgeted backend (max_boxes=3) loads");
+    if (!backend_result.ok()) {
+        return;
     }
+    auto backend = std::move(backend_result).take_value();
+    const auto outcome = backend.recognize_budgeted(view4, batch_request(64), never_cancelled);
+    expect_true(outcome.ok(), "det_limit_hit: recognize_budgeted succeeds (4 boxes vs cap 3)");
+    if (!outcome.ok()) {
+        std::printf("  det_limit_hit status: %s\n", outcome.status().message().c_str());
+        return;
+    }
+    const mirador::OcrBatchResult& result = outcome.value();
+    expect_true(result.det_limit == 3 && result.det_limit_hit,
+                "det_limit_hit: cap 3 reported, hit flag set (probe returned 4)");
+    expect_true(result.detected_count == 3, "det_limit_hit: only the cap-sized prefix became candidates");
+    expect_true(result.recognized_count == 3 && result.rec_forward_count == 3 && result.deferred_count == 0,
+                "det_limit_hit: the 3 kept candidates are all recognized");
+    expect_true(result.stop_reason == mirador::OcrBatchStopReason::kCompleted &&
+                    result.completion == mirador::OcrBatchCompletion::kComplete,
+                "det_limit_hit: completion is kComplete although coverage is truncated (check the hit flag)");
+    expect_true(ocr_batch_result_consistent(result), "det_limit_hit: report is consistent");
+}
 
-    // Check E: probe saturation boundary. More kept boxes than the probe cap
-    // (cap+1) cannot truncate — the frozen postprocess cap check fires for any
-    // component once the cap is reached, so the whole call fails explicitly.
-    {
-        auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 3));
-        expect_true(backend_result.ok(), "probe saturation: budgeted backend (max_boxes=3) loads");
-        if (!backend_result.ok()) {
-            return;
-        }
-        auto backend = std::move(backend_result).take_value();
-        const auto outcome = backend.recognize_budgeted(view, batch_request(64), never_cancelled);
-        expect_code(outcome.status(), mirador::ErrorCode::kBudgetExceeded,
-                    "probe saturation: 6 kept boxes vs cap 3 fails the whole call with kBudgetExceeded");
+// Check E: probe saturation boundary. More kept boxes than the probe cap
+// (cap+1) cannot truncate — the frozen postprocess cap check fires for any
+// component once the cap is reached, so the whole call fails explicitly.
+void check_probe_saturation_boundary(const std::filesystem::path& dir, const mirador::ImageView& view) {
+    const mirador::ExecutionContext never_cancelled;
+    auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 3));
+    expect_true(backend_result.ok(), "probe saturation: budgeted backend (max_boxes=3) loads");
+    if (!backend_result.ok()) {
+        return;
     }
+    auto backend = std::move(backend_result).take_value();
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), never_cancelled);
+    expect_code(outcome.status(), mirador::ErrorCode::kBudgetExceeded,
+                "probe saturation: 6 kept boxes vs cap 3 fails the whole call with kBudgetExceeded");
+}
+
+// Multi-candidate scenarios dispatcher: reading order over 6 lines, K<N
+// deferral with bitwise-stable repeats, caller-priority execution order,
+// det_limit_hit truncation (4-block scene: kept == cap+1) and the
+// probe-saturation boundary.
+void check_multi_candidate_scenarios(const std::filesystem::path& dir) {
+    const std::vector<BlockPos> six_blocks = {{40, 15}, {180, 15}, {320, 15}, {40, 38}, {180, 38}, {320, 38}};
+    const std::vector<std::byte> scene = make_block_scene(kFrameWidth, kFrameHeight, six_blocks);
+    const mirador::ImageView view = make_rgb_view(scene, kFrameWidth, kFrameHeight);
+    if (check_sensitive_calibration(dir, view) == 0) {
+        return;
+    }
+    check_multi_line_happy(dir, view);
+    check_k_less_than_n(dir, view);
+    check_priority_execution_order(dir, view);
+    check_det_limit_hit_truncation(dir);
+    check_probe_saturation_boundary(dir, view);
 }
 
 // Check 6: cancellation before det fails the whole call with kCancelled and

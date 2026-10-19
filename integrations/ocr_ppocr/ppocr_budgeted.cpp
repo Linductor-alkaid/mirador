@@ -1,6 +1,7 @@
 #include "ppocr_budgeted.hpp"
 
 #include "ncnn_runtime.hpp"
+#include "ppocr_backend.hpp"
 #include "ppocr_internal.hpp"
 
 #include <mirador/crop.hpp>
@@ -8,6 +9,7 @@
 #include <mirador/geometry.hpp>
 #include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
+#include <mirador/ocr_backend.hpp>
 #include <mirador/ocr_batch.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
@@ -15,6 +17,7 @@
 #include <mirador/text_postprocess.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -30,19 +33,28 @@ namespace {
 /// Nanosecond accumulator for one diagnostics phase: `stop()` ends the phase
 /// (idempotent); the destructor stops what is left, so error paths stay
 /// accounted too. Benchmark accounting only, never results or logs.
-struct PhaseClock {
-    PpOcrStageTimings* timings;
-    int64_t PpOcrStageTimings::*slot;
-    std::chrono::steady_clock::time_point begin;
+class PhaseClock {
+public:
+    PhaseClock(PpOcrStageTimings* timings, int64_t PpOcrStageTimings::*slot) noexcept
+        : timings_(timings), slot_(slot), begin_(std::chrono::steady_clock::now()) {}
 
     void stop() noexcept {
-        if (timings != nullptr) {
-            *timings.*slot +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin).count();
-            timings = nullptr;
+        if (timings_ != nullptr) {
+            *timings_.*slot_ +=
+                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin_)
+                    .count();
+            timings_ = nullptr;
         }
     }
     ~PhaseClock() noexcept { stop(); }
+
+    PhaseClock(const PhaseClock&) = delete;
+    PhaseClock& operator=(const PhaseClock&) = delete;
+
+private:
+    PpOcrStageTimings* timings_;
+    int64_t PpOcrStageTimings::*slot_;
+    std::chrono::steady_clock::time_point begin_;
 };
 
 /// Runs the frozen det stage and returns the candidate boxes in prepared-image
@@ -61,7 +73,7 @@ struct DetStageOutput {
 Result<DetStageOutput> run_det_stage(const PpOcrDetOptions& options, const ImageView& prepared_image,
                                      const OcrBatchRequest& request, NcnnRuntime& runtime,
                                      const ExecutionContext& context, PpOcrStageTimings* timings) {
-    PhaseClock canvas_phase{timings, &PpOcrStageTimings::det_canvas_ns, std::chrono::steady_clock::now()};
+    PhaseClock canvas_phase{timings, &PpOcrStageTimings::det_canvas_ns};
     auto canvas = ppocr_detail::make_det_canvas(prepared_image, options.det_side, options.work_budget_bytes);
     if (!canvas.ok()) {
         return canvas.status();
@@ -70,7 +82,7 @@ Result<DetStageOutput> run_det_stage(const PpOcrDetOptions& options, const Image
     const int32_t canvas_h = canvas.value().buffer.height();
     canvas_phase.stop();
 
-    PhaseClock pack_phase{timings, &PpOcrStageTimings::det_pack_normalize_ns, std::chrono::steady_clock::now()};
+    PhaseClock pack_phase{timings, &PpOcrStageTimings::det_pack_normalize_ns};
     auto input_result = pack_image(canvas.value().buffer.view(), context);
     if (!input_result.ok()) {
         return input_result.status();
@@ -84,14 +96,14 @@ Result<DetStageOutput> run_det_stage(const PpOcrDetOptions& options, const Image
     }
     pack_phase.stop();
 
-    PhaseClock forward_phase{timings, &PpOcrStageTimings::det_forward_ns, std::chrono::steady_clock::now()};
+    PhaseClock forward_phase{timings, &PpOcrStageTimings::det_forward_ns};
     auto output = runtime.run("x", input, "out", context);
     if (!output.ok()) {
         return output.status();
     }
     forward_phase.stop();
 
-    PhaseClock post_phase{timings, &PpOcrStageTimings::det_postprocess_ns, std::chrono::steady_clock::now()};
+    PhaseClock post_phase{timings, &PpOcrStageTimings::det_postprocess_ns};
     const NcnnTensor& probability = output.value();
     if (probability.channels != 1 || probability.width != canvas_w || probability.height != canvas_h) {
         return Status{ErrorCode::kBackendFailure, "det model must output a 1 x canvas_h x canvas_w probability map"};
@@ -142,6 +154,7 @@ Result<DetStageOutput> run_det_stage(const PpOcrDetOptions& options, const Image
         region.confidence = box.confidence;
         stage.boxes.push_back(std::move(region));
     }
+    post_phase.stop();
     return stage;
 }
 
@@ -215,6 +228,105 @@ BackendInfo PpOcrBudgetedBackend::info() const {
     return info_;
 }
 
+/// Deterministic reading order over the det candidates; candidate_id is the
+/// index in this order (the report's line order).
+std::vector<OcrLineRecord> reading_order_lines(std::vector<TextRegion>&& boxes) {
+    std::vector<OcrLineRecord> lines;
+    lines.reserve(boxes.size());
+    for (const TextRegion& box : boxes) {
+        OcrLineRecord record;
+        record.bounds = box.bounds;
+        record.det_confidence = box.confidence;
+        lines.push_back(std::move(record));
+    }
+    std::sort(lines.begin(), lines.end(), ocr_line_reading_less);
+    for (size_t index = 0; index < lines.size(); ++index) {
+        lines[index].candidate_id = static_cast<int32_t>(index);
+    }
+    return lines;
+}
+
+/// Execution order over the candidates (DEC-025 section 4): caller priority
+/// descending, then the strategy key, then the reading-order total order.
+std::vector<size_t> execution_order(const std::vector<OcrLineRecord>& lines, const OcrBatchRequest& request) {
+    std::vector<float> priorities(lines.size());
+    for (size_t index = 0; index < lines.size(); ++index) {
+        priorities[index] = resolve_ocr_line_priority(lines[index].bounds, request.priorities);
+    }
+    std::vector<size_t> execution(lines.size());
+    std::iota(execution.begin(), execution.end(), size_t{0});
+    std::sort(execution.begin(), execution.end(), [&](size_t lhs, size_t rhs) {
+        return ocr_line_executes_before(lines[lhs], lines[rhs], priorities[lhs], priorities[rhs], request.selection);
+    });
+    return execution;
+}
+
+/// Outcome of the bounded recognition loop.
+struct RecLoopOutcome {
+    int32_t executed = 0;
+    OcrBatchStopReason stop = OcrBatchStopReason::kCompleted;
+};
+
+/// Bounded recognition loop: per-unit cancel/deadline checks, then the soft
+/// budget guards; a tripped guard stops NEW work and reports partial. Executed
+/// lines are stamped kRecognized with their execution order.
+Result<RecLoopOutcome> run_bounded_rec_loop(const PpOcrRecOptions& rec_options, const std::vector<std::string>& charset,
+                                            const NcnnRuntime& rec_runtime, const ImageView& prepared_image,
+                                            std::vector<OcrLineRecord>& lines, const std::vector<size_t>& execution,
+                                            const OcrBatchRequest& request, const ExecutionContext& context,
+                                            std::chrono::steady_clock::time_point entry_time, int32_t selected_count,
+                                            std::chrono::steady_clock::duration rec_unit_upper_bound,
+                                            PpOcrStageTimings& timings) {
+    RecLoopOutcome outcome;
+    for (int32_t order = 0; order < selected_count; ++order) {
+        if (is_cancelled(context)) {
+            return Status{ErrorCode::kCancelled, "cancelled during budgeted rec stage"};
+        }
+        if (deadline_reached(context)) {
+            return Status{ErrorCode::kTimeout, "deadline reached during budgeted rec stage"};
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (request.soft_budget.has_value() && now - entry_time > *request.soft_budget) {
+            outcome.stop = OcrBatchStopReason::kSoftBudget;
+            return outcome;
+        }
+        if (context.deadline.has_value()) {
+            const auto remaining = *context.deadline - now;
+            const auto unit_guard =
+                rec_unit_upper_bound + request.finalize_reserve.value_or(std::chrono::steady_clock::duration{0});
+            if (remaining < unit_guard) {
+                outcome.stop = OcrBatchStopReason::kSoftBudget;
+                return outcome;
+            }
+        }
+        const size_t index = execution[static_cast<size_t>(order)];
+        PhaseClock crop_phase{&timings, &PpOcrStageTimings::crop_ns};
+        const RectI roi = line_crop_roi(lines[index].bounds, prepared_image);
+        auto line_image = crop(prepared_image, roi, rec_options.work_budget_bytes);
+        if (!line_image.ok()) {
+            return line_image.status();
+        }
+        crop_phase.stop();
+        ppocr_detail::RecUnitTiming unit_timing;
+        auto line = ppocr_detail::run_rec_line(rec_options, charset, rec_runtime, line_image.value().view(), context,
+                                               &unit_timing);
+        timings.rec_preprocess_ns += unit_timing.preprocess_ns;
+        timings.rec_forward_ns += unit_timing.forward_ns;
+        timings.rec_decode_ns += unit_timing.decode_ns;
+        if (!line.ok()) {
+            return line.status();
+        }
+        auto decoded = std::move(line).take_value();
+        OcrLineRecord& record = lines[index];
+        record.state = OcrCompletionState::kRecognized;
+        record.utf8_text = std::move(decoded.utf8_text);
+        record.rec_confidence = decoded.confidence;
+        record.execution_order = order;
+        ++outcome.executed;
+    }
+    return outcome;
+}
+
 Result<OcrBatchResult> PpOcrBudgetedBackend::recognize_budgeted(const ImageView& prepared_image,
                                                                 const OcrBatchRequest& request,
                                                                 const ExecutionContext& context) {
@@ -233,92 +345,23 @@ Result<OcrBatchResult> PpOcrBudgetedBackend::recognize_budgeted(const ImageView&
     if (!stage.ok()) {
         return stage.status();
     }
+    DetStageOutput det = std::move(stage).take_value();
 
-    PhaseClock select_phase{&timings, &PpOcrStageTimings::select_ns, std::chrono::steady_clock::now()};
-    // Deterministic reading order over the candidates; candidate_id is the
-    // index in this order (the report's line order).
-    std::vector<OcrLineRecord> lines;
-    lines.reserve(stage.value().boxes.size());
-    for (const TextRegion& box : stage.value().boxes) {
-        OcrLineRecord record;
-        record.bounds = box.bounds;
-        record.det_confidence = box.confidence;
-        lines.push_back(std::move(record));
-    }
-    std::sort(lines.begin(), lines.end(), ocr_line_reading_less);
-    for (size_t index = 0; index < lines.size(); ++index) {
-        lines[index].candidate_id = static_cast<int32_t>(index);
-    }
-
-    // Execution order: caller priority descending, then the strategy key, then
-    // the reading-order total order (DEC-025 section 4).
-    const size_t candidate_count = lines.size();
-    std::vector<size_t> execution(candidate_count);
-    std::iota(execution.begin(), execution.end(), size_t{0});
-    std::vector<float> priorities(candidate_count);
-    for (size_t index = 0; index < candidate_count; ++index) {
-        priorities[index] = resolve_ocr_line_priority(lines[index].bounds, request.priorities);
-    }
-    std::sort(execution.begin(), execution.end(), [&](size_t lhs, size_t rhs) {
-        return ocr_line_executes_before(lines[lhs], lines[rhs], priorities[lhs], priorities[rhs], request.selection);
-    });
-
-    const int32_t selected_count = std::min<int32_t>(request.max_rec_lines, static_cast<int32_t>(candidate_count));
+    PhaseClock select_phase{&timings, &PpOcrStageTimings::select_ns};
+    std::vector<OcrLineRecord> lines = reading_order_lines(std::move(det.boxes));
+    const std::vector<size_t> execution = execution_order(lines, request);
+    const int32_t selected_count =
+        std::min<int32_t>(request.max_rec_lines, static_cast<int32_t>(lines.size()));
     select_phase.stop();
 
-    // Bounded recognition loop: per-unit cancel/deadline checks, then the soft
-    // budget guards; a tripped guard stops NEW work and reports partial.
-    OcrBatchResult result;
-    int32_t executed = 0;
-    OcrBatchStopReason stop = OcrBatchStopReason::kCompleted;
-    for (int32_t order = 0; order < selected_count; ++order) {
-        if (is_cancelled(context)) {
-            return Status{ErrorCode::kCancelled, "cancelled during budgeted rec stage"};
-        }
-        if (deadline_reached(context)) {
-            return Status{ErrorCode::kTimeout, "deadline reached during budgeted rec stage"};
-        }
-        const auto now = std::chrono::steady_clock::now();
-        if (request.soft_budget.has_value() && now - entry_time > *request.soft_budget) {
-            stop = OcrBatchStopReason::kSoftBudget;
-            break;
-        }
-        if (context.deadline.has_value()) {
-            const auto remaining = *context.deadline - now;
-            const auto unit_guard = options_.rec_unit_upper_bound +
-                                    request.finalize_reserve.value_or(std::chrono::steady_clock::duration{0});
-            if (remaining < unit_guard) {
-                stop = OcrBatchStopReason::kSoftBudget;
-                break;
-            }
-        }
-
-        const size_t index = execution[static_cast<size_t>(order)];
-        PhaseClock crop_phase{&timings, &PpOcrStageTimings::crop_ns, std::chrono::steady_clock::now()};
-        const RectI roi = line_crop_roi(lines[index].bounds, prepared_image);
-        auto line_image = crop(prepared_image, roi, options_.rec.work_budget_bytes);
-        if (!line_image.ok()) {
-            return line_image.status();
-        }
-        crop_phase.stop();
-        ppocr_detail::RecUnitTiming unit_timing;
-        auto line = ppocr_detail::run_rec_line(options_.rec, charset_, rec_runtime_, line_image.value().view(), context,
-                                               &unit_timing);
-        timings.rec_preprocess_ns += unit_timing.preprocess_ns;
-        timings.rec_forward_ns += unit_timing.forward_ns;
-        timings.rec_decode_ns += unit_timing.decode_ns;
-        if (!line.ok()) {
-            return line.status();
-        }
-        OcrLineRecord& record = lines[index];
-        record.state = OcrCompletionState::kRecognized;
-        record.utf8_text = std::move(line.value().utf8_text);
-        record.rec_confidence = line.value().confidence;
-        record.execution_order = order;
-        ++executed;
+    auto loop = run_bounded_rec_loop(options_.rec, charset_, rec_runtime_, prepared_image, lines, execution, request,
+                                     context, entry_time, selected_count, options_.rec_unit_upper_bound, timings);
+    if (!loop.ok()) {
+        return loop.status();
     }
 
-    PhaseClock finalize_phase{&timings, &PpOcrStageTimings::finalize_ns, std::chrono::steady_clock::now()};
+    PhaseClock finalize_phase{&timings, &PpOcrStageTimings::finalize_ns};
+    OcrBatchResult result;
     for (const OcrLineRecord& line : lines) {
         switch (line.state) {
             case OcrCompletionState::kRecognized:
@@ -333,20 +376,21 @@ Result<OcrBatchResult> PpOcrBudgetedBackend::recognize_budgeted(const ImageView&
         }
     }
     result.lines = std::move(lines);
-    result.detected_count = static_cast<int32_t>(candidate_count);
-    result.det_limit = stage.value().det_limit;
-    result.det_limit_hit = stage.value().det_limit_hit;
-    result.rec_forward_count = executed;
+    result.detected_count = static_cast<int32_t>(result.lines.size());
+    result.det_limit = det.det_limit;
+    result.det_limit_hit = det.det_limit_hit;
+    result.rec_forward_count = loop.value().executed;
     // Stop reason: an early soft stop wins; otherwise the line limit bound
     // (K < N with every selected line executed) or normal completion.
-    if (executed < selected_count) {
-        result.stop_reason = stop;
-    } else if (selected_count < static_cast<int32_t>(candidate_count)) {
+    if (loop.value().executed < selected_count) {
+        result.stop_reason = loop.value().stop;
+    } else if (selected_count < static_cast<int32_t>(result.lines.size())) {
         result.stop_reason = OcrBatchStopReason::kRecLineLimit;
     } else {
         result.stop_reason = OcrBatchStopReason::kCompleted;
     }
     result.completion = result.deferred_count > 0 ? OcrBatchCompletion::kPartial : OcrBatchCompletion::kComplete;
+    finalize_phase.stop();
     return result;
 }
 

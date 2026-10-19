@@ -1,13 +1,18 @@
 #include "ppocr_internal.hpp"
 
 #include "ctc_decode.hpp"
+#include "ncnn_runtime.hpp"
+#include "ppocr_backend.hpp"
 
-#include <mirador/crop.hpp>
+#include <mirador/backend_info.hpp>
+#include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/resize.hpp>
+#include <mirador/result.hpp>
+#include <mirador/status.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -156,21 +161,33 @@ Result<std::vector<std::string>> load_charset(const std::string& charset_path) {
 Result<RecLineOutput> run_rec_line(const PpOcrRecOptions& options, const std::vector<std::string>& charset,
                                    const NcnnRuntime& runtime, const ImageView& line_image,
                                    const ExecutionContext& context, RecUnitTiming* timing) {
-    // RAII stage split for the optional timing diagnostics: accumulates on
-    // every exit path, including early error returns.
-    struct UnitPhase {
-        RecUnitTiming* timing;
-        int64_t RecUnitTiming::*slot;
-        std::chrono::steady_clock::time_point begin;
-        ~UnitPhase() noexcept {
-            if (timing != nullptr) {
-                *timing.*slot +=
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin)
+    // Stage split for the optional timing diagnostics: `stop()` ends one
+    // phase; the destructor stops whatever is left, so error paths stay
+    // accounted too.
+    class UnitPhase {
+    public:
+        UnitPhase(RecUnitTiming* timing, int64_t RecUnitTiming::*slot) noexcept
+            : timing_(timing), slot_(slot), begin_(std::chrono::steady_clock::now()) {}
+
+        void stop() noexcept {
+            if (timing_ != nullptr) {
+                *timing_.*slot_ +=
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin_)
                         .count();
+                timing_ = nullptr;
             }
         }
+        ~UnitPhase() noexcept { stop(); }
+
+        UnitPhase(const UnitPhase&) = delete;
+        UnitPhase& operator=(const UnitPhase&) = delete;
+
+    private:
+        RecUnitTiming* timing_;
+        int64_t RecUnitTiming::*slot_;
+        std::chrono::steady_clock::time_point begin_;
     };
-    UnitPhase preprocess_phase{timing, &RecUnitTiming::preprocess_ns, std::chrono::steady_clock::now()};
+    UnitPhase preprocess_phase{timing, &RecUnitTiming::preprocess_ns};
 
     // Reference rec preprocessing: resize the line to rec_height with the
     // aspect ratio preserved (no padding — the model is fully convolutional
@@ -194,14 +211,16 @@ Result<RecLineOutput> run_rec_line(const PpOcrRecOptions& options, const std::ve
     if (const Result<void> normalized = normalize_ppocr(input, context); !normalized.ok()) {
         return normalized.status();
     }
+    preprocess_phase.stop();
 
-    UnitPhase forward_phase{timing, &RecUnitTiming::forward_ns, std::chrono::steady_clock::now()};
+    UnitPhase forward_phase{timing, &RecUnitTiming::forward_ns};
     auto output = runtime.run("x", input, "out", context);
     if (!output.ok()) {
         return output.status();
     }
+    forward_phase.stop();
 
-    UnitPhase decode_phase{timing, &RecUnitTiming::decode_ns, std::chrono::steady_clock::now()};
+    UnitPhase decode_phase{timing, &RecUnitTiming::decode_ns};
     // Frozen output contract: channels = time steps, width = class count,
     // height 1 (planar CHW). Conversions with raw outputs in another layout
     // must reshape inside their param files (class contract).
@@ -224,6 +243,7 @@ Result<RecLineOutput> run_rec_line(const PpOcrRecOptions& options, const std::ve
         decoded.utf8_text += charset[static_cast<size_t>(class_index) - 1];
     }
     decoded.confidence = line.value().confidence;
+    decode_phase.stop();
     return decoded;
 }
 

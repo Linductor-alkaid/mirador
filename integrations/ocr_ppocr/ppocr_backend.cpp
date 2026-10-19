@@ -1,6 +1,5 @@
 #include "ppocr_backend.hpp"
 
-#include "ctc_decode.hpp"
 #include "ncnn_runtime.hpp"
 #include "ppocr_internal.hpp"
 
@@ -12,7 +11,6 @@
 #include <mirador/image_view.hpp>
 #include <mirador/ocr_backend.hpp>
 #include <mirador/pixel_format.hpp>
-#include <mirador/resize.hpp>
 #include <mirador/result.hpp>
 #include <mirador/status.hpp>
 #include <mirador/text_postprocess.hpp>
@@ -176,15 +174,16 @@ Result<std::vector<TextRegion>> PpOcrRecBackend::recognize(const ImageView& prep
     if (!line.ok()) {
         return line.status();
     }
-    if (line.value().confidence < request.min_confidence) {
+    auto decoded = std::move(line).take_value();
+    if (decoded.confidence < request.min_confidence) {
         return std::vector<TextRegion>{};
     }
 
     TextRegion region;
     region.bounds =
         RectF{0.0F, 0.0F, static_cast<float>(prepared_image.width), static_cast<float>(prepared_image.height)};
-    region.utf8_text = std::move(line.value().utf8_text);
-    region.confidence = line.value().confidence;
+    region.utf8_text = std::move(decoded.utf8_text);
+    region.confidence = decoded.confidence;
     return std::vector<TextRegion>{std::move(region)};
 }
 
