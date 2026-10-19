@@ -590,7 +590,9 @@ public:
         std::array<char, 2048> buffer{};
         va_list args;
         va_start(args, format);
-        std::vsnprintf(buffer.data(), buffer.size(), format, args);
+        // The analyzer cannot see that va_start above always initializes the
+        // list before this single use (version-dependent false positive).
+        std::vsnprintf(buffer.data(), buffer.size(), format, args);  // NOLINT(clang-analyzer-valist.Uninitialized)
         va_end(args);
         std::fputs(buffer.data(), stdout_file_);
         if (file_ != nullptr) {
