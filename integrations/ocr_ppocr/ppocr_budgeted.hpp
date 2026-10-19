@@ -21,16 +21,16 @@ namespace mirador::integrations {
 /// part of the contract result, never logged by the library). Single-threaded
 /// like the backend itself.
 struct PpOcrStageTimings {
-    int64_t det_canvas_ns = 0;         ///< det canvas build (area resize + pad)
-    int64_t det_pack_normalize_ns = 0; ///< det tensor pack + plane swap + normalize
-    int64_t det_forward_ns = 0;        ///< det ncnn forward
-    int64_t det_postprocess_ns = 0;    ///< probability byte conversion + DB postprocess + unpad
-    int64_t select_ns = 0;             ///< reading order, priorities, execution order
-    int64_t crop_ns = 0;               ///< line crops
-    int64_t rec_preprocess_ns = 0;     ///< sum over rec units
-    int64_t rec_forward_ns = 0;        ///< sum over rec units
-    int64_t rec_decode_ns = 0;         ///< sum over rec units
-    int64_t finalize_ns = 0;           ///< counting + report assembly
+    int64_t det_canvas_ns = 0;          ///< det canvas build (area resize + pad)
+    int64_t det_pack_normalize_ns = 0;  ///< det tensor pack + plane swap + normalize
+    int64_t det_forward_ns = 0;         ///< det ncnn forward
+    int64_t det_postprocess_ns = 0;     ///< probability byte conversion + DB postprocess + unpad
+    int64_t select_ns = 0;              ///< reading order, priorities, execution order
+    int64_t crop_ns = 0;                ///< line crops
+    int64_t rec_preprocess_ns = 0;      ///< sum over rec units
+    int64_t rec_forward_ns = 0;         ///< sum over rec units
+    int64_t rec_decode_ns = 0;          ///< sum over rec units
+    int64_t finalize_ns = 0;            ///< counting + report assembly
 };
 
 /// Options of the budgeted PP-OCR pipeline (DEC-025, M8-03): the frozen det/rec

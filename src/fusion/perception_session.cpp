@@ -560,10 +560,10 @@ Result<BudgetedOcrReport> PerceptionSession::run_ocr_budgeted(const Frame& frame
         for (const OcrPriorityEntry& entry : request.priorities) {
             OcrPriorityEntry converted;
             converted.priority = entry.priority;
-            converted.roi = transform_rect(request.priority_space == CoordinateSpaceId::kFrame
-                                               ? prepared.value().frame_to_here
-                                               : prepared.value().oriented_to_here,
-                                           entry.roi);
+            converted.roi =
+                transform_rect(request.priority_space == CoordinateSpaceId::kFrame ? prepared.value().frame_to_here
+                                                                                   : prepared.value().oriented_to_here,
+                               entry.roi);
             backend_request.priorities.push_back(converted);
         }
         if (const Result<void> budget_status = validate_ocr_batch_request(backend_request); !budget_status.ok()) {

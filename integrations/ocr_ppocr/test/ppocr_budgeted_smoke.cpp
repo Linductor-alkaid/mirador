@@ -334,8 +334,7 @@ void check_create_validation(const std::filesystem::path& dir) {
     auto negative_unit = budgeted_options(dir);
     negative_unit.rec_unit_upper_bound = std::chrono::milliseconds{-1};
     expect_code(mirador::integrations::PpOcrBudgetedBackend::create(negative_unit).status(),
-                mirador::ErrorCode::kInvalidArgument,
-                "create: negative rec_unit_upper_bound -> kInvalidArgument");
+                mirador::ErrorCode::kInvalidArgument, "create: negative rec_unit_upper_bound -> kInvalidArgument");
 
     auto missing_det = budgeted_options(dir);
     missing_det.det.param_path = (dir / "missing.param").string();
@@ -362,8 +361,7 @@ void check_create_validation(const std::filesystem::path& dir) {
 
 // Check 2: happy path — one full-frame det candidate, K=1, everything counts
 // out; the required stage timings are all accounted after the call.
-void check_happy_path(mirador::integrations::PpOcrBudgetedBackend& backend,
-                      const std::vector<std::byte>& frame_bytes) {
+void check_happy_path(mirador::integrations::PpOcrBudgetedBackend& backend, const std::vector<std::byte>& frame_bytes) {
     const mirador::ImageView view = make_rgb_view(frame_bytes, kFrameWidth, kFrameHeight);
     const mirador::ExecutionContext never_cancelled;
 
@@ -380,8 +378,7 @@ void check_happy_path(mirador::integrations::PpOcrBudgetedBackend& backend,
     expect_true(result.deferred_count == 0, "happy: deferred_count == 0");
     expect_true(result.reused_count == 0, "happy: reused_count == 0");
     expect_true(result.rec_forward_count == 1, "happy: exactly one rec forward");
-    expect_true(result.stop_reason == mirador::OcrBatchStopReason::kCompleted,
-                "happy: stop_reason == kCompleted");
+    expect_true(result.stop_reason == mirador::OcrBatchStopReason::kCompleted, "happy: stop_reason == kCompleted");
     expect_true(result.completion == mirador::OcrBatchCompletion::kComplete, "happy: completion == kComplete");
     expect_true(result.det_limit == kDetMaxBoxes, "happy: det_limit reports the configured max_boxes");
     expect_true(!result.det_limit_hit, "happy: det_limit_hit is false");
@@ -392,9 +389,9 @@ void check_happy_path(mirador::integrations::PpOcrBudgetedBackend& backend,
         const mirador::OcrLineRecord& line = result.lines.front();
         expect_true(line.utf8_text == "ABCD", "happy: line decodes to \"ABCD\"");
         expect_true(line.state == mirador::OcrCompletionState::kRecognized, "happy: line state is kRecognized");
-        expect_true(line.rec_confidence.has_value() && line.rec_confidence.value() > 0.0F &&
-                        line.rec_confidence.value() < 1.0F,
-                    "happy: rec_confidence is set and in (0, 1)");
+        expect_true(
+            line.rec_confidence.has_value() && line.rec_confidence.value() > 0.0F && line.rec_confidence.value() < 1.0F,
+            "happy: rec_confidence is set and in (0, 1)");
         expect_true(line.execution_order == 0 && line.candidate_id == 0,
                     "happy: execution_order == 0 and candidate_id == 0");
         expect_true(line.det_confidence > 0.8F && line.det_confidence <= 1.0F,
@@ -494,13 +491,11 @@ void check_soft_budget(mirador::integrations::PpOcrBudgetedBackend& backend,
         return;
     }
     const mirador::OcrBatchResult result = outcome.value();
-    expect_true(result.rec_forward_count == 0 && result.recognized_count == 0,
-                "soft budget 0 ms: no rec forward ran");
+    expect_true(result.rec_forward_count == 0 && result.recognized_count == 0, "soft budget 0 ms: no rec forward ran");
     expect_true(result.deferred_count == 1, "soft budget 0 ms: the candidate is deferred");
     expect_true(result.stop_reason == mirador::OcrBatchStopReason::kSoftBudget,
                 "soft budget 0 ms: stop_reason == kSoftBudget");
-    expect_true(result.completion == mirador::OcrBatchCompletion::kPartial,
-                "soft budget 0 ms: completion == kPartial");
+    expect_true(result.completion == mirador::OcrBatchCompletion::kPartial, "soft budget 0 ms: completion == kPartial");
     expect_true(ocr_batch_result_consistent(result), "soft budget 0 ms: report is consistent");
 
     expect_true(result.lines.size() == 1, "soft budget 0 ms: the deferred line stays queryable");
@@ -530,8 +525,7 @@ void check_deadline_guards(mirador::integrations::PpOcrBudgetedBackend& backend,
         mirador::ExecutionContext expired;
         expired.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds{1};
         const auto outcome = backend.recognize_budgeted(view, batch_request(1), expired);
-        expect_code(outcome.status(), mirador::ErrorCode::kTimeout,
-                    "expired deadline: whole call fails with kTimeout");
+        expect_code(outcome.status(), mirador::ErrorCode::kTimeout, "expired deadline: whole call fails with kTimeout");
         expect_true(timings_equal(backend.last_stage_timings(), snapshot),
                     "expired deadline: no stage work ran (timings untouched)");
     }
@@ -570,8 +564,7 @@ void check_deadline_guards(mirador::integrations::PpOcrBudgetedBackend& backend,
 // one unit plus the 500 ms finalize reserve, so the run must soft-stop right
 // after det — deterministically, on any machine. The guard lives only in the
 // rec loop (never before det), so det itself always runs and reports.
-void check_finalize_guard_soft_stop(const std::filesystem::path& dir,
-                                    const std::vector<std::byte>& frame_bytes) {
+void check_finalize_guard_soft_stop(const std::filesystem::path& dir, const std::vector<std::byte>& frame_bytes) {
     auto options = budgeted_options(dir);
     options.rec_unit_upper_bound = std::chrono::hours{1};
     auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(options);
@@ -611,8 +604,7 @@ void check_finalize_guard_soft_stop(const std::filesystem::path& dir,
 // of exactly 1 with exactly one detected box must not report det_limit_hit
 // (a hit requires strictly more boxes than the cap) and must not change the
 // run's completeness.
-void check_det_limit_report(const std::filesystem::path& dir,
-                            const std::vector<std::byte>& frame_bytes) {
+void check_det_limit_report(const std::filesystem::path& dir, const std::vector<std::byte>& frame_bytes) {
     auto options = budgeted_options(dir);
     options.det.postprocess.max_boxes = 1;
     auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(options);
@@ -656,8 +648,8 @@ struct BlockPos {
 
 // Analytic unclipped det box for one 40x6 block (DB unclip 1.5):
 // offset = area * ratio / perimeter = 40*6*1.5 / (2*(40+6)) = 3.91304 px.
-constexpr double kUnclipOffset = static_cast<double>(kBlockWidth) * kBlockHeight * 1.5 /
-                                 (2.0 * (static_cast<double>(kBlockWidth) + kBlockHeight));
+constexpr double kUnclipOffset =
+    static_cast<double>(kBlockWidth) * kBlockHeight * 1.5 / (2.0 * (static_cast<double>(kBlockWidth) + kBlockHeight));
 
 std::vector<std::byte> make_block_scene(int32_t width, int32_t height, const std::vector<BlockPos>& blocks) {
     std::vector<std::byte> bytes(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U);
@@ -706,24 +698,26 @@ bool write_rec_model_with_kernel(const std::filesystem::path& dir, int32_t kerne
     const int64_t weight_count = static_cast<int64_t>(kRecConvOutputs) * 3 * kRecHeight * kernel_w;
     const std::string param_text =
         "7767517\n3 3\n"
-        "Input data 0 1 x 0=" + std::to_string(kernel_w) + " 1=48 2=3\n"
-        "Convolution conv0 1 1 x conv_out 0=20 1=" + std::to_string(kernel_w) +
-        " 2=1 3=1 4=0 5=1 6=" + std::to_string(weight_count) + " 11=48\n"
+        "Input data 0 1 x 0=" +
+        std::to_string(kernel_w) +
+        " 1=48 2=3\n"
+        "Convolution conv0 1 1 x conv_out 0=20 1=" +
+        std::to_string(kernel_w) + " 2=1 3=1 4=0 5=1 6=" + std::to_string(weight_count) +
+        " 11=48\n"
         "Reshape reshape0 1 1 conv_out out 0=5 1=1 2=4\n";
     const bool param_ok = write_file(dir / "rec_s.param", param_text.data(), param_text.size());
 
     constexpr size_t k_flag_bytes = 4U;
-    std::vector<std::byte> bin(k_flag_bytes + static_cast<size_t>(weight_count) * 4U +
-                                   static_cast<size_t>(kRecConvOutputs) * 4U,
-                               std::byte{0});
+    std::vector<std::byte> bin(
+        k_flag_bytes + static_cast<size_t>(weight_count) * 4U + static_cast<size_t>(kRecConvOutputs) * 4U,
+        std::byte{0});
     for (int32_t flat = 0; flat < kRecConvOutputs; ++flat) {
         const int32_t step = flat / kRecClasses;
         const int32_t cls = flat % kRecClasses;
         if (cls != (step % 4) + 1) {
             continue;
         }
-        const size_t offset = k_flag_bytes + static_cast<size_t>(weight_count) * 4U +
-                              static_cast<size_t>(flat) * 4U;
+        const size_t offset = k_flag_bytes + static_cast<size_t>(weight_count) * 4U + static_cast<size_t>(flat) * 4U;
         uint32_t bits = 0;
         const float value = 1.0F;
         static_cast<void>(std::memcpy(&bits, &value, sizeof(bits)));
@@ -782,8 +776,7 @@ void check_multi_candidate_scenarios(const std::filesystem::path& dir) {
         return;
     }
     const mirador::RectF measured = regions.value().front().bounds;
-    expect_true(bounds_close(measured, static_cast<float>(40 - kUnclipOffset),
-                             static_cast<float>(15 - kUnclipOffset),
+    expect_true(bounds_close(measured, static_cast<float>(40 - kUnclipOffset), static_cast<float>(15 - kUnclipOffset),
                              static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
                              static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.25F),
                 "sensitive det box matches the analytic unclip geometry (47.826 x 13.826)");
@@ -799,8 +792,7 @@ void check_multi_candidate_scenarios(const std::filesystem::path& dir) {
     const int32_t kernel_w =
         std::clamp(static_cast<int32_t>(std::lround(static_cast<double>(scaled_width) / crop_h)), 1, kRecWidth);
     std::printf("info: det box %.3f x %.3f -> crop %d x %d -> rec kernel width %d (expected 165)\n",
-                static_cast<double>(measured.width), static_cast<double>(measured.height), crop_w, crop_h,
-                kernel_w);
+                static_cast<double>(measured.width), static_cast<double>(measured.height), crop_w, crop_h, kernel_w);
     expect_true(crop_w == 48 && crop_h == 14 && kernel_w == 165,
                 "crop rounds to 48x14 and the rec kernel width is 165 (round(48*48/14))");
     expect_true(write_rec_model_with_kernel(dir, kernel_w), "sensitive rec fixture written for the measured kernel");
@@ -834,9 +826,8 @@ void check_multi_candidate_scenarios(const std::filesystem::path& dir) {
             const int32_t expect_x = (index % 3 == 0) ? 40 : (index % 3 == 1 ? 180 : 320);
             const int32_t expect_y = index < 3 ? 15 : 38;
             lines_ok = lines_ok && line.candidate_id == index && line.utf8_text == "ABCD" &&
-                       line.state == mirador::OcrCompletionState::kRecognized &&
-                       line.execution_order == index && line.rec_confidence.has_value() &&
-                       line.det_confidence > 0.75F && line.det_confidence <= 0.85F &&
+                       line.state == mirador::OcrCompletionState::kRecognized && line.execution_order == index &&
+                       line.rec_confidence.has_value() && line.det_confidence > 0.75F && line.det_confidence <= 0.85F &&
                        bounds_close(line.bounds, static_cast<float>(expect_x - kUnclipOffset),
                                     static_cast<float>(expect_y - kUnclipOffset),
                                     static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
@@ -930,11 +921,13 @@ void check_multi_candidate_scenarios(const std::filesystem::path& dir) {
             order_ok = order_ok && result.lines[static_cast<size_t>(index)].candidate_id == index;
         }
         expect_true(order_ok, "priority: report lines stay in reading order (candidate ids 0..5)");
-        expect_true(result.lines[5].execution_order == 0 && result.lines[5].state == mirador::OcrCompletionState::kRecognized &&
+        expect_true(result.lines[5].execution_order == 0 &&
+                        result.lines[5].state == mirador::OcrCompletionState::kRecognized &&
                         result.lines[5].utf8_text == "ABCD" && result.lines[5].rec_confidence.has_value(),
                     "priority: the highest-bounds line (candidate 5) executes first and is recognized");
-        expect_true(result.lines[0].execution_order == 1 && result.lines[0].state == mirador::OcrCompletionState::kRecognized,
-                    "priority: the reading-order first line executes second");
+        expect_true(
+            result.lines[0].execution_order == 1 && result.lines[0].state == mirador::OcrCompletionState::kRecognized,
+            "priority: the reading-order first line executes second");
         bool middle_deferred = true;
         for (int32_t index = 1; middle_deferred && index < 5; ++index) {
             middle_deferred = middle_deferred && result.lines[static_cast<size_t>(index)].execution_order == -1 &&
@@ -1023,8 +1016,8 @@ void check_timings_reset(mirador::integrations::PpOcrBudgetedBackend& backend,
             const mirador::integrations::PpOcrStageTimings timings = backend.last_stage_timings();
             expect_true(timings.det_forward_ns > 0 && timings.select_ns > 0 && timings.finalize_ns > 0,
                         "timings reset: det-side phases still accounted on the det-only call");
-            expect_true(timings.rec_forward_ns == 0 && timings.rec_preprocess_ns == 0 &&
-                            timings.rec_decode_ns == 0 && timings.crop_ns == 0,
+            expect_true(timings.rec_forward_ns == 0 && timings.rec_preprocess_ns == 0 && timings.rec_decode_ns == 0 &&
+                            timings.crop_ns == 0,
                         "timings reset: no rec/crop accumulation leaks from the previous call");
         }
     }
@@ -1071,8 +1064,7 @@ void check_request_validation(mirador::integrations::PpOcrBudgetedBackend& backe
     gray_view.row_stride_bytes = 8;
     gray_view.format = mirador::PixelFormat::kGray8;
     const auto wrong_format = backend.recognize_budgeted(gray_view, batch_request(1), never_cancelled);
-    expect_code(wrong_format.status(), mirador::ErrorCode::kUnsupportedFormat,
-                "kGray8 input -> kUnsupportedFormat");
+    expect_code(wrong_format.status(), mirador::ErrorCode::kUnsupportedFormat, "kGray8 input -> kUnsupportedFormat");
 }
 
 bool run_all_checks(const std::filesystem::path& dir) {
@@ -1132,8 +1124,9 @@ int main() {
         std::printf("ppocr budgeted smoke: FAIL (%d failed check(s))\n", g_failed_checks);
         return 1;
     }
-    std::printf("ppocr budgeted smoke: PASS (create validation, happy path, K boundaries, soft budget, "
-                "deadline/cancel guards, finalize guard soft stop, timings reset, request validation, "
-                "det_limit report, multi-candidate reading order/K<N/priority/det_limit_hit)\n");
+    std::printf(
+        "ppocr budgeted smoke: PASS (create validation, happy path, K boundaries, soft budget, "
+        "deadline/cancel guards, finalize guard soft stop, timings reset, request validation, "
+        "det_limit report, multi-candidate reading order/K<N/priority/det_limit_hit)\n");
     return 0;
 }

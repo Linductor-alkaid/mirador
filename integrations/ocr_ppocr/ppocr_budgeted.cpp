@@ -32,14 +32,13 @@ namespace {
 /// accounted too. Benchmark accounting only, never results or logs.
 struct PhaseClock {
     PpOcrStageTimings* timings;
-    int64_t PpOcrStageTimings::* slot;
+    int64_t PpOcrStageTimings::*slot;
     std::chrono::steady_clock::time_point begin;
 
     void stop() noexcept {
         if (timings != nullptr) {
-            *timings.*slot += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                  std::chrono::steady_clock::now() - begin)
-                                  .count();
+            *timings.*slot +=
+                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin).count();
             timings = nullptr;
         }
     }
@@ -127,8 +126,7 @@ Result<DetStageOutput> run_det_stage(const PpOcrDetOptions& options, const Image
     DetStageOutput stage;
     stage.det_limit = det_limit;
     stage.det_limit_hit = static_cast<int32_t>(boxed.value().size()) > det_limit;
-    const size_t kept =
-        stage.det_limit_hit ? static_cast<size_t>(det_limit) : boxed.value().size();
+    const size_t kept = stage.det_limit_hit ? static_cast<size_t>(det_limit) : boxed.value().size();
     for (size_t index = 0; index < kept; ++index) {
         const TextRegion& box = boxed.value()[index];
         if (box.confidence < request.min_confidence) {
@@ -265,8 +263,7 @@ Result<OcrBatchResult> PpOcrBudgetedBackend::recognize_budgeted(const ImageView&
         return ocr_line_executes_before(lines[lhs], lines[rhs], priorities[lhs], priorities[rhs], request.selection);
     });
 
-    const int32_t selected_count =
-        std::min<int32_t>(request.max_rec_lines, static_cast<int32_t>(candidate_count));
+    const int32_t selected_count = std::min<int32_t>(request.max_rec_lines, static_cast<int32_t>(candidate_count));
     select_phase.stop();
 
     // Bounded recognition loop: per-unit cancel/deadline checks, then the soft
@@ -288,9 +285,8 @@ Result<OcrBatchResult> PpOcrBudgetedBackend::recognize_budgeted(const ImageView&
         }
         if (context.deadline.has_value()) {
             const auto remaining = *context.deadline - now;
-            const auto unit_guard =
-                options_.rec_unit_upper_bound +
-                request.finalize_reserve.value_or(std::chrono::steady_clock::duration{0});
+            const auto unit_guard = options_.rec_unit_upper_bound +
+                                    request.finalize_reserve.value_or(std::chrono::steady_clock::duration{0});
             if (remaining < unit_guard) {
                 stop = OcrBatchStopReason::kSoftBudget;
                 break;
@@ -306,8 +302,8 @@ Result<OcrBatchResult> PpOcrBudgetedBackend::recognize_budgeted(const ImageView&
         }
         crop_phase.stop();
         ppocr_detail::RecUnitTiming unit_timing;
-        auto line = ppocr_detail::run_rec_line(options_.rec, charset_, rec_runtime_, line_image.value().view(),
-                                               context, &unit_timing);
+        auto line = ppocr_detail::run_rec_line(options_.rec, charset_, rec_runtime_, line_image.value().view(), context,
+                                               &unit_timing);
         timings.rec_preprocess_ns += unit_timing.preprocess_ns;
         timings.rec_forward_ns += unit_timing.forward_ns;
         timings.rec_decode_ns += unit_timing.decode_ns;

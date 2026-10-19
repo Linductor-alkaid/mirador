@@ -57,8 +57,8 @@ OcrLineRecord make_line(int32_t candidate_id, float x, float y, float width, flo
 
 OcrLineRecord recognized_line(int32_t candidate_id, float x, float y, float width, float height, float det_confidence,
                               int32_t execution_order) {
-    return make_line(candidate_id, x, y, width, height, det_confidence, OcrCompletionState::kRecognized, "text",
-                     0.75F, execution_order);
+    return make_line(candidate_id, x, y, width, height, det_confidence, OcrCompletionState::kRecognized, "text", 0.75F,
+                     execution_order);
 }
 
 /// Minimal structurally valid completed report: one recognized line.
@@ -319,8 +319,7 @@ TEST(OcrLinePriorityResolution, NegativePriorityIsMeaningfulAndNaNRanksLast) {
     EXPECT_FLOAT_EQ(mirador::resolve_ocr_line_priority(bounds, mixed), 0.3F);
 
     // A non-intersecting entry never applies, negative priority or not.
-    const std::vector<OcrPriorityEntry> negative_elsewhere = {
-        OcrPriorityEntry{RectF{20.0F, 20.0F, 5.0F, 5.0F}, -5.0F}};
+    const std::vector<OcrPriorityEntry> negative_elsewhere = {OcrPriorityEntry{RectF{20.0F, 20.0F, 5.0F, 5.0F}, -5.0F}};
     EXPECT_FLOAT_EQ(mirador::resolve_ocr_line_priority(bounds, negative_elsewhere), 0.0F);
 }
 
@@ -362,13 +361,12 @@ TEST(OcrLineReadingOrder, SortsByYThenXThenWidthThenHeightThenDetThenId) {
 TEST(OcrLineReadingOrder, IsStrictTotalOrderOverTheFixture) {
     const std::vector<OcrLineRecord> lines = reading_fixture();
     for (size_t a = 0; a < lines.size(); ++a) {
-        EXPECT_FALSE(mirador::ocr_line_reading_less(lines[a], lines[a])) << "irreflexivity, id "
-                                                                         << lines[a].candidate_id;
+        EXPECT_FALSE(mirador::ocr_line_reading_less(lines[a], lines[a]))
+            << "irreflexivity, id " << lines[a].candidate_id;
         for (size_t b = a + 1; b < lines.size(); ++b) {
             const bool ab = mirador::ocr_line_reading_less(lines[a], lines[b]);
             const bool ba = mirador::ocr_line_reading_less(lines[b], lines[a]);
-            EXPECT_NE(ab, ba) << "asymmetry between ids " << lines[a].candidate_id << " and "
-                              << lines[b].candidate_id;
+            EXPECT_NE(ab, ba) << "asymmetry between ids " << lines[a].candidate_id << " and " << lines[b].candidate_id;
         }
     }
 }
@@ -389,8 +387,7 @@ TEST(OcrLineReadingOrder, IsDeterministicForEqualInputs) {
 TEST(OcrLineExecutionOrder, PriorityDominatesStrategyAndReadingOrder) {
     const OcrLineRecord reading_first = make_line(0, 0.0F, 0.0F, 10.0F, 5.0F, 0.9F);
     const OcrLineRecord reading_later = make_line(1, 20.0F, 40.0F, 10.0F, 5.0F, 0.1F);
-    for (const OcrSelectionStrategy strategy :
-         {OcrSelectionStrategy::kReadingOrder, OcrSelectionStrategy::kDetScore}) {
+    for (const OcrSelectionStrategy strategy : {OcrSelectionStrategy::kReadingOrder, OcrSelectionStrategy::kDetScore}) {
         // Higher priority wins even against the reading order.
         EXPECT_TRUE(mirador::ocr_line_executes_before(reading_later, reading_first, 0.2F, 0.1F, strategy));
         EXPECT_FALSE(mirador::ocr_line_executes_before(reading_later, reading_first, 0.1F, 0.2F, strategy));

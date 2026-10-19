@@ -171,8 +171,7 @@ struct FakeBudgetedOcrBackend final : BudgetedOcrBackend {
 
     [[nodiscard]] BackendInfo info() const override { return info_value; }
 
-    mirador::Result<OcrBatchResult> recognize_budgeted(const ImageView& prepared_image,
-                                                       const OcrBatchRequest& request,
+    mirador::Result<OcrBatchResult> recognize_budgeted(const ImageView& prepared_image, const OcrBatchRequest& request,
                                                        const ExecutionContext& /*context*/) override {
         ++call_count;
         last_prepared_width = prepared_image.width;
@@ -181,8 +180,9 @@ struct FakeBudgetedOcrBackend final : BudgetedOcrBackend {
         last_format = prepared_image.format;
         if (prepared_image.data != nullptr && prepared_image.height > 0 && prepared_image.width > 0) {
             const int bpp = mirador::bytes_per_pixel(prepared_image.format);
-            const int64_t last_offset = (static_cast<int64_t>(prepared_image.height) - 1) * prepared_image.row_stride_bytes +
-                                        (static_cast<int64_t>(prepared_image.width) - 1) * bpp;
+            const int64_t last_offset =
+                (static_cast<int64_t>(prepared_image.height) - 1) * prepared_image.row_stride_bytes +
+                (static_cast<int64_t>(prepared_image.width) - 1) * bpp;
             last_first_pixel = prepared_image.data[0];
             last_last_pixel = prepared_image.data[last_offset];
         }
@@ -198,11 +198,10 @@ struct FakeBudgetedOcrBackend final : BudgetedOcrBackend {
 
     [[nodiscard]] OcrBatchResult synthesized_result(int width, int height) const {
         OcrBatchResult result;
-        const RectF bounds =
-            emit_central_box
-                ? RectF{static_cast<float>(width) * 0.25F, static_cast<float>(height) * 0.25F,
-                        static_cast<float>(width) * 0.50F, static_cast<float>(height) * 0.50F}
-                : RectF{0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height)};
+        const RectF bounds = emit_central_box
+                                 ? RectF{static_cast<float>(width) * 0.25F, static_cast<float>(height) * 0.25F,
+                                         static_cast<float>(width) * 0.50F, static_cast<float>(height) * 0.50F}
+                                 : RectF{0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height)};
         result.lines = {recognized_line(0, bounds, 0.8F, 0)};
         result.detected_count = 1;
         result.det_limit = 0;
@@ -282,10 +281,9 @@ void check_rotation_recovery(Rotation rotation, int32_t view_width, int32_t view
     cropped_request.output_space = CoordinateSpaceId::kCropped;
     const auto in_crop = session.run_ocr_budgeted(image.frame, &backend, cropped_request);
     ASSERT_TRUE(in_crop.ok()) << "rotation " << static_cast<int>(rotation);
-    const RectF expected_cropped{static_cast<float>(executed.width) * 0.25F,
-                                 static_cast<float>(executed.height) * 0.25F,
-                                 static_cast<float>(executed.width) * 0.50F,
-                                 static_cast<float>(executed.height) * 0.50F};
+    const RectF expected_cropped{
+        static_cast<float>(executed.width) * 0.25F, static_cast<float>(executed.height) * 0.25F,
+        static_cast<float>(executed.width) * 0.50F, static_cast<float>(executed.height) * 0.50F};
     ASSERT_EQ(in_crop.value().batch.lines.size(), 1U);
     expect_rect_near(in_crop.value().batch.lines[0].bounds, expected_cropped, kCoordTol);
     EXPECT_EQ(in_crop.value().geometry_space, CoordinateSpaceId::kCropped);
@@ -645,9 +643,8 @@ TEST(BudgetedPrioritySpaces, FramePrioritiesAreConvertedThroughRotationAndCrop) 
     // the public transform factories.
     const Transform2D frame_to_oriented =
         mirador::make_rotation(Rotation::k90, 100, 80, CoordinateSpaceId::kFrame, CoordinateSpaceId::kOriented);
-    const Transform2D oriented_to_prepared =
-        mirador::make_crop(RectF{10.0F, 20.0F, 30.0F, 40.0F}, CoordinateSpaceId::kOriented,
-                           CoordinateSpaceId::kCropped);
+    const Transform2D oriented_to_prepared = mirador::make_crop(
+        RectF{10.0F, 20.0F, 30.0F, 40.0F}, CoordinateSpaceId::kOriented, CoordinateSpaceId::kCropped);
     const Transform2D frame_to_prepared = mirador::compose(frame_to_oriented, oriented_to_prepared).value();
     const RectF expected = mirador::transform_rect(frame_to_prepared, RectF{0.0F, 0.0F, 100.0F, 80.0F});
     ASSERT_EQ(backend.last_request.priorities.size(), 1U);
@@ -669,13 +666,13 @@ TEST(BudgetedPrioritySpaces, PrioritiesFollowTheMaxSideScaleIntoPreparedSpace) {
     EXPECT_EQ(backend.last_prepared_width, 12);
     EXPECT_EQ(backend.last_prepared_height, 16);
 
-    const Transform2D oriented_to_prepared = mirador::compose(
-        mirador::make_crop(RectF{10.0F, 8.0F, 30.0F, 40.0F}, CoordinateSpaceId::kOriented,
-                           CoordinateSpaceId::kCropped),
-        mirador::make_scale(12.0 / 30.0, 16.0 / 40.0, CoordinateSpaceId::kCropped, CoordinateSpaceId::kModelInput))
-                                                .value();
-    const RectF expected =
-        mirador::transform_rect(oriented_to_prepared, RectF{12.0F, 10.0F, 5.0F, 6.0F});
+    const Transform2D oriented_to_prepared =
+        mirador::compose(
+            mirador::make_crop(RectF{10.0F, 8.0F, 30.0F, 40.0F}, CoordinateSpaceId::kOriented,
+                               CoordinateSpaceId::kCropped),
+            mirador::make_scale(12.0 / 30.0, 16.0 / 40.0, CoordinateSpaceId::kCropped, CoordinateSpaceId::kModelInput))
+            .value();
+    const RectF expected = mirador::transform_rect(oriented_to_prepared, RectF{12.0F, 10.0F, 5.0F, 6.0F});
     ASSERT_EQ(backend.last_request.priorities.size(), 1U);
     expect_rect_near(backend.last_request.priorities[0].roi, expected, kCoordTol);
 }

@@ -160,13 +160,13 @@ Result<RecLineOutput> run_rec_line(const PpOcrRecOptions& options, const std::ve
     // every exit path, including early error returns.
     struct UnitPhase {
         RecUnitTiming* timing;
-        int64_t RecUnitTiming::* slot;
+        int64_t RecUnitTiming::*slot;
         std::chrono::steady_clock::time_point begin;
         ~UnitPhase() noexcept {
             if (timing != nullptr) {
-                *timing.*slot += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                     std::chrono::steady_clock::now() - begin)
-                                     .count();
+                *timing.*slot +=
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin)
+                        .count();
             }
         }
     };

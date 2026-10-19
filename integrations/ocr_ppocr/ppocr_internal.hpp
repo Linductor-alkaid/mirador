@@ -83,9 +83,9 @@ struct RecUnitTiming {
 /// through `charset`. Errors from every stage propagate; cancellation and
 /// deadline surface as kCancelled/kTimeout. `timing` (nullable) accumulates
 /// the stage split of this unit.
-[[nodiscard]] Result<RecLineOutput> run_rec_line(const PpOcrRecOptions& options, const std::vector<std::string>& charset,
-                                                 const NcnnRuntime& runtime, const ImageView& line_image,
-                                                 const ExecutionContext& context,
+[[nodiscard]] Result<RecLineOutput> run_rec_line(const PpOcrRecOptions& options,
+                                                 const std::vector<std::string>& charset, const NcnnRuntime& runtime,
+                                                 const ImageView& line_image, const ExecutionContext& context,
                                                  RecUnitTiming* timing = nullptr);
 
 }  // namespace mirador::integrations::ppocr_detail

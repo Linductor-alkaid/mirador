@@ -31,8 +31,7 @@ inline constexpr int64_t kOcrBatchMaxReportBytes = int64_t{16} * 1024 * 1024;
 /// what "the reference configuration" means; nothing in the library applies
 /// them implicitly — every budget knob stays explicitly caller-provided.
 inline constexpr int32_t kOcrBatchReferenceMaxRecLines = 64;
-inline constexpr std::chrono::steady_clock::duration kOcrBatchReferenceFinalizeReserve{
-    std::chrono::milliseconds{500}};
+inline constexpr std::chrono::steady_clock::duration kOcrBatchReferenceFinalizeReserve{std::chrono::milliseconds{500}};
 
 /// Per-line completion state of one budgeted OCR run (DEC-025 section 2). The
 /// state is the only source of truth: an empty `utf8_text` never encodes
@@ -107,9 +106,8 @@ struct OcrLineRecord {
 
     [[nodiscard]] friend bool operator==(const OcrLineRecord& lhs, const OcrLineRecord& rhs) noexcept {
         return lhs.candidate_id == rhs.candidate_id && lhs.bounds == rhs.bounds &&
-               lhs.det_confidence == rhs.det_confidence && lhs.state == rhs.state &&
-               lhs.utf8_text == rhs.utf8_text && lhs.rec_confidence == rhs.rec_confidence &&
-               lhs.execution_order == rhs.execution_order;
+               lhs.det_confidence == rhs.det_confidence && lhs.state == rhs.state && lhs.utf8_text == rhs.utf8_text &&
+               lhs.rec_confidence == rhs.rec_confidence && lhs.execution_order == rhs.execution_order;
     }
 };
 
@@ -191,11 +189,11 @@ struct OcrBatchResult {
     OcrBatchCompletion completion = OcrBatchCompletion::kComplete;
 
     [[nodiscard]] friend bool operator==(const OcrBatchResult& lhs, const OcrBatchResult& rhs) noexcept {
-        return lhs.lines == rhs.lines && lhs.detected_count == rhs.detected_count &&
-               lhs.det_limit == rhs.det_limit && lhs.det_limit_hit == rhs.det_limit_hit &&
-               lhs.recognized_count == rhs.recognized_count && lhs.reused_count == rhs.reused_count &&
-               lhs.deferred_count == rhs.deferred_count && lhs.rec_forward_count == rhs.rec_forward_count &&
-               lhs.stop_reason == rhs.stop_reason && lhs.completion == rhs.completion;
+        return lhs.lines == rhs.lines && lhs.detected_count == rhs.detected_count && lhs.det_limit == rhs.det_limit &&
+               lhs.det_limit_hit == rhs.det_limit_hit && lhs.recognized_count == rhs.recognized_count &&
+               lhs.reused_count == rhs.reused_count && lhs.deferred_count == rhs.deferred_count &&
+               lhs.rec_forward_count == rhs.rec_forward_count && lhs.stop_reason == rhs.stop_reason &&
+               lhs.completion == rhs.completion;
     }
 };
 
@@ -250,16 +248,16 @@ public:
 /// ROI intersects `bounds`; 0 exactly when no entry applies (matched entries
 /// may rank below it — a negative priority is meaningful, and NaN ranks
 /// last). Deterministic and order-independent.
-[[nodiscard]] float resolve_ocr_line_priority(const RectF& bounds, const std::vector<OcrPriorityEntry>& priorities) noexcept;
+[[nodiscard]] float resolve_ocr_line_priority(const RectF& bounds,
+                                              const std::vector<OcrPriorityEntry>& priorities) noexcept;
 
 /// Total execution order over candidate lines (DEC-025 section 4): caller
 /// priority descending, then the strategy key (reading order, or det score
 /// descending), then reading-order geometry, then `candidate_id` as the final
 /// tie-break. Returns true when `lhs` executes before `rhs`. NaN priorities
 /// compare as "never first"; consumers validate finiteness before selection.
-[[nodiscard]] bool ocr_line_executes_before(const OcrLineRecord& lhs, const OcrLineRecord& rhs,
-                                            float lhs_priority, float rhs_priority,
-                                            OcrSelectionStrategy strategy) noexcept;
+[[nodiscard]] bool ocr_line_executes_before(const OcrLineRecord& lhs, const OcrLineRecord& rhs, float lhs_priority,
+                                            float rhs_priority, OcrSelectionStrategy strategy) noexcept;
 
 /// Reading order over candidate lines: bounds y, then x, then -width, then
 /// -height (longer lines first among equal origins), then det confidence

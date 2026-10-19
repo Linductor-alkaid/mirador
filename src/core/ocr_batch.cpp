@@ -63,7 +63,9 @@ private:
 
 // Floats enter orders and digests sanitized: NaN behaves as the lowest value
 // so comparisons stay a strict total order and digests stay stable.
-float ordered(float value) noexcept { return std::isnan(value) ? -std::numeric_limits<float>::infinity() : value; }
+float ordered(float value) noexcept {
+    return std::isnan(value) ? -std::numeric_limits<float>::infinity() : value;
+}
 
 std::chrono::steady_clock::duration::rep duration_ticks(const std::chrono::steady_clock::duration& duration) noexcept {
     return duration.count();
@@ -106,7 +108,8 @@ Result<void> validate_ocr_batch_request(const OcrBatchRequest& request) noexcept
     if (static_cast<int32_t>(request.priorities.size()) > request.max_priority_entries) {
         return Status(ErrorCode::kBudgetExceeded, "priority entries exceed max_priority_entries");
     }
-    const int64_t priority_bytes = static_cast<int64_t>(request.priorities.size()) * static_cast<int64_t>(sizeof(OcrPriorityEntry));
+    const int64_t priority_bytes =
+        static_cast<int64_t>(request.priorities.size()) * static_cast<int64_t>(sizeof(OcrPriorityEntry));
     if (priority_bytes > request.max_priority_bytes) {
         return Status(ErrorCode::kBudgetExceeded, "priority entries exceed max_priority_bytes");
     }
@@ -297,8 +300,7 @@ uint64_t ocr_batch_request_params_digest(const OcrBatchRequest& request) noexcep
         hasher.f32(rect.height);
         hasher.f32(ordered(entry.priority));
     }
-    hasher.u64(request.soft_budget.has_value() ? static_cast<uint64_t>(duration_ticks(*request.soft_budget))
-                                               : 0);
+    hasher.u64(request.soft_budget.has_value() ? static_cast<uint64_t>(duration_ticks(*request.soft_budget)) : 0);
     hasher.u64(request.finalize_reserve.has_value() ? static_cast<uint64_t>(duration_ticks(*request.finalize_reserve))
                                                     : 0);
     hasher.u32(static_cast<uint32_t>(request.max_priority_entries));

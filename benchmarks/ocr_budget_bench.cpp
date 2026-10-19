@@ -128,8 +128,8 @@ void draw_line(mirador::ImageBuffer& scene, const LineSpec& line, uint64_t seed)
 }
 
 mirador::Result<mirador::ImageBuffer> make_scene(const std::vector<LineSpec>& lines, uint64_t seed) {
-    auto created = mirador::ImageBuffer::create(mirador::PixelFormat::kRgb8, kSceneWidth, kSceneHeight,
-                                                int64_t{64} * 1024 * 1024);
+    auto created =
+        mirador::ImageBuffer::create(mirador::PixelFormat::kRgb8, kSceneWidth, kSceneHeight, int64_t{64} * 1024 * 1024);
     if (!created.ok()) {
         return created.status();
     }
@@ -337,7 +337,9 @@ struct CallRecord {
     bool partial = false;
 };
 
-double ms_of(int64_t nanoseconds) noexcept { return static_cast<double>(nanoseconds) / 1.0e6; }
+double ms_of(int64_t nanoseconds) noexcept {
+    return static_cast<double>(nanoseconds) / 1.0e6;
+}
 
 double percentile(std::vector<double>& values, double p) {
     if (values.empty()) {
@@ -404,9 +406,9 @@ int main(int argc, char** argv) {
     frame.image = scene_view;
     frame.sequence = 1;
     frame.source_id = "ocr-budget-bench";
-    mirador::PerceptionSession session = mirador::PerceptionSession::create(
-                                             {frame.source_id, int64_t{4} * 1024 * 1024, int64_t{64} * 1024 * 1024})
-                                             .take_value();
+    mirador::PerceptionSession session =
+        mirador::PerceptionSession::create({frame.source_id, int64_t{4} * 1024 * 1024, int64_t{64} * 1024 * 1024})
+            .take_value();
 
     std::vector<CallRecord> records;
     records.reserve(static_cast<size_t>(options.iterations));
@@ -431,8 +433,7 @@ int main(int argc, char** argv) {
             if (call >= options.warmup) {
                 CallRecord record;
                 record.index = call - options.warmup;
-                record.total_ms =
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count() / 1.0e6;
+                record.total_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count() / 1.0e6;
                 record.detected = static_cast<int32_t>(regions.value().size());
                 record.recognized = static_cast<int32_t>(regions.value().size());
                 record.nonempty_lines = static_cast<int32_t>(
@@ -442,13 +443,12 @@ int main(int argc, char** argv) {
             }
         }
     } else {
-        auto backend = mirador::integrations::PpOcrBudgetedBackend::create(
-            [&] {
-                mirador::integrations::PpOcrBudgetedOptions budgeted;
-                budgeted.det = det_options(options);
-                budgeted.rec = rec_options(options);
-                return budgeted;
-            }());
+        auto backend = mirador::integrations::PpOcrBudgetedBackend::create([&] {
+            mirador::integrations::PpOcrBudgetedOptions budgeted;
+            budgeted.det = det_options(options);
+            budgeted.rec = rec_options(options);
+            return budgeted;
+        }());
         if (!backend.ok()) {
             std::printf("FAIL: budgeted backend creation failed: %s\n", backend.status().message().c_str());
             return 3;
@@ -482,8 +482,7 @@ int main(int argc, char** argv) {
                 const auto& timings = ocr.last_stage_timings();
                 CallRecord record;
                 record.index = call - options.warmup;
-                record.total_ms =
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count() / 1.0e6;
+                record.total_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count() / 1.0e6;
                 record.det_canvas_ms = ms_of(timings.det_canvas_ns);
                 record.det_pack_ms = ms_of(timings.det_pack_normalize_ns);
                 record.det_forward_ms = ms_of(timings.det_forward_ns);
@@ -498,9 +497,9 @@ int main(int argc, char** argv) {
                 record.recognized = report.value().batch.recognized_count;
                 record.deferred = report.value().batch.deferred_count;
                 record.forwards = report.value().batch.rec_forward_count;
-                record.nonempty_lines = static_cast<int32_t>(std::count_if(
-                    report.value().batch.lines.begin(), report.value().batch.lines.end(),
-                    [](const mirador::OcrLineRecord& line) { return !line.utf8_text.empty(); }));
+                record.nonempty_lines = static_cast<int32_t>(
+                    std::count_if(report.value().batch.lines.begin(), report.value().batch.lines.end(),
+                                  [](const mirador::OcrLineRecord& line) { return !line.utf8_text.empty(); }));
                 record.stop = static_cast<int32_t>(report.value().batch.stop_reason);
                 record.det_limit_hit = report.value().batch.det_limit_hit;
                 record.partial = report.value().batch.completion == mirador::OcrBatchCompletion::kPartial;
@@ -517,16 +516,16 @@ int main(int argc, char** argv) {
     }
     std::printf("SUMMARY mode=%s scenario=%s model=%s@%s det_threads=%d rec_threads=%d max_boxes=%d k=%d\n",
                 options.mode.c_str(), options.scenario.c_str(), options.model_id.c_str(),
-                options.model_revision.c_str(), options.det_threads, options.rec_threads, options.max_boxes,
-                options.k);
+                options.model_revision.c_str(), options.det_threads, options.rec_threads, options.max_boxes, options.k);
     std::printf("SUMMARY calls=%zu p50_ms=%.3f p95_ms=%.3f max_ms=%.3f\n", records.size(), percentile(totals, 0.50),
                 percentile(totals, 0.95), totals.empty() ? 0.0 : *std::max_element(totals.begin(), totals.end()));
     if (!records.empty()) {
         const CallRecord& last = records.back();
-        std::printf("SUMMARY last detected=%d recognized=%d deferred=%d forwards=%d nonempty=%d stop=%d "
-                    "partial=%d det_limit_hit=%d\n",
-                    last.detected, last.recognized, last.deferred, last.forwards, last.nonempty_lines, last.stop,
-                    last.partial ? 1 : 0, last.det_limit_hit ? 1 : 0);
+        std::printf(
+            "SUMMARY last detected=%d recognized=%d deferred=%d forwards=%d nonempty=%d stop=%d "
+            "partial=%d det_limit_hit=%d\n",
+            last.detected, last.recognized, last.deferred, last.forwards, last.nonempty_lines, last.stop,
+            last.partial ? 1 : 0, last.det_limit_hit ? 1 : 0);
     }
 
     // Optional per-call CSV.
@@ -542,11 +541,11 @@ int main(int argc, char** argv) {
                      "nonempty_lines,stop,partial,det_limit_hit\n");
         for (const CallRecord& record : records) {
             std::fprintf(out, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d\n",
-                         record.index, record.total_ms, record.det_canvas_ms, record.det_pack_ms,
-                         record.det_forward_ms, record.det_post_ms, record.select_ms, record.crop_ms,
-                         record.rec_pre_ms, record.rec_forward_ms, record.rec_decode_ms, record.finalize_ms,
-                         record.detected, record.recognized, record.deferred, record.forwards, record.nonempty_lines,
-                         record.stop, record.partial ? 1 : 0, record.det_limit_hit ? 1 : 0);
+                         record.index, record.total_ms, record.det_canvas_ms, record.det_pack_ms, record.det_forward_ms,
+                         record.det_post_ms, record.select_ms, record.crop_ms, record.rec_pre_ms, record.rec_forward_ms,
+                         record.rec_decode_ms, record.finalize_ms, record.detected, record.recognized, record.deferred,
+                         record.forwards, record.nonempty_lines, record.stop, record.partial ? 1 : 0,
+                         record.det_limit_hit ? 1 : 0);
         }
         std::fclose(out);
         std::printf("SUMMARY csv=%s\n", options.csv_path.c_str());
@@ -558,9 +557,10 @@ int main(int argc, char** argv) {
     if (options.scenario == "dense512" && !records.empty()) {
         const CallRecord& last = records.back();
         if (last.detected < options.max_boxes) {
-            std::printf("GATE FAIL: dense512 scene produced %d candidates < max_boxes %d; "
-                        "the stress gate needs a real 512-candidate chain\n",
-                        last.detected, options.max_boxes);
+            std::printf(
+                "GATE FAIL: dense512 scene produced %d candidates < max_boxes %d; "
+                "the stress gate needs a real 512-candidate chain\n",
+                last.detected, options.max_boxes);
             return 4;
         }
     }

@@ -167,8 +167,8 @@ public:
         } else {
             result.stop_reason = mirador::OcrBatchStopReason::kCompleted;
         }
-        result.completion = result.deferred_count > 0 ? mirador::OcrBatchCompletion::kPartial
-                                                      : mirador::OcrBatchCompletion::kComplete;
+        result.completion =
+            result.deferred_count > 0 ? mirador::OcrBatchCompletion::kPartial : mirador::OcrBatchCompletion::kComplete;
         return result;
     }
 
@@ -197,8 +197,8 @@ void print_report(const mirador::BudgetedOcrReport& report, const char* label) {
     for (const OcrLineRecord& line : report.batch.lines) {
         std::printf("  candidate %d state=%d order=%d bounds=(%.0f,%.0f %.0fx%.0f)%s%s\n", line.candidate_id,
                     static_cast<int>(line.state), line.execution_order, line.bounds.x, line.bounds.y, line.bounds.width,
-                    line.bounds.height, line.utf8_text.empty() ? "" : " text=",
-                    line.utf8_text.empty() ? "" : line.utf8_text.c_str());
+                    line.bounds.height,
+                    line.utf8_text.empty() ? "" : " text=", line.utf8_text.empty() ? "" : line.utf8_text.c_str());
     }
 }
 
@@ -241,9 +241,8 @@ int main() {
     prioritized.priorities = {focus};
     const mirador::BudgetedOcrReport boosted = session.run_ocr_budgeted(frame, &budgeted, prioritized).value();
     const OcrLineRecord& first_executed =
-        *std::find_if(boosted.batch.lines.begin(), boosted.batch.lines.end(), [](const OcrLineRecord& line) {
-            return line.execution_order == 0;
-        });
+        *std::find_if(boosted.batch.lines.begin(), boosted.batch.lines.end(),
+                      [](const OcrLineRecord& line) { return line.execution_order == 0; });
     std::printf("priority: candidate %d executes first (bounds y=%.0f)\n", first_executed.candidate_id,
                 first_executed.bounds.y);
 
@@ -262,7 +261,8 @@ int main() {
     timed_out.finalize_reserve = std::chrono::milliseconds{100};
     ExecutionContext expired;
     expired.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds{1};
-    const mirador::Result<mirador::BudgetedOcrReport> failed = session.run_ocr_budgeted(frame, &budgeted, timed_out, expired);
+    const mirador::Result<mirador::BudgetedOcrReport> failed =
+        session.run_ocr_budgeted(frame, &budgeted, timed_out, expired);
     std::printf("expired deadline: ok=%d code=%d\n", failed.ok() ? 1 : 0,
                 failed.ok() ? 0 : static_cast<int>(failed.status().code()));
 
@@ -271,8 +271,7 @@ int main() {
     //    budgeted backend fails explicitly instead of falling back.
     std::printf("cache entries: after old run=%zu, after budgeted runs=%zu\n", cache_entries_after_old,
                 session.result_cache().entry_count());
-    const mirador::Result<mirador::BudgetedOcrReport> unavailable =
-        session.run_ocr_budgeted(frame, nullptr, request);
+    const mirador::Result<mirador::BudgetedOcrReport> unavailable = session.run_ocr_budgeted(frame, nullptr, request);
     std::printf("null budgeted backend: code=%d (kBackendUnavailable=%d)\n",
                 unavailable.ok() ? 0 : static_cast<int>(unavailable.status().code()),
                 static_cast<int>(mirador::ErrorCode::kBackendUnavailable));
