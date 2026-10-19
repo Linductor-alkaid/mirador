@@ -155,10 +155,6 @@ if(MIRADOR_BUILD_TESTS)
     enable_testing()
 endif()
 
-if(MIRADOR_BUILD_BENCHMARKS AND TARGET mirador::image)
-    add_subdirectory(benchmarks)
-endif()
-
 if(MIRADOR_BUILD_EXAMPLES AND TARGET mirador::image AND TARGET mirador::cache)
     add_subdirectory(examples)
 endif()
@@ -194,6 +190,13 @@ endif()
 
 if(MIRADOR_BUILD_INTEGRATIONS)
     add_subdirectory(integrations)
+endif()
+
+# Benchmarks register after the optional integrations: the M8 OCR budget
+# harness (benchmarks/ocr_budget_bench.cpp) guards on the mirador_ocr_ppocr
+# target, which only exists when MIRADOR_BUILD_INTEGRATIONS is on.
+if(MIRADOR_BUILD_BENCHMARKS AND TARGET mirador::image)
+    add_subdirectory(benchmarks)
 endif()
 
 if(MIRADOR_BUILD_TESTS)

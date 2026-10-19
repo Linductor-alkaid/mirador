@@ -51,3 +51,13 @@ if(TARGET mirador::geometry AND TARGET mirador::image AND TARGET mirador::cache)
                                                                mirador::cache)
     mirador_apply_warnings(mirador_bench_proposal_reuse)
 endif()
+
+# M8-01 (DEC-025): interactive OCR budget harness — deterministic synthetic
+# scenes plus the baseline/budgeted measurement paths. Needs the PP-OCR
+# integration target and the fusion session, so it only appears when
+# MIRADOR_BUILD_INTEGRATIONS is on; weights stay caller-provided paths.
+if(TARGET mirador_ocr_ppocr)
+    add_executable(mirador_bench_ocr_budget ocr_budget_bench.cpp)
+    target_link_libraries(mirador_bench_ocr_budget PRIVATE mirador_ocr_ppocr mirador::fusion)
+    mirador_apply_warnings(mirador_bench_ocr_budget)
+endif()
