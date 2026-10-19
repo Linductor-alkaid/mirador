@@ -41,8 +41,7 @@ public:
     void stop() noexcept {
         if (timings_ != nullptr) {
             *timings_.*slot_ +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin_)
-                    .count();
+                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin_).count();
             timings_ = nullptr;
         }
     }
@@ -350,8 +349,7 @@ Result<OcrBatchResult> PpOcrBudgetedBackend::recognize_budgeted(const ImageView&
     PhaseClock select_phase{&timings, &PpOcrStageTimings::select_ns};
     std::vector<OcrLineRecord> lines = reading_order_lines(std::move(det.boxes));
     const std::vector<size_t> execution = execution_order(lines, request);
-    const int32_t selected_count =
-        std::min<int32_t>(request.max_rec_lines, static_cast<int32_t>(lines.size()));
+    const int32_t selected_count = std::min<int32_t>(request.max_rec_lines, static_cast<int32_t>(lines.size()));
     select_phase.stop();
 
     auto loop = run_bounded_rec_loop(options_.rec, charset_, rec_runtime_, prepared_image, lines, execution, request,

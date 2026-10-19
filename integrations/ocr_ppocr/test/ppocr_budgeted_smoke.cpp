@@ -836,8 +836,7 @@ void check_multi_line_happy(const std::filesystem::path& dir, const mirador::Ima
                                 static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
                                 static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
     }
-    expect_true(lines_ok,
-                "multi-line: candidate ids 0..5 in reading order (y asc, x asc), each decodes to \"ABCD\"");
+    expect_true(lines_ok, "multi-line: candidate ids 0..5 in reading order (y asc, x asc), each decodes to \"ABCD\"");
     expect_true(ocr_batch_result_consistent(result), "multi-line: report is consistent");
 }
 
@@ -875,13 +874,12 @@ void check_k_less_than_n(const std::filesystem::path& dir, const mirador::ImageV
     for (int32_t index = 4; deferred_ok && index < 6; ++index) {
         const mirador::OcrLineRecord& line = first.lines[static_cast<size_t>(index)];
         const int32_t expect_x = index == 4 ? 180 : 320;
-        deferred_ok = deferred_ok && line.candidate_id == index &&
-                      line.state == mirador::OcrCompletionState::kDeferred && line.utf8_text.empty() &&
-                      !line.rec_confidence.has_value() && line.execution_order == -1 &&
-                      bounds_close(line.bounds, static_cast<float>(expect_x - kUnclipOffset),
-                                   static_cast<float>(38 - kUnclipOffset),
-                                   static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
-                                   static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
+        deferred_ok =
+            deferred_ok && line.candidate_id == index && line.state == mirador::OcrCompletionState::kDeferred &&
+            line.utf8_text.empty() && !line.rec_confidence.has_value() && line.execution_order == -1 &&
+            bounds_close(line.bounds, static_cast<float>(expect_x - kUnclipOffset),
+                         static_cast<float>(38 - kUnclipOffset), static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
+                         static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
     }
     expect_true(deferred_ok, "K<N: deferred lines 4..5 keep queryable det geometry with no text");
     expect_true(ocr_batch_result_consistent(first), "K<N: report is consistent");
