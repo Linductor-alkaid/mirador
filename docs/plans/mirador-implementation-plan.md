@@ -9,11 +9,19 @@
 （DP-01…05，In Progress），对应 issue #36；同步无内部并发、预算与隐私边界不变。
 
 > 状态：Active
-> 版本：1.30
+> 版本：1.31
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-10-16
+> 更新日期：2026-10-19
+>
+> 1.31 修订（2026-10-19）：针对 [Issue #41](https://github.com/Linductor-alkaid/mirador/issues/41)
+> 及维护者补充，新增 [M8 密集 OCR 预算闭环](m8-budgeted-ocr.md)（Planned）与
+> [M9 连续感知](m9-continuous-perception.md)（Proposed），新增 SCOPE-14/15、
+> DEC-025/026（均 Proposed）及 [OCR 基准协议](../benchmarks/ocr-budget-protocol.md)。
+> 先交付 rec 限额/优先级、显式部分报告及软预算，再验证 batching 与连续感知；
+> 旧错误/完整缓存/动作协议、无内部并发和零 runtime 核心边界不变。本轮仅制定方案，
+> 未实现新增 API，未执行真实模型性能或下游验收，不改变 M7/DP/YP 的历史完成状态。
 >
 > 1.30 修订（2026-10-16）：登记 DP-01…05 桌面实测驱动的维护，见 DEC-023；
 > 不扩大 M7 Experimental API 的冻结或发布范围。
@@ -454,6 +462,10 @@
 
 ## 当前状态
 
+Issue #41 后续工作分两项独立交付：M8 已定义范围与验收，可排期，新增契约需在
+M8-02 评审冻结；M9 为独立 Proposed 增量，待 M8 契约与自身决策评审后实施。
+5 秒/512 框是拟定验收目标，不是已有能力声明；全部实现工作项仍未完成。
+
 M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项与退出条件通过，CI 9/9
 绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、
 GoogleTest v1.18.0、三平台 CI 已冻结，发布说明见 [CHANGELOG](../../CHANGELOG.md)。
@@ -563,6 +575,15 @@ run 35917953109 14/14 job 全绿，待合入）。
   合成验证先行，`ObjectTracker`/`TrackerBackend` 契约 Experimental 至
   go/no-go 判定后经决策冻结）。
 
+- [ ] `SCOPE-14` 密集 OCR 交互预算：rec 数量上限、调用方优先级、显式完成度与
+  部分报告、提前收尾、坐标/缓存隔离及真实模型 5 秒门槛；见
+  [M8](m8-budgeted-ocr.md) 与 [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)
+  （Proposed）。完整旧 API 保持全有或全无，batching 为独立 go/no-go 实验。
+- [ ] `SCOPE-15` 连续增量感知（Proposed）：实体重复/从属/重叠关系、调用方注意与
+  重要性策略、覆盖与陈旧结果绑定、跨帧语义稳定化、有界选择性事件；见
+  [M9](m9-continuous-perception.md) 与
+  [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)。采集、LLM、调度与动作仍归调用方。
+
 ### 明确不包含
 
 - 模型 runtime 链接进 Core、模型权重分发与下载；runtime 适配位于独立仓库或默认构建不获取
@@ -611,6 +632,8 @@ run 35917953109 14/14 job 全绿，待合入）。
 | M5 | 平台适配与产品化基准 | M4 | `v0.2.0` | Completed | [m5-platform-adapters-and-production-benchmarks.md](m5-platform-adapters-and-production-benchmarks.md) |
 | M6 | 几何区域 Proposal 实验（实验轨道） | M5 | `v0.3.0` | Completed | [m6-geometric-region-proposal-experiment.md](m6-geometric-region-proposal-experiment.md) |
 | M7 | 跨帧目标跟踪（低负载 SOT 与级联重检测） | M6 | `v0.4.0`（暂定） | In Progress | [m7-cross-frame-object-tracking.md](m7-cross-frame-object-tracking.md) |
+| M8 | 密集 OCR 的交互预算闭环 | M2/M5；DEC-025 待 M8-02 冻结 | integrations 独立修复；公共增量随下一 minor（待定） | Planned | [m8-budgeted-ocr.md](m8-budgeted-ocr.md) |
+| M9 | 任务焦点驱动的增量视觉状态与通知 | M8 契约、M4/M7 原语；DEC-026 待评审 | Experimental，版本待定 | Proposed | [m9-continuous-perception.md](m9-continuous-perception.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
 并与 tag 一一对应。M4 完成设计文档第 26 节的"首个可用版本"验收。
@@ -624,6 +647,8 @@ run 35917953109 14/14 job 全绿，待合入）。
 | [DEC-009](../decisions/DEC-009-elsed-integration.md) | ELSED 集成方式 | 已冻结：一方等价实现进 M3，ELSED 本体为可选适配延后（见 [DEC-009](../decisions/DEC-009-elsed-integration.md)） | linductor | M3 |
 | [DEC-010](../decisions/DEC-010-stable-id-matching.md) | 稳定 ID 匹配算法 | 已冻结：门控后贪心一对一匹配起步，分裂/合并做事件识别与 generation 递增（见 [DEC-010](../decisions/DEC-010-stable-id-matching.md)） | linductor | M4 |
 | [DEC-011](../decisions/DEC-011-benchmark-environments.md) | 基准设备清单 | 已冻结：Linux x64 主基准环境 + 方法口径；物理 Android/Windows 记录补跑条件（见 [DEC-011](../decisions/DEC-011-benchmark-environments.md)） | linductor | M5 |
+| [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md) | OCR 候选预算与部分结果 | Proposed：独立 opt-in 能力；K=64/收尾预留 500 ms 为参考配置初值；旧错误/完整缓存语义保留 | linductor | M8-02 契约；M8-06 实测冻结配置 |
+| [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) | 连续感知与注意策略 | Proposed：fusion 同步协调原语、关系视图、2 次有效观测确认、额外状态 8 MiB；均待验证 | linductor | M9-01 契约；M9-07 转正判定 |
 
 已生效决策见 [docs/decisions/](../decisions/)：`DEC-001` 同步 API 与无 executor、`DEC-002`
 Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`DEC-004` 公共边界
@@ -664,6 +689,10 @@ SPI 契约：有状态会话句柄制、同步/取消语义、能力结果缓存
 先契约后实现：每个里程碑先冻结类型与接口（含文档与伪实现测试），再填充算法实现。
 先 SPI 与 Fake Backend，后真实依赖；可选依赖模块保持默认关闭并可独立裁剪。
 架构边界（`RULE-01`~`RULE-03`）在 M0 用架构测试固化，后续里程碑只增不改。
+
+M8 按“基准/契约 → 预算执行与会话 → 真实模型/下游验收”独立交付，不等待 M9。
+M9 再按“实体关系 → 注意/增量与陈旧防护 → 稳定化/通知”推进，详细依赖与逐项验收
+以各里程碑为准；此顺序不重开既有里程碑或默认批准 Experimental 转正。
 
 ## 延后项与触发条件
 
@@ -722,6 +751,13 @@ SPI 契约：有状态会话句柄制、同步/取消语义、能力结果缓存
   模板池 — 跟进：M7 `M7-13` 组合规则（冲突保守降级 + 高置信模板更新仅取
   双通道一致帧）；深度通道可选注入，不达标时上层可关闭，主路径不受影响
   （[DEC-020](../decisions/DEC-020-tracker-backend-spi.md)）。
+
+- `RISK-2026-19` 密集 OCR 无法在 5 秒内返回有用文本，或仅把硬超时包装成部分成功 —
+  跟进 M8-01/03/06/07：分离软预算/硬 deadline、最长单元测量、至少 32 行及焦点覆盖验收；
+  负责人 linductor，真实模型/调用链可得后按 OCR 基准协议补跑。
+- `RISK-2026-20` 增量感知为减少计算而漏掉文字/外围布局变化，或采纳过期识别结果 —
+  跟进 M9-03…06：精确 ROI 复核、外围监测、epoch/策略/内容绑定与全量对照；
+  负责人 linductor，真实序列与 GT 可得后执行留出集验收。
 
 ## 验证记录
 
@@ -870,3 +906,13 @@ Independent-Verification-Agent 独立编写与执行）：
   退出码 0。限制：`kLost`/`kUncertain` 记录路径随 M7-06 状态机补测；
   代际推进触发判定随 M7-07 交付。证据明细见
   [M7 里程碑验证记录](m7-cross-frame-object-tracking.md)。
+
+2026-10-19：Issue #41 决策与计划制定（文档变更，基于 `cb45a102`）：
+
+- 新增 DEC-025/026、M8/M9、OCR 预算评测协议；同步设计 §13/16/24、SCOPE-14/15、
+  决策/里程碑索引与风险。分支 `docs/issue-41-perception-tuning`，不包含代码或依赖修改。
+- 实际验证：`git diff --check` 退出码 0；Python 标准库文档校验覆盖 7 份文档、
+  109 个本地链接、14 个工作项、20 条验收编号，全部有效；新增决策均 Proposed，
+  实现/退出条件没有完成勾选。验证环境为当前 Linux 工作区，未运行 C++ 构建/测试。
+- 限制：5 秒、质量及增量收益均为拟定门槛，未执行模型或 Mirage 实测；负责人 linductor
+  在提供显式模型/数据/下游路径并完成相应 harness 后，按 M8-01/06/07 与 M9-06/07 补跑。
