@@ -17,6 +17,7 @@
 #include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/ocr_backend.hpp>
+#include <mirador/ocr_batch.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/resize.hpp>
 #include <mirador/result.hpp>
@@ -487,6 +488,124 @@ Result<std::vector<TextRegion>> PerceptionSession::run_ocr(const Frame& frame, O
         return run_capability<OcrTraits>(*this, frame, backend, request, context);
     } catch (...) {  // NOLINT(bugprone-catching-exceptions): allocation failure is a budget error
         return Status(ErrorCode::kBudgetExceeded, "run_ocr: internal allocation failed");
+    }
+}
+
+Result<BudgetedOcrReport> PerceptionSession::run_ocr_budgeted(const Frame& frame, BudgetedOcrBackend* backend,
+                                                              const BudgetedOcrRequest& request,
+                                                              const ExecutionContext& context) noexcept {
+    try {
+        if (const Status stage = context_status(context); !stage.ok()) {
+            return stage;
+        }
+        if (backend == nullptr) {
+            return Status(ErrorCode::kBackendUnavailable, "no budgeted OCR backend provided");
+        }
+        if (const Status frame_status = check_frame(options_.source_id, frame); !frame_status.ok()) {
+            return frame_status;
+        }
+        if (const Status request_status =
+                validate_request(request.roi, request.roi_space, request.max_side, request.output_space);
+            !request_status.ok()) {
+            return request_status;
+        }
+        if (request.priority_space != CoordinateSpaceId::kOriented &&
+            request.priority_space != CoordinateSpaceId::kFrame) {
+            return Status(ErrorCode::kInvalidArgument, "priority_space must be kOriented or kFrame");
+        }
+        // DEC-025 section 3: the finalize guard exists to leave room before a
+        // hard deadline; without one it would silently do nothing.
+        if (request.finalize_reserve.has_value() && !context.deadline.has_value()) {
+            return Status(ErrorCode::kInvalidArgument, "finalize_reserve requires a context deadline");
+        }
+        const BackendInfo info = backend->info();
+        if (const Result<void> info_status = validate(info); !info_status.ok()) {
+            return info_status.status();
+        }
+
+        const ImageView& oriented = frame.image;
+        const Result<RectI> roi = executed_roi(oriented, request.roi, request.roi_space);
+        if (!roi.ok()) {
+            return roi.status();
+        }
+        const int64_t frame_bytes =
+            static_cast<int64_t>(oriented.width) * oriented.height * bytes_per_pixel(oriented.format);
+        const int64_t work_budget = 2 * frame_bytes + int64_t{64} * 1024;
+        Result<ImageBuffer> cropped = crop(oriented, roi.value(), work_budget);
+        if (!cropped.ok()) {
+            return cropped.status();
+        }
+
+        const Result<PreparedImage> prepared =
+            prepare_chain(cropped.take_value(), roi.value(), request.max_side, info, oriented);
+        if (!prepared.ok()) {
+            return prepared.status();
+        }
+
+        // Caller priorities arrive in `priority_space`; the backend contract
+        // consumes prepared-image pixel space, so convert along the recorded
+        // chain (kOriented -> prepared, or kFrame -> prepared).
+        OcrBatchRequest backend_request;
+        backend_request.language_hint = request.language_hint;
+        backend_request.min_confidence = request.min_confidence;
+        backend_request.backend_params = request.backend_params;
+        backend_request.max_rec_lines = request.max_rec_lines;
+        backend_request.selection = request.selection;
+        backend_request.soft_budget = request.soft_budget;
+        backend_request.finalize_reserve = request.finalize_reserve;
+        backend_request.max_priority_entries = request.max_priority_entries;
+        backend_request.max_priority_bytes = request.max_priority_bytes;
+        backend_request.max_report_bytes = request.max_report_bytes;
+        backend_request.priorities.reserve(request.priorities.size());
+        for (const OcrPriorityEntry& entry : request.priorities) {
+            OcrPriorityEntry converted;
+            converted.priority = entry.priority;
+            converted.roi = transform_rect(request.priority_space == CoordinateSpaceId::kFrame
+                                               ? prepared.value().frame_to_here
+                                               : prepared.value().oriented_to_here,
+                                           entry.roi);
+            backend_request.priorities.push_back(converted);
+        }
+        if (const Result<void> budget_status = validate_ocr_batch_request(backend_request); !budget_status.ok()) {
+            return budget_status.status();
+        }
+
+        if (const Status stage = context_status(context); !stage.ok()) {
+            return stage;
+        }
+        const Result<OcrBatchResult> executed =
+            backend->recognize_budgeted(prepared.value().buffer.view(), backend_request, context);
+        if (!executed.ok()) {
+            return executed.status();
+        }
+        // Contract enforcement at the boundary: a structurally inconsistent or
+        // over-budget report fails explicitly instead of propagating lies.
+        if (!ocr_batch_result_consistent(executed.value())) {
+            return Status(ErrorCode::kBackendFailure, "budgeted backend reported an inconsistent batch result");
+        }
+        if (ocr_batch_result_owned_bytes(executed.value()) > request.max_report_bytes) {
+            return Status(ErrorCode::kBudgetExceeded, "budgeted report exceeds max_report_bytes");
+        }
+
+        const Result<Transform2D> recovery = recovery_to(prepared.value(), request.output_space);
+        if (!recovery.ok()) {
+            return recovery.status();
+        }
+        BudgetedOcrReport report;
+        report.batch = executed.value();
+        for (OcrLineRecord& line : report.batch.lines) {
+            line.bounds = transform_rect(recovery.value(), line.bounds);
+        }
+        report.geometry_space = request.output_space;
+        report.source_id = options_.source_id;
+        report.frame_sequence = frame.sequence;
+        report.executed_roi = roi.value();
+        report.output_space = request.output_space;
+        report.backend_info = info;
+        report.request_digest = ocr_batch_request_params_digest(backend_request);
+        return report;
+    } catch (...) {  // NOLINT(bugprone-catching-exceptions): allocation failure is a budget error
+        return Status(ErrorCode::kBudgetExceeded, "run_ocr_budgeted: internal allocation failed");
     }
 }
 

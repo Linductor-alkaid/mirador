@@ -218,12 +218,13 @@ Mirador ships no models. OCR, object detection and line detection go through sma
 
 ## Examples
 
-Five examples compile with the default build and walk through the public API without needing any model runtime:
+Six examples compile with the default build and walk through the public API without needing any model runtime:
 
 | Example | What it shows |
 | --- | --- |
 | `mirador_example_change_detection` | submit frames → change detection → ROIs & fingerprints → frame cache |
 | `mirador_example_perception_session` | session loop: change analysis → stub OCR → cached reuse → refresh policy |
+| `mirador_example_budgeted_ocr` | budgeted OCR (DEC-025): line limit → caller priority → soft vs hard budget → deferred geometry stays queryable → cache isolation |
 | `mirador_example_road_segments` | line detection → angle/length filtering → collinear merge (road-boundary semantics) |
 | `mirador_example_icon_state_index` | store icon states in the visual index → query under perturbation → three-tier lookup |
 | `mirador_example_hybrid_localization` | accessibility regions + OCR/detection fusion → stable IDs → Set-of-Mark → generation check |
