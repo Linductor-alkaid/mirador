@@ -18,13 +18,16 @@
 #include <mirador/perception_session.hpp>
 #include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
+#include <mirador/status.hpp>
 
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -215,7 +218,7 @@ int main() {
     // 1. The old all-or-nothing entry keeps working unchanged on this session
     //    (DEC-025 section 2: old backends and consumers need no adaptation).
     StubOcrBackend old_backend;
-    OcrRequest old_request;
+    const OcrRequest old_request;
     const std::vector<TextRegion> complete = session.run_ocr(frame, &old_backend, old_request).value();
     std::printf("old run_ocr: %zu region(s) — all-or-nothing semantics unchanged\n", complete.size());
     const size_t cache_entries_after_old = session.result_cache().entry_count();

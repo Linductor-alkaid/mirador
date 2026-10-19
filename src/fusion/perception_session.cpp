@@ -493,7 +493,7 @@ Result<std::vector<TextRegion>> PerceptionSession::run_ocr(const Frame& frame, O
 
 Result<BudgetedOcrReport> PerceptionSession::run_ocr_budgeted(const Frame& frame, BudgetedOcrBackend* backend,
                                                               const BudgetedOcrRequest& request,
-                                                              const ExecutionContext& context) noexcept {
+                                                              const ExecutionContext& context) const noexcept {
     try {
         if (const Status stage = context_status(context); !stage.ok()) {
             return stage;

@@ -127,6 +127,14 @@ void expect_rect_near(const RectF& actual, const RectF& expected, float toleranc
     EXPECT_NEAR(actual.height, expected.height, tolerance);
 }
 
+/// Central quarter of a rectangle: the central-half prepared box a synthesis
+/// covers, expressed in the space the box is reported in.
+RectF central_quarter_of(const RectI& rect) {
+    return RectF{static_cast<float>(rect.x) + static_cast<float>(rect.width) * 0.25F,
+                 static_cast<float>(rect.y) + static_cast<float>(rect.height) * 0.25F,
+                 static_cast<float>(rect.width) * 0.50F, static_cast<float>(rect.height) * 0.50F};
+}
+
 OcrLineRecord recognized_line(int32_t candidate_id, const RectF& bounds, float det_confidence,
                               int32_t execution_order) {
     OcrLineRecord line;
@@ -140,65 +148,76 @@ OcrLineRecord recognized_line(int32_t candidate_id, const RectF& bounds, float d
     return line;
 }
 
-/// Scriptable budgeted backend: returns `next_result` verbatim when set,
-/// `next_status` when not ok, otherwise synthesizes one recognized line over
-/// either the full prepared area or its central half. Records every
-/// observation the tests need (prepared geometry, pixel samples, request).
+/// Scriptable budgeted backend: returns the scripted result verbatim when one
+/// is set, the scripted status when not ok, otherwise synthesizes one
+/// recognized line over either the full prepared area or its central half.
+/// Scripting goes through setters, observations through read-only accessors.
 struct FakeBudgetedOcrBackend final : BudgetedOcrBackend {
-    BackendInfo info_value;
-    int call_count = 0;
-    Status next_status;
-    std::optional<OcrBatchResult> next_result;
-    bool emit_central_box = false;
-
-    // Observations of the last call.
-    int last_prepared_width = 0;
-    int last_prepared_height = 0;
-    int64_t last_prepared_stride = 0;
-    PixelFormat last_format = PixelFormat::kRgba8;
-    std::byte last_first_pixel{};
-    std::byte last_last_pixel{};
-    OcrBatchRequest last_request;
-
     FakeBudgetedOcrBackend() {
-        info_value.name = "fake-budgeted-ocr";
-        info_value.implementation_version = "1.0.0";
-        info_value.model_id = "fake-budget-model";
-        info_value.model_revision = "r1";
-        info_value.accepted_formats = {PixelFormat::kRgba8, PixelFormat::kGray8};
-        info_value.thread_safe = true;
+        info_value_.name = "fake-budgeted-ocr";
+        info_value_.implementation_version = "1.0.0";
+        info_value_.model_id = "fake-budget-model";
+        info_value_.model_revision = "r1";
+        info_value_.accepted_formats = {PixelFormat::kRgba8, PixelFormat::kGray8};
+        info_value_.thread_safe = true;
     }
 
-    [[nodiscard]] BackendInfo info() const override { return info_value; }
+    [[nodiscard]] BackendInfo info() const override { return info_value_; }
 
     mirador::Result<OcrBatchResult> recognize_budgeted(const ImageView& prepared_image, const OcrBatchRequest& request,
                                                        const ExecutionContext& /*context*/) override {
-        ++call_count;
-        last_prepared_width = prepared_image.width;
-        last_prepared_height = prepared_image.height;
-        last_prepared_stride = prepared_image.row_stride_bytes;
-        last_format = prepared_image.format;
+        ++call_count_;
+        last_prepared_width_ = prepared_image.width;
+        last_prepared_height_ = prepared_image.height;
+        last_prepared_stride_ = prepared_image.row_stride_bytes;
+        last_format_ = prepared_image.format;
         if (prepared_image.data != nullptr && prepared_image.height > 0 && prepared_image.width > 0) {
             const int bpp = mirador::bytes_per_pixel(prepared_image.format);
             const int64_t last_offset =
                 (static_cast<int64_t>(prepared_image.height) - 1) * prepared_image.row_stride_bytes +
                 (static_cast<int64_t>(prepared_image.width) - 1) * bpp;
-            last_first_pixel = prepared_image.data[0];
-            last_last_pixel = prepared_image.data[last_offset];
+            last_first_pixel_ = prepared_image.data[0];
+            last_last_pixel_ = prepared_image.data[last_offset];
         }
-        last_request = request;
-        if (!next_status.ok()) {
-            return next_status;
+        last_request_ = request;
+        if (!next_status_.ok()) {
+            return next_status_;
         }
-        if (next_result.has_value()) {
-            return *next_result;
+        if (next_result_.has_value()) {
+            return *next_result_;
         }
         return synthesized_result(prepared_image.width, prepared_image.height);
     }
 
+    // --- scripting knobs -------------------------------------------------------------
+
+    /// When not ok, the next recognize_budgeted call returns this status.
+    void set_next_status(Status status) { next_status_ = std::move(status); }
+
+    /// When set, the next recognize_budgeted call returns this report verbatim.
+    void set_next_result(OcrBatchResult result) { next_result_ = std::move(result); }
+
+    /// Synthesize the central half of the prepared area instead of the full area.
+    void set_emit_central_box(bool emit) { emit_central_box_ = emit; }
+
+    /// Corrupts the capability query (empty name) for gating tests.
+    void clear_info_name() { info_value_.name.clear(); }
+
+    // --- read-only observations of the last call --------------------------------------
+
+    [[nodiscard]] int call_count() const noexcept { return call_count_; }
+    [[nodiscard]] int last_prepared_width() const noexcept { return last_prepared_width_; }
+    [[nodiscard]] int last_prepared_height() const noexcept { return last_prepared_height_; }
+    [[nodiscard]] int64_t last_prepared_stride() const noexcept { return last_prepared_stride_; }
+    [[nodiscard]] PixelFormat last_format() const noexcept { return last_format_; }
+    [[nodiscard]] std::byte last_first_pixel() const noexcept { return last_first_pixel_; }
+    [[nodiscard]] std::byte last_last_pixel() const noexcept { return last_last_pixel_; }
+    [[nodiscard]] const OcrBatchRequest& last_request() const noexcept { return last_request_; }
+
+private:
     [[nodiscard]] OcrBatchResult synthesized_result(int width, int height) const {
         OcrBatchResult result;
-        const RectF bounds = emit_central_box
+        const RectF bounds = emit_central_box_
                                  ? RectF{static_cast<float>(width) * 0.25F, static_cast<float>(height) * 0.25F,
                                          static_cast<float>(width) * 0.50F, static_cast<float>(height) * 0.50F}
                                  : RectF{0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height)};
@@ -214,6 +233,20 @@ struct FakeBudgetedOcrBackend final : BudgetedOcrBackend {
         result.completion = OcrBatchCompletion::kComplete;
         return result;
     }
+
+    BackendInfo info_value_;
+    int call_count_ = 0;
+    Status next_status_;
+    std::optional<OcrBatchResult> next_result_;
+    bool emit_central_box_ = false;
+    // Observations of the last call.
+    int last_prepared_width_ = 0;
+    int last_prepared_height_ = 0;
+    int64_t last_prepared_stride_ = 0;
+    PixelFormat last_format_ = PixelFormat::kRgba8;
+    std::byte last_first_pixel_{};
+    std::byte last_last_pixel_{};
+    OcrBatchRequest last_request_;
 };
 
 /// Raw capture dimensions behind a view presented with `rotation`.
@@ -224,22 +257,26 @@ std::pair<int32_t, int32_t> raw_dims(Rotation rotation, int32_t view_width, int3
     return {view_width, view_height};
 }
 
-/// Shared rotation matrix body (AC8-07): a full-frame run recovers the
-/// prepared full area to the executed ROI; central-half runs recover to the
-/// oriented view, raw frame and crop-local spaces of an ROI crop.
-void check_rotation_recovery(Rotation rotation, int32_t view_width, int32_t view_height, const RectF& oriented_roi) {
-    PerceptionSession session = make_session();
-    FakeBudgetedOcrBackend backend;
-    const auto [raw_width, raw_height] = raw_dims(rotation, view_width, view_height);
-    const TestFrame image = make_frame(view_width, view_height, view_width * 4 + 13, PixelFormat::kRgba8, rotation);
+// AC8-07 rotation matrix legs. Each leg issues its own request and asserts one
+// recovery path; expectations derive from the executed (clamped) pixel ROI.
 
-    // Full frame, kOriented: the prepared area maps back to the executed ROI.
+/// Shared observation asserts: the fake recorded this call count and these
+/// prepared dimensions for the leg's single backend call.
+void check_backend_observed(const FakeBudgetedOcrBackend& backend, int expected_calls, int expected_width,
+                            int expected_height) {
+    EXPECT_EQ(backend.call_count(), expected_calls);
+    EXPECT_EQ(backend.last_prepared_width(), expected_width);
+    EXPECT_EQ(backend.last_prepared_height(), expected_height);
+}
+
+/// Leg 1, full frame in kOriented: the prepared full area maps back to the
+/// executed ROI (the whole view).
+void check_full_frame_orients_to_roi(const PerceptionSession& session, FakeBudgetedOcrBackend& backend,
+                                     const Frame& frame, Rotation rotation, int32_t view_width, int32_t view_height) {
     const BudgetedOcrRequest full_request = valid_request();
-    const auto full = session.run_ocr_budgeted(image.frame, &backend, full_request);
+    const auto full = session.run_ocr_budgeted(frame, &backend, full_request);
     ASSERT_TRUE(full.ok()) << "rotation " << static_cast<int>(rotation);
-    EXPECT_EQ(backend.call_count, 1);
-    EXPECT_EQ(backend.last_prepared_width, view_width);
-    EXPECT_EQ(backend.last_prepared_height, view_height);
+    check_backend_observed(backend, 1, view_width, view_height);
     const RectI full_roi{0, 0, view_width, view_height};
     EXPECT_EQ(full.value().executed_roi, full_roi);
     ASSERT_EQ(full.value().batch.lines.size(), 1U);
@@ -247,46 +284,74 @@ void check_rotation_recovery(Rotation rotation, int32_t view_width, int32_t view
                      RectF{0.0F, 0.0F, static_cast<float>(view_width), static_cast<float>(view_height)}, kCoordTol);
     EXPECT_EQ(full.value().output_space, CoordinateSpaceId::kOriented);
     EXPECT_EQ(full.value().geometry_space, CoordinateSpaceId::kOriented);
+}
 
-    // ROI crop, central-half bounds recovered to kOriented, kFrame and
-    // kCropped. Expectations derive from the executed (clamped) ROI.
-    backend.emit_central_box = true;
+/// Leg 2, ROI crop in kOriented: central-half prepared bounds recover to the
+/// central quarter of the executed ROI, which is reported to the caller legs.
+void check_central_box_orients_to_roi(const PerceptionSession& session, FakeBudgetedOcrBackend& backend,
+                                      const Frame& frame, const RectF& oriented_roi, Rotation rotation,
+                                      RectI& executed) {
+    backend.set_emit_central_box(true);
     BudgetedOcrRequest roi_request = valid_request();
     roi_request.roi = oriented_roi;
-    const auto central = session.run_ocr_budgeted(image.frame, &backend, roi_request);
+    const auto central = session.run_ocr_budgeted(frame, &backend, roi_request);
     ASSERT_TRUE(central.ok()) << "rotation " << static_cast<int>(rotation);
-    const RectI executed = central.value().executed_roi;
-    const RectF expected_oriented{static_cast<float>(executed.x) + static_cast<float>(executed.width) * 0.25F,
-                                  static_cast<float>(executed.y) + static_cast<float>(executed.height) * 0.25F,
-                                  static_cast<float>(executed.width) * 0.50F,
-                                  static_cast<float>(executed.height) * 0.50F};
+    executed = central.value().executed_roi;
     ASSERT_EQ(central.value().batch.lines.size(), 1U);
-    expect_rect_near(central.value().batch.lines[0].bounds, expected_oriented, kCoordTol);
+    expect_rect_near(central.value().batch.lines[0].bounds, central_quarter_of(executed), kCoordTol);
+}
 
-    BudgetedOcrRequest frame_request = roi_request;
+/// Leg 3, same ROI crop recovered into raw frame coordinates.
+void check_central_box_recovers_to_frame(const PerceptionSession& session, FakeBudgetedOcrBackend& backend,
+                                         const Frame& frame, const RectF& oriented_roi, Rotation rotation,
+                                         int32_t raw_width, int32_t raw_height, const RectI& executed) {
+    BudgetedOcrRequest frame_request = valid_request();
+    frame_request.roi = oriented_roi;
     frame_request.output_space = CoordinateSpaceId::kFrame;
-    const auto in_frame = session.run_ocr_budgeted(image.frame, &backend, frame_request);
+    const auto in_frame = session.run_ocr_budgeted(frame, &backend, frame_request);
     ASSERT_TRUE(in_frame.ok()) << "rotation " << static_cast<int>(rotation);
     const Transform2D oriented_to_frame =
         mirador::inverse(mirador::make_rotation(rotation, raw_width, raw_height, CoordinateSpaceId::kFrame,
                                                 CoordinateSpaceId::kOriented))
             .value();
-    const RectF expected_frame = mirador::transform_rect(oriented_to_frame, expected_oriented);
+    const RectF expected_frame = mirador::transform_rect(oriented_to_frame, central_quarter_of(executed));
     ASSERT_EQ(in_frame.value().batch.lines.size(), 1U);
     expect_rect_near(in_frame.value().batch.lines[0].bounds, expected_frame, kCoordTol);
     EXPECT_EQ(in_frame.value().output_space, CoordinateSpaceId::kFrame);
     EXPECT_EQ(in_frame.value().geometry_space, CoordinateSpaceId::kFrame);
+}
 
-    BudgetedOcrRequest cropped_request = roi_request;
+/// Leg 4, same ROI crop recovered into crop-local coordinates.
+void check_central_box_recovers_to_crop(const PerceptionSession& session, FakeBudgetedOcrBackend& backend,
+                                        const Frame& frame, const RectF& oriented_roi, Rotation rotation,
+                                        const RectI& executed) {
+    BudgetedOcrRequest cropped_request = valid_request();
+    cropped_request.roi = oriented_roi;
     cropped_request.output_space = CoordinateSpaceId::kCropped;
-    const auto in_crop = session.run_ocr_budgeted(image.frame, &backend, cropped_request);
+    const auto in_crop = session.run_ocr_budgeted(frame, &backend, cropped_request);
     ASSERT_TRUE(in_crop.ok()) << "rotation " << static_cast<int>(rotation);
-    const RectF expected_cropped{
-        static_cast<float>(executed.width) * 0.25F, static_cast<float>(executed.height) * 0.25F,
-        static_cast<float>(executed.width) * 0.50F, static_cast<float>(executed.height) * 0.50F};
+    const RectF expected_cropped = central_quarter_of(RectI{0, 0, executed.width, executed.height});
     ASSERT_EQ(in_crop.value().batch.lines.size(), 1U);
     expect_rect_near(in_crop.value().batch.lines[0].bounds, expected_cropped, kCoordTol);
     EXPECT_EQ(in_crop.value().geometry_space, CoordinateSpaceId::kCropped);
+}
+
+/// Shared rotation matrix body (AC8-07): a full-frame run recovers the
+/// prepared full area to the executed ROI; central-half runs recover to the
+/// oriented view, raw frame and crop-local spaces of an ROI crop.
+void check_rotation_recovery(Rotation rotation, int32_t view_width, int32_t view_height, const RectF& oriented_roi) {
+    const PerceptionSession session = make_session();
+    FakeBudgetedOcrBackend backend;
+    const auto [raw_width, raw_height] = raw_dims(rotation, view_width, view_height);
+    const TestFrame image = make_frame(view_width, view_height, view_width * 4 + 13, PixelFormat::kRgba8, rotation);
+    const Frame& frame = image.frame;
+
+    check_full_frame_orients_to_roi(session, backend, frame, rotation, view_width, view_height);
+    RectI executed;
+    check_central_box_orients_to_roi(session, backend, frame, oriented_roi, rotation, executed);
+    check_central_box_recovers_to_frame(session, backend, frame, oriented_roi, rotation, raw_width, raw_height,
+                                        executed);
+    check_central_box_recovers_to_crop(session, backend, frame, oriented_roi, rotation, executed);
 }
 
 // --- Entry gating -------------------------------------------------------------------
@@ -301,7 +366,7 @@ TEST(BudgetedEntryGating, NullBackendReportsUnavailable) {
 }
 
 TEST(BudgetedEntryGating, CancelledContextFailsAtEntryWithZeroBackendCalls) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -310,11 +375,11 @@ TEST(BudgetedEntryGating, CancelledContextFailsAtEntryWithZeroBackendCalls) {
     const auto result = session.run_ocr_budgeted(image.frame, &backend, valid_request(), context);
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kCancelled);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 TEST(BudgetedEntryGating, ExpiredDeadlineFailsAtEntryWithZeroBackendCalls) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -323,11 +388,11 @@ TEST(BudgetedEntryGating, ExpiredDeadlineFailsAtEntryWithZeroBackendCalls) {
     const auto result = session.run_ocr_budgeted(image.frame, &backend, valid_request(), context);
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kTimeout);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 TEST(BudgetedEntryGating, CancellationBeatsSimultaneouslyExpiredDeadline) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -337,21 +402,21 @@ TEST(BudgetedEntryGating, CancellationBeatsSimultaneouslyExpiredDeadline) {
     const auto result = session.run_ocr_budgeted(image.frame, &backend, valid_request(), context);
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kCancelled);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 TEST(BudgetedEntryGating, ForeignSourceFrameIsRejected) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0, "other-window");
     const auto result = session.run_ocr_budgeted(image.frame, &backend, valid_request());
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kInvalidArgument);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 TEST(BudgetedEntryGating, FinalizeReserveRequiresAContextDeadline) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -360,18 +425,18 @@ TEST(BudgetedEntryGating, FinalizeReserveRequiresAContextDeadline) {
     const auto without_deadline = session.run_ocr_budgeted(image.frame, &backend, unpaired);
     ASSERT_FALSE(without_deadline.ok());
     EXPECT_EQ(without_deadline.status().code(), ErrorCode::kInvalidArgument);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 
     // With a hard deadline present the pairing is valid and the run executes.
     ExecutionContext context;
     context.deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
     const auto with_deadline = session.run_ocr_budgeted(image.frame, &backend, unpaired, context);
     ASSERT_TRUE(with_deadline.ok());
-    EXPECT_EQ(backend.call_count, 1);
+    EXPECT_EQ(backend.call_count(), 1);
 }
 
 TEST(BudgetedEntryGating, InvalidPrioritySpaceIsRejected) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -380,11 +445,11 @@ TEST(BudgetedEntryGating, InvalidPrioritySpaceIsRejected) {
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request);
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kInvalidArgument);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 TEST(BudgetedEntryGating, NonPositiveRecLineBudgetIsRejectedBeforeTheBackend) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -399,11 +464,11 @@ TEST(BudgetedEntryGating, NonPositiveRecLineBudgetIsRejectedBeforeTheBackend) {
     const auto negative_result = session.run_ocr_budgeted(image.frame, &backend, negative);
     ASSERT_FALSE(negative_result.ok());
     EXPECT_EQ(negative_result.status().code(), ErrorCode::kInvalidArgument);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 TEST(BudgetedEntryGating, NegativeSoftBudgetIsRejectedBeforeTheBackend) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -412,11 +477,11 @@ TEST(BudgetedEntryGating, NegativeSoftBudgetIsRejectedBeforeTheBackend) {
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request);
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kInvalidArgument);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 TEST(BudgetedEntryGating, TooManyPrioritiesIsRejectedBeforeTheBackend) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -425,24 +490,24 @@ TEST(BudgetedEntryGating, TooManyPrioritiesIsRejectedBeforeTheBackend) {
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request);
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kBudgetExceeded);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 TEST(BudgetedEntryGating, InvalidBackendInfoReportsUnavailable) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
-    backend.info_value.name.clear();
+    backend.clear_info_name();
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
     const auto result = session.run_ocr_budgeted(image.frame, &backend, valid_request());
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kBackendUnavailable);
-    EXPECT_EQ(backend.call_count, 0);
+    EXPECT_EQ(backend.call_count(), 0);
 }
 
 // --- Report enforcement ---------------------------------------------------------------
 
 TEST(BudgetedReportEnforcement, InconsistentBackendReportFailsTheSession) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     // Count conservation violation: two detected lines claimed, one reported.
     OcrBatchResult inconsistent;
@@ -452,13 +517,13 @@ TEST(BudgetedReportEnforcement, InconsistentBackendReportFailsTheSession) {
     inconsistent.rec_forward_count = 1;
     inconsistent.stop_reason = OcrBatchStopReason::kCompleted;
     inconsistent.completion = OcrBatchCompletion::kComplete;
-    backend.next_result = inconsistent;
+    backend.set_next_result(inconsistent);
 
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
     const auto result = session.run_ocr_budgeted(image.frame, &backend, valid_request());
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kBackendFailure);
-    EXPECT_EQ(backend.call_count, 1);  // executed, then rejected at the boundary
+    EXPECT_EQ(backend.call_count(), 1);  // executed, then rejected at the boundary
 }
 
 TEST(BudgetedReportEnforcement, ReportOverMaxReportBytesFailsWithBudgetExceeded) {
@@ -471,19 +536,19 @@ TEST(BudgetedReportEnforcement, ReportOverMaxReportBytesFailsWithBudgetExceeded)
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request);
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kBudgetExceeded);
-    EXPECT_EQ(backend.call_count, 1);
+    EXPECT_EQ(backend.call_count(), 1);
     EXPECT_EQ(session.result_cache().entry_count(), 0U);
 }
 
 TEST(BudgetedReportEnforcement, BackendFailurePropagates) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
-    backend.next_status = Status(ErrorCode::kBackendFailure, "fake budgeted inference failed");
+    backend.set_next_status(Status(ErrorCode::kBackendFailure, "fake budgeted inference failed"));
     const TestFrame image = make_frame(40, 30, 40 * 4, PixelFormat::kRgba8, Rotation::k0);
     const auto result = session.run_ocr_budgeted(image.frame, &backend, valid_request());
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.status().code(), ErrorCode::kBackendFailure);
-    EXPECT_EQ(backend.call_count, 1);
+    EXPECT_EQ(backend.call_count(), 1);
 }
 
 // --- Coordinate recovery matrix (AC8-07) -----------------------------------------------
@@ -507,29 +572,29 @@ TEST(BudgetedCoordinateRecovery, Rotation270RecoversToOrientedFrameAndCrop) {
 }
 
 TEST(BudgetedCoordinateRecovery, OddSizeWithPaddedStrideKeepsGeometryAndPixelsExact) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     // 33x17 RGBA view, row stride padded to 145 bytes (>= 132 minimum).
     const TestFrame image = make_frame(33, 17, 145, PixelFormat::kRgba8, Rotation::k0);
 
     const auto full = session.run_ocr_budgeted(image.frame, &backend, valid_request());
     ASSERT_TRUE(full.ok());
-    EXPECT_EQ(backend.last_prepared_width, 33);
-    EXPECT_EQ(backend.last_prepared_height, 17);
-    EXPECT_EQ(backend.last_format, PixelFormat::kRgba8);
+    EXPECT_EQ(backend.last_prepared_width(), 33);
+    EXPECT_EQ(backend.last_prepared_height(), 17);
+    EXPECT_EQ(backend.last_format(), PixelFormat::kRgba8);
     // Distinguishable pixels prove the crop read real pixels, not padding.
-    EXPECT_EQ(backend.last_first_pixel, pattern_byte(0, 0, 0, 0));
-    EXPECT_EQ(backend.last_last_pixel, pattern_byte(32, 16, 0, 0));
+    EXPECT_EQ(backend.last_first_pixel(), pattern_byte(0, 0, 0, 0));
+    EXPECT_EQ(backend.last_last_pixel(), pattern_byte(32, 16, 0, 0));
     ASSERT_EQ(full.value().batch.lines.size(), 1U);
     expect_rect_near(full.value().batch.lines[0].bounds, RectF{0.0F, 0.0F, 33.0F, 17.0F}, kCoordTol);
 
-    backend.emit_central_box = true;
+    backend.set_emit_central_box(true);
     BudgetedOcrRequest roi_request = valid_request();
     roi_request.roi = RectF{5.0F, 4.0F, 21.0F, 9.0F};
     const auto central = session.run_ocr_budgeted(image.frame, &backend, roi_request);
     ASSERT_TRUE(central.ok());
-    EXPECT_EQ(backend.last_prepared_width, 21);
-    EXPECT_EQ(backend.last_prepared_height, 9);
+    EXPECT_EQ(backend.last_prepared_width(), 21);
+    EXPECT_EQ(backend.last_prepared_height(), 9);
     ASSERT_EQ(central.value().batch.lines.size(), 1U);
     expect_rect_near(central.value().batch.lines[0].bounds, RectF{10.25F, 6.25F, 10.5F, 4.5F}, kCoordTol);
 
@@ -542,13 +607,13 @@ TEST(BudgetedCoordinateRecovery, OddSizeWithPaddedStrideKeepsGeometryAndPixelsEx
 }
 
 TEST(BudgetedCoordinateRecovery, FractionalRoiClampsAndRecoversExactly) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(64, 48, 64 * 4, PixelFormat::kRgba8, Rotation::k0);
 
     BudgetedOcrRequest request = valid_request();
     request.roi = RectF{5.5F, 3.25F, 20.5F, 11.75F};
-    backend.emit_central_box = true;
+    backend.set_emit_central_box(true);
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request);
     ASSERT_TRUE(result.ok());
     // The executed ROI is the enclosing integer rect clamped to the view.
@@ -560,7 +625,7 @@ TEST(BudgetedCoordinateRecovery, FractionalRoiClampsAndRecoversExactly) {
 }
 
 TEST(BudgetedCoordinateRecovery, MaxSideScalingRecoversExactly) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(64, 48, 64 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -570,25 +635,25 @@ TEST(BudgetedCoordinateRecovery, MaxSideScalingRecoversExactly) {
     scaled.max_side = 16;
     const auto full = session.run_ocr_budgeted(image.frame, &backend, scaled);
     ASSERT_TRUE(full.ok());
-    EXPECT_EQ(backend.last_prepared_width, 16);
-    EXPECT_EQ(backend.last_prepared_height, 12);
+    EXPECT_EQ(backend.last_prepared_width(), 16);
+    EXPECT_EQ(backend.last_prepared_height(), 12);
     ASSERT_EQ(full.value().batch.lines.size(), 1U);
     expect_rect_near(full.value().batch.lines[0].bounds, RectF{0.0F, 0.0F, 64.0F, 48.0F}, kCoordTol);
 
     // ROI 30x40 downscaled to 12x16 (long edge 40 -> 16).
     BudgetedOcrRequest roi_scaled = scaled;
     roi_scaled.roi = RectF{10.0F, 8.0F, 30.0F, 40.0F};
-    backend.emit_central_box = true;
+    backend.set_emit_central_box(true);
     const auto central = session.run_ocr_budgeted(image.frame, &backend, roi_scaled);
     ASSERT_TRUE(central.ok());
-    EXPECT_EQ(backend.last_prepared_width, 12);
-    EXPECT_EQ(backend.last_prepared_height, 16);
+    EXPECT_EQ(backend.last_prepared_width(), 12);
+    EXPECT_EQ(backend.last_prepared_height(), 16);
     ASSERT_EQ(central.value().batch.lines.size(), 1U);
     expect_rect_near(central.value().batch.lines[0].bounds, RectF{17.5F, 18.0F, 15.0F, 20.0F}, kCoordTol);
 }
 
 TEST(BudgetedCoordinateRecovery, FrameSpaceRoiExecutesTheRotatedCrop) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     // Raw 100x80 capture, presented 80x100 (k90).
     const TestFrame image = make_frame(80, 100, 80 * 4, PixelFormat::kRgba8, Rotation::k90);
@@ -601,8 +666,8 @@ TEST(BudgetedCoordinateRecovery, FrameSpaceRoiExecutesTheRotatedCrop) {
     // The executed ROI covers the whole oriented view.
     const RectI whole_view{0, 0, 80, 100};
     EXPECT_EQ(result.value().executed_roi, whole_view);
-    EXPECT_EQ(backend.last_prepared_width, 80);
-    EXPECT_EQ(backend.last_prepared_height, 100);
+    EXPECT_EQ(backend.last_prepared_width(), 80);
+    EXPECT_EQ(backend.last_prepared_height(), 100);
     ASSERT_EQ(result.value().batch.lines.size(), 1U);
     expect_rect_near(result.value().batch.lines[0].bounds, RectF{0.0F, 0.0F, 80.0F, 100.0F}, kCoordTol);
 }
@@ -610,7 +675,7 @@ TEST(BudgetedCoordinateRecovery, FrameSpaceRoiExecutesTheRotatedCrop) {
 // --- Priority space conversion ---------------------------------------------------------
 
 TEST(BudgetedPrioritySpaces, OrientedPrioritiesAreConvertedIntoCropSpace) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(64, 48, 64 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -620,14 +685,14 @@ TEST(BudgetedPrioritySpaces, OrientedPrioritiesAreConvertedIntoCropSpace) {
     request.priorities = {OcrPriorityEntry{RectF{12.0F, 6.0F, 5.0F, 6.0F}, 0.7F}};
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request);
     ASSERT_TRUE(result.ok());
-    ASSERT_EQ(backend.last_request.priorities.size(), 1U);
+    ASSERT_EQ(backend.last_request().priorities.size(), 1U);
     // Prepared space is the crop shifted by the ROI origin (no max_side here).
-    expect_rect_near(backend.last_request.priorities[0].roi, RectF{2.0F, 2.0F, 5.0F, 6.0F}, kCoordTol);
-    EXPECT_FLOAT_EQ(backend.last_request.priorities[0].priority, 0.7F);
+    expect_rect_near(backend.last_request().priorities[0].roi, RectF{2.0F, 2.0F, 5.0F, 6.0F}, kCoordTol);
+    EXPECT_FLOAT_EQ(backend.last_request().priorities[0].priority, 0.7F);
 }
 
 TEST(BudgetedPrioritySpaces, FramePrioritiesAreConvertedThroughRotationAndCrop) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     // Raw 100x80 capture, presented 80x100 (k90).
     const TestFrame image = make_frame(80, 100, 80 * 4, PixelFormat::kRgba8, Rotation::k90);
@@ -647,12 +712,12 @@ TEST(BudgetedPrioritySpaces, FramePrioritiesAreConvertedThroughRotationAndCrop) 
         RectF{10.0F, 20.0F, 30.0F, 40.0F}, CoordinateSpaceId::kOriented, CoordinateSpaceId::kCropped);
     const Transform2D frame_to_prepared = mirador::compose(frame_to_oriented, oriented_to_prepared).value();
     const RectF expected = mirador::transform_rect(frame_to_prepared, RectF{0.0F, 0.0F, 100.0F, 80.0F});
-    ASSERT_EQ(backend.last_request.priorities.size(), 1U);
-    expect_rect_near(backend.last_request.priorities[0].roi, expected, kCoordTol);
+    ASSERT_EQ(backend.last_request().priorities.size(), 1U);
+    expect_rect_near(backend.last_request().priorities[0].roi, expected, kCoordTol);
 }
 
 TEST(BudgetedPrioritySpaces, PrioritiesFollowTheMaxSideScaleIntoPreparedSpace) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(64, 48, 64 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -663,8 +728,8 @@ TEST(BudgetedPrioritySpaces, PrioritiesFollowTheMaxSideScaleIntoPreparedSpace) {
     request.priorities = {OcrPriorityEntry{RectF{12.0F, 10.0F, 5.0F, 6.0F}, 0.7F}};
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request);
     ASSERT_TRUE(result.ok());
-    EXPECT_EQ(backend.last_prepared_width, 12);
-    EXPECT_EQ(backend.last_prepared_height, 16);
+    EXPECT_EQ(backend.last_prepared_width(), 12);
+    EXPECT_EQ(backend.last_prepared_height(), 16);
 
     const Transform2D oriented_to_prepared =
         mirador::compose(
@@ -673,12 +738,12 @@ TEST(BudgetedPrioritySpaces, PrioritiesFollowTheMaxSideScaleIntoPreparedSpace) {
             mirador::make_scale(12.0 / 30.0, 16.0 / 40.0, CoordinateSpaceId::kCropped, CoordinateSpaceId::kModelInput))
             .value();
     const RectF expected = mirador::transform_rect(oriented_to_prepared, RectF{12.0F, 10.0F, 5.0F, 6.0F});
-    ASSERT_EQ(backend.last_request.priorities.size(), 1U);
-    expect_rect_near(backend.last_request.priorities[0].roi, expected, kCoordTol);
+    ASSERT_EQ(backend.last_request().priorities.size(), 1U);
+    expect_rect_near(backend.last_request().priorities[0].roi, expected, kCoordTol);
 }
 
 TEST(BudgetedPrioritySpaces, ReportDigestMatchesTheEffectiveBackendRequest) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(64, 48, 64 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -687,13 +752,13 @@ TEST(BudgetedPrioritySpaces, ReportDigestMatchesTheEffectiveBackendRequest) {
     request.priorities = {OcrPriorityEntry{RectF{12.0F, 6.0F, 5.0F, 6.0F}, 0.7F}};
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request);
     ASSERT_TRUE(result.ok());
-    EXPECT_EQ(result.value().request_digest, mirador::ocr_batch_request_params_digest(backend.last_request));
+    EXPECT_EQ(result.value().request_digest, mirador::ocr_batch_request_params_digest(backend.last_request()));
 }
 
 // --- Backend field pass-through ---------------------------------------------------------
 
 TEST(BudgetedPassThrough, BackendFieldsAndBudgetKnobsAreForwarded) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(64, 48, 64 * 4, PixelFormat::kRgba8, Rotation::k0);
 
@@ -706,24 +771,25 @@ TEST(BudgetedPassThrough, BackendFieldsAndBudgetKnobsAreForwarded) {
     request.soft_budget = std::chrono::milliseconds{200};
     request.finalize_reserve = std::chrono::milliseconds{300};
     request.max_priority_entries = 32;
-    request.max_priority_bytes = 32 * 1024;
-    request.max_report_bytes = 1024 * 1024;
+    request.max_priority_bytes = int64_t{32} * 1024;
+    request.max_report_bytes = int64_t{1024} * 1024;
 
     ExecutionContext context;
     context.deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);  // finalize pairing
     const auto result = session.run_ocr_budgeted(image.frame, &backend, request, context);
     ASSERT_TRUE(result.ok());
 
-    const OcrBatchRequest& seen = backend.last_request;
+    const OcrBatchRequest& seen = backend.last_request();
     EXPECT_EQ(seen.language_hint, "zh-Hans");
     EXPECT_FLOAT_EQ(seen.min_confidence, 0.35F);
     EXPECT_EQ(seen.backend_params, "{\"beam\":4}");
     EXPECT_EQ(seen.max_rec_lines, 7);
     EXPECT_EQ(seen.selection, OcrSelectionStrategy::kDetScore);
-    ASSERT_TRUE(seen.soft_budget.has_value());
-    EXPECT_EQ(*seen.soft_budget, std::chrono::milliseconds{200});
-    ASSERT_TRUE(seen.finalize_reserve.has_value());
-    EXPECT_EQ(*seen.finalize_reserve, std::chrono::milliseconds{300});
+    // Optional fields compared whole: the exact forwarded duration or absence
+    // is a mismatch either way (no unchecked dereference needed).
+    using steady_duration = std::chrono::steady_clock::duration;
+    EXPECT_EQ(seen.soft_budget, std::optional<steady_duration>(std::chrono::milliseconds{200}));
+    EXPECT_EQ(seen.finalize_reserve, std::optional<steady_duration>(std::chrono::milliseconds{300}));
     EXPECT_EQ(seen.max_priority_entries, 32);
     EXPECT_EQ(seen.max_priority_bytes, 32 * 1024);
     EXPECT_EQ(seen.max_report_bytes, 1024 * 1024);
@@ -741,14 +807,14 @@ TEST(BudgetedCacheIsolation, BudgetedEntryNeverTouchesTheResultCache) {
 
     const auto first = session.run_ocr_budgeted(image.frame, &backend, valid_request());
     ASSERT_TRUE(first.ok());
-    EXPECT_EQ(backend.call_count, 1);
+    EXPECT_EQ(backend.call_count(), 1);
     EXPECT_EQ(session.result_cache().entry_count(), 0U);
     EXPECT_EQ(session.result_cache().byte_size(), 0);
 
     // A repeated identical budgeted call re-executes: nothing was stored.
     const auto second = session.run_ocr_budgeted(image.frame, &backend, valid_request());
     ASSERT_TRUE(second.ok());
-    EXPECT_EQ(backend.call_count, 2);
+    EXPECT_EQ(backend.call_count(), 2);
     EXPECT_EQ(session.result_cache().entry_count(), 0U);
     EXPECT_EQ(session.result_cache().byte_size(), 0);
 }
@@ -764,15 +830,15 @@ TEST(BudgetedCacheIsolation, LegacyRunOcrCacheIsUnaffectedByBudgetedCalls) {
     const auto seeded = session.run_ocr(image.frame, &legacy, legacy_request);
     ASSERT_TRUE(seeded.ok());
     ASSERT_EQ(session.result_cache().entry_count(), 1U);
-    const int64_t cached_bytes = session.result_cache().byte_size();
+    const auto cached_bytes = session.result_cache().byte_size();
 
     // Budgeted calls neither read nor write that cache.
     const auto budgeted_first = session.run_ocr_budgeted(image.frame, &budgeted, valid_request());
     ASSERT_TRUE(budgeted_first.ok());
-    EXPECT_EQ(budgeted.call_count, 1);
+    EXPECT_EQ(budgeted.call_count(), 1);
     const auto budgeted_second = session.run_ocr_budgeted(image.frame, &budgeted, valid_request());
     ASSERT_TRUE(budgeted_second.ok());
-    EXPECT_EQ(budgeted.call_count, 2);  // re-executed, not served from the cache
+    EXPECT_EQ(budgeted.call_count(), 2);  // re-executed, not served from the cache
     EXPECT_EQ(session.result_cache().entry_count(), 1U);
     EXPECT_EQ(session.result_cache().byte_size(), cached_bytes);
 
@@ -786,7 +852,7 @@ TEST(BudgetedCacheIsolation, LegacyRunOcrCacheIsUnaffectedByBudgetedCalls) {
 // --- Report binding -----------------------------------------------------------------------
 
 TEST(BudgetedReportBinding, ReportBindsSourceFrameRoiAndBackendIdentity) {
-    PerceptionSession session = make_session();
+    const PerceptionSession session = make_session();
     FakeBudgetedOcrBackend backend;
     const TestFrame image = make_frame(64, 48, 64 * 4, PixelFormat::kRgba8, Rotation::k0, kSourceId, 42);
 

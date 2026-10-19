@@ -19,6 +19,7 @@
 #include <mirador/frame.hpp>
 #include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
+#include <mirador/ocr_backend.hpp>
 #include <mirador/ocr_batch.hpp>
 #include <mirador/perception_session.hpp>
 #include <mirador/pixel_format.hpp>
@@ -26,13 +27,17 @@
 #include <mirador/status.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -109,7 +114,7 @@ void draw_line(mirador::ImageBuffer& scene, const LineSpec& line, uint64_t seed)
     for (int32_t block = 0; block < block_count; ++block) {
         const int32_t bx = line.x + block * (line.width / block_count);
         const int32_t bw = std::max(2, line.width / block_count - 4);
-        const uint8_t shade = static_cast<uint8_t>(30 + rng.next() % 120U);
+        const auto shade = static_cast<uint8_t>(30 + rng.next() % 120U);
         for (int32_t y = line.y; y < line.y + line.height; ++y) {
             if (y < 0 || y >= kSceneHeight) {
                 continue;
@@ -221,90 +226,96 @@ void print_usage() {
         "5 backend failure during measurement.\n");
 }
 
+/// Outcome of one option-table scan over argv[i].
+enum class ConsumeResult : uint8_t { kConsumed, kNoMatch, kMissingValue };
+
+std::string identity_string(const char* value) {
+    return value;
+}
+
+int32_t parse_int32(const char* value) {
+    return std::atoi(value);
+}
+
+int64_t parse_int64(const char* value) {
+    return std::atoll(value);
+}
+
+/// Scans one option table for argv[i]; on a match, parses and stores the next
+/// argument into the bound field and advances `i` past it.
+template <typename T, size_t N>
+ConsumeResult scan_option_table(char** argv, int& i, int argc, Options& options,
+                                const std::array<std::pair<const char*, T Options::*>, N>& table,
+                                T (*parse)(const char*)) {
+    for (const auto& entry : table) {
+        if (std::strcmp(argv[i], entry.first) != 0) {
+            continue;
+        }
+        if (i + 1 >= argc) {
+            return ConsumeResult::kMissingValue;
+        }
+        options.*(entry.second) = parse(argv[++i]);
+        return ConsumeResult::kConsumed;
+    }
+    return ConsumeResult::kNoMatch;
+}
+
+const std::array<std::pair<const char*, std::string Options::*>, 10>& string_options() noexcept {
+    static const std::array<std::pair<const char*, std::string Options::*>, 10> table = {{
+        {"--det-param", &Options::det_param},
+        {"--det-bin", &Options::det_bin},
+        {"--rec-param", &Options::rec_param},
+        {"--rec-bin", &Options::rec_bin},
+        {"--charset", &Options::charset},
+        {"--model-id", &Options::model_id},
+        {"--model-revision", &Options::model_revision},
+        {"--scenario", &Options::scenario},
+        {"--mode", &Options::mode},
+        {"--csv", &Options::csv_path},
+    }};
+    return table;
+}
+
+const std::array<std::pair<const char*, int32_t Options::*>, 7>& int32_options() noexcept {
+    static const std::array<std::pair<const char*, int32_t Options::*>, 7> table = {{
+        {"--sparse-n", &Options::sparse_n},
+        {"--det-threads", &Options::det_threads},
+        {"--rec-threads", &Options::rec_threads},
+        {"--max-boxes", &Options::max_boxes},
+        {"--k", &Options::k},
+        {"--warmup", &Options::warmup},
+        {"--iterations", &Options::iterations},
+    }};
+    return table;
+}
+
+const std::array<std::pair<const char*, int64_t Options::*>, 2>& int64_options() noexcept {
+    static const std::array<std::pair<const char*, int64_t Options::*>, 2> table = {{
+        {"--soft-budget-ms", &Options::soft_budget_ms},
+        {"--finalize-reserve-ms", &Options::finalize_reserve_ms},
+    }};
+    return table;
+}
+
 bool parse_args(int argc, char** argv, Options& options) {
     for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
-        if (arg == "--det-param") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.det_param = v;
-        } else if (arg == "--det-bin") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.det_bin = v;
-        } else if (arg == "--rec-param") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.rec_param = v;
-        } else if (arg == "--rec-bin") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.rec_bin = v;
-        } else if (arg == "--charset") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.charset = v;
-        } else if (arg == "--model-id") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.model_id = v;
-        } else if (arg == "--model-revision") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.model_revision = v;
-        } else if (arg == "--scenario") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.scenario = v;
-        } else if (arg == "--sparse-n") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.sparse_n = std::atoi(v);
-        } else if (arg == "--mode") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.mode = v;
-        } else if (arg == "--csv") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.csv_path = v;
-        } else if (arg == "--det-threads") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.det_threads = std::atoi(v);
-        } else if (arg == "--rec-threads") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.rec_threads = std::atoi(v);
-        } else if (arg == "--max-boxes") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.max_boxes = std::atoi(v);
-        } else if (arg == "--k") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.k = std::atoi(v);
-        } else if (arg == "--soft-budget-ms") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.soft_budget_ms = std::atoll(v);
-        } else if (arg == "--finalize-reserve-ms") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.finalize_reserve_ms = std::atoll(v);
-        } else if (arg == "--warmup") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.warmup = std::atoi(v);
-        } else if (arg == "--iterations") {
-            const char* v = next();
-            if (v == nullptr) return false;
-            options.iterations = std::atoi(v);
-        } else if (arg == "--compare-baseline") {
-            options.compare_baseline = true;
-        } else {
-            std::printf("unknown argument: %s\n", arg.c_str());
+        ConsumeResult result = scan_option_table(argv, i, argc, options, string_options(), identity_string);
+        if (result == ConsumeResult::kNoMatch) {
+            result = scan_option_table(argv, i, argc, options, int32_options(), parse_int32);
+        }
+        if (result == ConsumeResult::kNoMatch) {
+            result = scan_option_table(argv, i, argc, options, int64_options(), parse_int64);
+        }
+        if (result == ConsumeResult::kNoMatch) {
+            if (std::strcmp(argv[i], "--compare-baseline") == 0) {
+                options.compare_baseline = true;
+                continue;
+            }
+            std::printf("unknown argument: %s\n", argv[i]);
+            return false;
+        }
+        if (result == ConsumeResult::kMissingValue) {
+            std::printf("missing value for argument: %s\n", argv[i]);
             return false;
         }
     }
@@ -372,6 +383,199 @@ mirador::integrations::PpOcrRecOptions rec_options(const Options& options) {
 
 }  // namespace
 
+namespace {
+
+constexpr int32_t kBudgetDeadlineMs = 5000;
+
+/// Runs the all-or-nothing baseline measurement loop; returns an exit code
+/// (0 ok) and appends one record per measured call.
+int measure_baseline(mirador::PerceptionSession& session, const mirador::Frame& frame, const Options& options,
+                     std::vector<CallRecord>& records) {
+    auto backend = mirador::integrations::PpOcrBackend::create(det_options(options), rec_options(options));
+    if (!backend.ok()) {
+        std::printf("FAIL: baseline backend creation failed: %s\n", backend.status().message().c_str());
+        return 3;
+    }
+    mirador::integrations::PpOcrBackend ocr = std::move(backend).take_value();
+    const mirador::OcrRequest request;
+    for (int32_t call = 0; call < options.warmup + options.iterations; ++call) {
+        const auto begin = std::chrono::steady_clock::now();
+        auto regions = session.run_ocr(frame, &ocr, request);
+        const auto end = std::chrono::steady_clock::now();
+        if (!regions.ok()) {
+            std::printf("FAIL: baseline call %d failed: %s\n", call, regions.status().message().c_str());
+            return 5;
+        }
+        if (call >= options.warmup) {
+            CallRecord record;
+            record.index = call - options.warmup;
+            record.total_ms =
+                static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count()) / 1.0e6;
+            record.detected = static_cast<int32_t>(regions.value().size());
+            record.recognized = static_cast<int32_t>(regions.value().size());
+            record.nonempty_lines = static_cast<int32_t>(
+                std::count_if(regions.value().begin(), regions.value().end(),
+                              [](const mirador::TextRegion& region) { return !region.utf8_text.empty(); }));
+            records.push_back(record);
+        }
+    }
+    return 0;
+}
+
+/// Builds the budgeted request from the CLI options.
+mirador::BudgetedOcrRequest budget_request(const Options& options) {
+    mirador::BudgetedOcrRequest request;
+    request.max_rec_lines = options.k;
+    request.max_side = 0;
+    if (options.soft_budget_ms >= 0) {
+        request.soft_budget = std::chrono::milliseconds(options.soft_budget_ms);
+    }
+    if (options.finalize_reserve_ms >= 0) {
+        request.finalize_reserve = std::chrono::milliseconds(options.finalize_reserve_ms);
+    }
+    return request;
+}
+
+CallRecord budget_record(int32_t index, const mirador::integrations::PpOcrBudgetedBackend& backend,
+                         const mirador::BudgetedOcrReport& report, double total_ms) {
+    const auto& timings = backend.last_stage_timings();
+    CallRecord record;
+    record.index = index;
+    record.total_ms = total_ms;
+    record.det_canvas_ms = ms_of(timings.det_canvas_ns);
+    record.det_pack_ms = ms_of(timings.det_pack_normalize_ns);
+    record.det_forward_ms = ms_of(timings.det_forward_ns);
+    record.det_post_ms = ms_of(timings.det_postprocess_ns);
+    record.select_ms = ms_of(timings.select_ns);
+    record.crop_ms = ms_of(timings.crop_ns);
+    record.rec_pre_ms = ms_of(timings.rec_preprocess_ns);
+    record.rec_forward_ms = ms_of(timings.rec_forward_ns);
+    record.rec_decode_ms = ms_of(timings.rec_decode_ns);
+    record.finalize_ms = ms_of(timings.finalize_ns);
+    record.detected = report.batch.detected_count;
+    record.recognized = report.batch.recognized_count;
+    record.deferred = report.batch.deferred_count;
+    record.forwards = report.batch.rec_forward_count;
+    record.nonempty_lines =
+        static_cast<int32_t>(std::count_if(report.batch.lines.begin(), report.batch.lines.end(),
+                                           [](const mirador::OcrLineRecord& line) { return !line.utf8_text.empty(); }));
+    record.stop = static_cast<int32_t>(report.batch.stop_reason);
+    record.det_limit_hit = report.batch.det_limit_hit;
+    record.partial = report.batch.completion == mirador::OcrBatchCompletion::kPartial;
+    return record;
+}
+
+/// Runs the budgeted measurement loop (session entry timing boundary).
+int measure_budgeted(mirador::PerceptionSession& session, const mirador::Frame& frame, const Options& options,
+                     std::vector<CallRecord>& records) {
+    auto backend = mirador::integrations::PpOcrBudgetedBackend::create([&] {
+        mirador::integrations::PpOcrBudgetedOptions budgeted;
+        budgeted.det = det_options(options);
+        budgeted.rec = rec_options(options);
+        return budgeted;
+    }());
+    if (!backend.ok()) {
+        std::printf("FAIL: budgeted backend creation failed: %s\n", backend.status().message().c_str());
+        return 3;
+    }
+    mirador::integrations::PpOcrBudgetedBackend ocr = std::move(backend).take_value();
+    const mirador::BudgetedOcrRequest request = budget_request(options);
+    const bool has_deadline = options.finalize_reserve_ms >= 0;
+
+    for (int32_t call = 0; call < options.warmup + options.iterations; ++call) {
+        mirador::ExecutionContext context;
+        if (has_deadline) {
+            context.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kBudgetDeadlineMs);
+        }
+        const auto begin = std::chrono::steady_clock::now();
+        auto report = session.run_ocr_budgeted(frame, &ocr, request, context);
+        const auto end = std::chrono::steady_clock::now();
+        if (!report.ok()) {
+            std::printf("FAIL: budgeted call %d failed: %s\n", call, report.status().message().c_str());
+            return 5;
+        }
+        if (call >= options.warmup) {
+            const auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+            records.push_back(
+                budget_record(call - options.warmup, ocr, report.value(), static_cast<double>(elapsed_ns) / 1.0e6));
+        }
+    }
+    return 0;
+}
+
+/// Builds the no-content record of one budgeted call from the stage timings.
+
+void print_last_record(const CallRecord& last) {
+    std::printf(
+        "SUMMARY last detected=%d recognized=%d deferred=%d forwards=%d nonempty=%d stop=%d "
+        "partial=%d det_limit_hit=%d\n",
+        last.detected, last.recognized, last.deferred, last.forwards, last.nonempty_lines, last.stop,
+        last.partial ? 1 : 0, last.det_limit_hit ? 1 : 0);
+}
+
+/// Prints the aggregated no-content summary lines.
+void print_summary(const std::vector<CallRecord>& records, const Options& options) {
+    std::vector<double> totals;
+    totals.reserve(records.size());
+    for (const CallRecord& record : records) {
+        totals.push_back(record.total_ms);
+    }
+    std::printf("SUMMARY mode=%s scenario=%s model=%s@%s det_threads=%d rec_threads=%d max_boxes=%d k=%d\n",
+                options.mode.c_str(), options.scenario.c_str(), options.model_id.c_str(),
+                options.model_revision.c_str(), options.det_threads, options.rec_threads, options.max_boxes, options.k);
+    const double max_ms = totals.empty() ? 0.0 : *std::max_element(totals.begin(), totals.end());
+    std::printf("SUMMARY calls=%zu p50_ms=%.3f p95_ms=%.3f max_ms=%.3f\n", records.size(), percentile(totals, 0.50),
+                percentile(totals, 0.95), max_ms);
+    if (!records.empty()) {
+        print_last_record(records.back());
+    }
+}
+
+/// Writes the per-call no-content CSV; returns false when the file cannot be
+/// opened.
+bool write_csv(const std::vector<CallRecord>& records, const std::string& path) {
+    FILE* out = std::fopen(path.c_str(), "w");
+    if (out == nullptr) {
+        std::printf("FAIL: cannot open csv output %s\n", path.c_str());
+        return false;
+    }
+    std::fprintf(out,
+                 "index,total_ms,det_canvas_ms,det_pack_ms,det_forward_ms,det_post_ms,select_ms,crop_ms,"
+                 "rec_pre_ms,rec_forward_ms,rec_decode_ms,finalize_ms,detected,recognized,deferred,forwards,"
+                 "nonempty_lines,stop,partial,det_limit_hit\n");
+    for (const CallRecord& record : records) {
+        std::fprintf(out, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d\n",
+                     record.index, record.total_ms, record.det_canvas_ms, record.det_pack_ms, record.det_forward_ms,
+                     record.det_post_ms, record.select_ms, record.crop_ms, record.rec_pre_ms, record.rec_forward_ms,
+                     record.rec_decode_ms, record.finalize_ms, record.detected, record.recognized, record.deferred,
+                     record.forwards, record.nonempty_lines, record.stop, record.partial ? 1 : 0,
+                     record.det_limit_hit ? 1 : 0);
+    }
+    std::fclose(out);
+    std::printf("SUMMARY csv=%s\n", path.c_str());
+    return true;
+}
+
+/// Scenario gates reported explicitly; failures exit 4 (never a silent pass).
+/// The readable-text gates of AC8-02 are out of scope: these scenes are
+/// pressure patterns.
+int check_scenario_gates(const std::vector<CallRecord>& records, const Options& options) {
+    if (options.scenario != "dense512" || records.empty()) {
+        return 0;
+    }
+    const CallRecord& last = records.back();
+    if (last.detected >= options.max_boxes) {
+        return 0;
+    }
+    std::printf(
+        "GATE FAIL: dense512 scene produced %d candidates < max_boxes %d; "
+        "the stress gate needs a real 512-candidate chain\n",
+        last.detected, options.max_boxes);
+    return 4;
+}
+
+}  // namespace
+
 int main(int argc, char** argv) {
     Options options;
     if (!parse_args(argc, argv, options)) {
@@ -397,13 +601,10 @@ int main(int argc, char** argv) {
         std::printf("FAIL: scene allocation failed\n");
         return 5;
     }
-    mirador::ImageBuffer scene = scene_result.take_value();
-    const mirador::ImageView scene_view = scene.view();
+    const mirador::ImageBuffer scene = scene_result.take_value();
 
-    // Frame + session: the budgeted path is measured from the session entry,
-    // matching the protocol's timing boundary (section 3).
     mirador::Frame frame;
-    frame.image = scene_view;
+    frame.image = scene.view();
     frame.sequence = 1;
     frame.source_id = "ocr-budget-bench";
     mirador::PerceptionSession session =
@@ -412,158 +613,15 @@ int main(int argc, char** argv) {
 
     std::vector<CallRecord> records;
     records.reserve(static_cast<size_t>(options.iterations));
-
-    if (options.mode == "baseline") {
-        auto backend = mirador::integrations::PpOcrBackend::create(det_options(options), rec_options(options));
-        if (!backend.ok()) {
-            std::printf("FAIL: baseline backend creation failed: %s\n", backend.status().message().c_str());
-            return 3;
-        }
-        mirador::integrations::PpOcrBackend ocr = std::move(backend).take_value();
-        mirador::OcrRequest request;
-        request.output_space = mirador::CoordinateSpaceId::kOriented;
-        for (int32_t call = 0; call < options.warmup + options.iterations; ++call) {
-            const auto begin = std::chrono::steady_clock::now();
-            auto regions = session.run_ocr(frame, &ocr, request);
-            const auto end = std::chrono::steady_clock::now();
-            if (!regions.ok()) {
-                std::printf("FAIL: baseline call %d failed: %s\n", call, regions.status().message().c_str());
-                return 5;
-            }
-            if (call >= options.warmup) {
-                CallRecord record;
-                record.index = call - options.warmup;
-                record.total_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count() / 1.0e6;
-                record.detected = static_cast<int32_t>(regions.value().size());
-                record.recognized = static_cast<int32_t>(regions.value().size());
-                record.nonempty_lines = static_cast<int32_t>(
-                    std::count_if(regions.value().begin(), regions.value().end(),
-                                  [](const mirador::TextRegion& region) { return !region.utf8_text.empty(); }));
-                records.push_back(record);
-            }
-        }
-    } else {
-        auto backend = mirador::integrations::PpOcrBudgetedBackend::create([&] {
-            mirador::integrations::PpOcrBudgetedOptions budgeted;
-            budgeted.det = det_options(options);
-            budgeted.rec = rec_options(options);
-            return budgeted;
-        }());
-        if (!backend.ok()) {
-            std::printf("FAIL: budgeted backend creation failed: %s\n", backend.status().message().c_str());
-            return 3;
-        }
-        mirador::integrations::PpOcrBudgetedBackend ocr = std::move(backend).take_value();
-
-        mirador::BudgetedOcrRequest request;
-        request.max_rec_lines = options.k;
-        request.max_side = 0;
-        if (options.soft_budget_ms >= 0) {
-            request.soft_budget = std::chrono::milliseconds(options.soft_budget_ms);
-        }
-        const bool has_deadline = options.finalize_reserve_ms >= 0;
-        if (has_deadline) {
-            request.finalize_reserve = std::chrono::milliseconds(options.finalize_reserve_ms);
-        }
-
-        for (int32_t call = 0; call < options.warmup + options.iterations; ++call) {
-            mirador::ExecutionContext context;
-            if (has_deadline) {
-                context.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
-            }
-            const auto begin = std::chrono::steady_clock::now();
-            auto report = session.run_ocr_budgeted(frame, &ocr, request, context);
-            const auto end = std::chrono::steady_clock::now();
-            if (!report.ok()) {
-                std::printf("FAIL: budgeted call %d failed: %s\n", call, report.status().message().c_str());
-                return 5;
-            }
-            if (call >= options.warmup) {
-                const auto& timings = ocr.last_stage_timings();
-                CallRecord record;
-                record.index = call - options.warmup;
-                record.total_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count() / 1.0e6;
-                record.det_canvas_ms = ms_of(timings.det_canvas_ns);
-                record.det_pack_ms = ms_of(timings.det_pack_normalize_ns);
-                record.det_forward_ms = ms_of(timings.det_forward_ns);
-                record.det_post_ms = ms_of(timings.det_postprocess_ns);
-                record.select_ms = ms_of(timings.select_ns);
-                record.crop_ms = ms_of(timings.crop_ns);
-                record.rec_pre_ms = ms_of(timings.rec_preprocess_ns);
-                record.rec_forward_ms = ms_of(timings.rec_forward_ns);
-                record.rec_decode_ms = ms_of(timings.rec_decode_ns);
-                record.finalize_ms = ms_of(timings.finalize_ns);
-                record.detected = report.value().batch.detected_count;
-                record.recognized = report.value().batch.recognized_count;
-                record.deferred = report.value().batch.deferred_count;
-                record.forwards = report.value().batch.rec_forward_count;
-                record.nonempty_lines = static_cast<int32_t>(
-                    std::count_if(report.value().batch.lines.begin(), report.value().batch.lines.end(),
-                                  [](const mirador::OcrLineRecord& line) { return !line.utf8_text.empty(); }));
-                record.stop = static_cast<int32_t>(report.value().batch.stop_reason);
-                record.det_limit_hit = report.value().batch.det_limit_hit;
-                record.partial = report.value().batch.completion == mirador::OcrBatchCompletion::kPartial;
-                records.push_back(record);
-            }
-        }
+    const int measured = options.mode == "baseline" ? measure_baseline(session, frame, options, records)
+                                                    : measure_budgeted(session, frame, options, records);
+    if (measured != 0) {
+        return measured;
     }
 
-    // Summary (no text content — protocol section 3).
-    std::vector<double> totals;
-    totals.reserve(records.size());
-    for (const CallRecord& record : records) {
-        totals.push_back(record.total_ms);
+    print_summary(records, options);
+    if (!options.csv_path.empty() && !write_csv(records, options.csv_path)) {
+        return 5;
     }
-    std::printf("SUMMARY mode=%s scenario=%s model=%s@%s det_threads=%d rec_threads=%d max_boxes=%d k=%d\n",
-                options.mode.c_str(), options.scenario.c_str(), options.model_id.c_str(),
-                options.model_revision.c_str(), options.det_threads, options.rec_threads, options.max_boxes, options.k);
-    std::printf("SUMMARY calls=%zu p50_ms=%.3f p95_ms=%.3f max_ms=%.3f\n", records.size(), percentile(totals, 0.50),
-                percentile(totals, 0.95), totals.empty() ? 0.0 : *std::max_element(totals.begin(), totals.end()));
-    if (!records.empty()) {
-        const CallRecord& last = records.back();
-        std::printf(
-            "SUMMARY last detected=%d recognized=%d deferred=%d forwards=%d nonempty=%d stop=%d "
-            "partial=%d det_limit_hit=%d\n",
-            last.detected, last.recognized, last.deferred, last.forwards, last.nonempty_lines, last.stop,
-            last.partial ? 1 : 0, last.det_limit_hit ? 1 : 0);
-    }
-
-    // Optional per-call CSV.
-    if (!options.csv_path.empty()) {
-        FILE* out = std::fopen(options.csv_path.c_str(), "w");
-        if (out == nullptr) {
-            std::printf("FAIL: cannot open csv output %s\n", options.csv_path.c_str());
-            return 5;
-        }
-        std::fprintf(out,
-                     "index,total_ms,det_canvas_ms,det_pack_ms,det_forward_ms,det_post_ms,select_ms,crop_ms,"
-                     "rec_pre_ms,rec_forward_ms,rec_decode_ms,finalize_ms,detected,recognized,deferred,forwards,"
-                     "nonempty_lines,stop,partial,det_limit_hit\n");
-        for (const CallRecord& record : records) {
-            std::fprintf(out, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d\n",
-                         record.index, record.total_ms, record.det_canvas_ms, record.det_pack_ms, record.det_forward_ms,
-                         record.det_post_ms, record.select_ms, record.crop_ms, record.rec_pre_ms, record.rec_forward_ms,
-                         record.rec_decode_ms, record.finalize_ms, record.detected, record.recognized, record.deferred,
-                         record.forwards, record.nonempty_lines, record.stop, record.partial ? 1 : 0,
-                         record.det_limit_hit ? 1 : 0);
-        }
-        std::fclose(out);
-        std::printf("SUMMARY csv=%s\n", options.csv_path.c_str());
-    }
-
-    // Scenario gates (reported explicitly; failures exit 4 — never a silent
-    // pass). The readable-text gates of AC8-02 are out of scope here: these
-    // scenes are pressure patterns.
-    if (options.scenario == "dense512" && !records.empty()) {
-        const CallRecord& last = records.back();
-        if (last.detected < options.max_boxes) {
-            std::printf(
-                "GATE FAIL: dense512 scene produced %d candidates < max_boxes %d; "
-                "the stress gate needs a real 512-candidate chain\n",
-                last.detected, options.max_boxes);
-            return 4;
-        }
-    }
-    std::printf("PASS\n");
-    return 0;
+    return check_scenario_gates(records, options);
 }

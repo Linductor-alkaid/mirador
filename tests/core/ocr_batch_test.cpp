@@ -3,6 +3,7 @@
 // report structural invariants (one case per violation), owned-byte
 // accounting and the request parameter digest.
 
+#include <mirador/geometry.hpp>
 #include <mirador/ocr_batch.hpp>
 
 #include <mirador/status.hpp>
@@ -35,7 +36,6 @@ using mirador::OcrLineRecord;
 using mirador::OcrPriorityEntry;
 using mirador::OcrSelectionStrategy;
 using mirador::RectF;
-using mirador::Status;
 using mirador::validate_ocr_batch_request;
 
 constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
@@ -193,7 +193,7 @@ TEST(OcrBatchRequestValidation, EntryCountOverCapIsBudgetExceeded) {
 }
 
 TEST(OcrBatchRequestValidation, EntryBytesOverCapIsBudgetExceeded) {
-    const int64_t entry_bytes = static_cast<int64_t>(sizeof(OcrPriorityEntry));
+    const auto entry_bytes = static_cast<int64_t>(sizeof(OcrPriorityEntry));
 
     // Exactly the cap passes (strictly-greater comparison).
     OcrBatchRequest at_cap = valid_request();
@@ -445,12 +445,12 @@ TEST(OcrBatchReportBytes, EmptyReportIsExactlyTheResultHeader) {
 
 TEST(OcrBatchReportBytes, SumsLineRecordsAndTextCapacities) {
     OcrBatchResult result;
-    OcrLineRecord short_text = recognized_line(0, 0.0F, 0.0F, 1.0F, 1.0F, 0.5F, 0);
+    const OcrLineRecord short_text = recognized_line(0, 0.0F, 0.0F, 1.0F, 1.0F, 0.5F, 0);
     OcrLineRecord long_text = recognized_line(1, 0.0F, 2.0F, 1.0F, 1.0F, 0.5F, 1);
     long_text.utf8_text.reserve(1000);
     result.lines = {short_text, long_text};
 
-    int64_t expected = static_cast<int64_t>(sizeof(OcrBatchResult));
+    auto expected = static_cast<int64_t>(sizeof(OcrBatchResult));
     for (const OcrLineRecord& line : result.lines) {
         expected += static_cast<int64_t>(sizeof(OcrLineRecord));
         expected += static_cast<int64_t>(line.utf8_text.capacity());
@@ -747,7 +747,7 @@ TEST(OcrBatchRequestDigest, EverySelectionRelevantFieldChangesTheDigest) {
     EXPECT_NE(mirador::ocr_batch_request_params_digest(bytes_cap), base_digest);
 
     OcrBatchRequest report_cap = base;
-    report_cap.max_report_bytes = 1024 * 1024;
+    report_cap.max_report_bytes = int64_t{1024} * 1024;
     EXPECT_NE(mirador::ocr_batch_request_params_digest(report_cap), base_digest);
 }
 

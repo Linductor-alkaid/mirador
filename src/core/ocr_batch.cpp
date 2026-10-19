@@ -1,12 +1,16 @@
 #include <mirador/ocr_batch.hpp>
 
+#include <mirador/geometry.hpp>
+#include <mirador/result.hpp>
 #include <mirador/status.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <string>
 #include <vector>
 
 namespace mirador {
@@ -184,7 +188,7 @@ bool ocr_line_executes_before(const OcrLineRecord& lhs, const OcrLineRecord& rhs
 }
 
 int64_t ocr_batch_result_owned_bytes(const OcrBatchResult& result) noexcept {
-    int64_t bytes = static_cast<int64_t>(sizeof(OcrBatchResult));
+    auto bytes = static_cast<int64_t>(sizeof(OcrBatchResult));
     for (const OcrLineRecord& line : result.lines) {
         bytes += static_cast<int64_t>(sizeof(OcrLineRecord));
         bytes += static_cast<int64_t>(line.utf8_text.capacity());
@@ -192,29 +196,15 @@ int64_t ocr_batch_result_owned_bytes(const OcrBatchResult& result) noexcept {
     return bytes;
 }
 
-bool ocr_batch_result_consistent(const OcrBatchResult& result) noexcept {
-    const int32_t detected = static_cast<int32_t>(result.lines.size());
-    if (detected != result.detected_count) {
-        return false;
-    }
-    if (result.detected_count != result.recognized_count + result.reused_count + result.deferred_count) {
-        return false;
-    }
-    // M8 contract freeze (DEC-025 section 2): the reuse channel stays silent
-    // until M9 freezes its source semantics.
-    if (result.reused_count != 0) {
-        return false;
-    }
-    if (result.rec_forward_count != result.recognized_count + result.reused_count) {
-        return false;
-    }
-    if (result.det_limit_hit && result.det_limit <= 0) {
-        return false;
-    }
+namespace {
 
-    int32_t recognized = 0;
-    int32_t reused = 0;
-    int32_t deferred = 0;
+/// Per-line record invariants (DEC-025 section 2): unique non-negative
+/// candidate ids, state-conditional text/score/order fields, execution orders
+/// a permutation of {0..recognized-1}. Updates the running state counters.
+bool line_records_consistent(const OcrBatchResult& result, int32_t& recognized, int32_t& reused, int32_t& deferred) {
+    recognized = 0;
+    reused = 0;
+    deferred = 0;
     std::vector<int32_t> ids;
     std::vector<int32_t> execution_orders;
     ids.reserve(result.lines.size());
@@ -225,10 +215,7 @@ bool ocr_batch_result_consistent(const OcrBatchResult& result) noexcept {
         ids.push_back(line.candidate_id);
         switch (line.state) {
             case OcrCompletionState::kRecognized:
-                if (!line.rec_confidence.has_value()) {
-                    return false;
-                }
-                if (line.execution_order < 0) {
+                if (!line.rec_confidence.has_value() || line.execution_order < 0) {
                     return false;
                 }
                 execution_orders.push_back(line.execution_order);
@@ -238,11 +225,8 @@ bool ocr_batch_result_consistent(const OcrBatchResult& result) noexcept {
                 ++reused;
                 break;
             case OcrCompletionState::kDeferred:
-                if (!line.utf8_text.empty() || line.rec_confidence.has_value()) {
+                if (!line.utf8_text.empty() || line.rec_confidence.has_value() || line.execution_order != -1) {
                     return false;  // deferred lines carry geometry only
-                }
-                if (line.execution_order != -1) {
-                    return false;
                 }
                 ++deferred;
                 break;
@@ -263,25 +247,63 @@ bool ocr_batch_result_consistent(const OcrBatchResult& result) noexcept {
             return false;
         }
     }
+    return true;
+}
 
-    // Stop reason / completion coherence: kCompleted means nothing was
-    // deferred; a line-limit or soft stop always leaves deferred lines (a stop
-    // with nothing left to defer is reported as kCompleted).
-    const bool has_deferred = result.deferred_count > 0;
+/// Stop reason / completion coherence: kCompleted means nothing was deferred;
+/// a line-limit or soft stop always leaves deferred lines (a stop with
+/// nothing left to defer is reported as kCompleted).
+bool stop_reason_consistent(const OcrBatchResult& result, bool has_deferred) {
     switch (result.stop_reason) {
         case OcrBatchStopReason::kCompleted:
-            if (has_deferred || result.completion != OcrBatchCompletion::kComplete) {
-                return false;
-            }
-            break;
+            return !has_deferred && result.completion == OcrBatchCompletion::kComplete;
         case OcrBatchStopReason::kRecLineLimit:
         case OcrBatchStopReason::kSoftBudget:
-            if (!has_deferred || result.completion != OcrBatchCompletion::kPartial) {
-                return false;
-            }
-            break;
+            return has_deferred && result.completion == OcrBatchCompletion::kPartial;
     }
-    return true;
+    return false;
+}
+
+}  // namespace
+
+bool ocr_batch_result_consistent(const OcrBatchResult& result) noexcept {
+    const auto detected = static_cast<int32_t>(result.lines.size());
+    if (detected != result.detected_count) {
+        return false;
+    }
+    if (result.detected_count != result.recognized_count + result.reused_count + result.deferred_count) {
+        return false;
+    }
+    // M8 contract freeze (DEC-025 section 2): the reuse channel stays silent
+    // until M9 freezes its source semantics.
+    if (result.reused_count != 0) {
+        return false;
+    }
+    if (result.rec_forward_count != result.recognized_count + result.reused_count) {
+        return false;
+    }
+    if (result.detected_count != result.recognized_count + result.reused_count + result.deferred_count) {
+        return false;
+    }
+    // M8 contract freeze (DEC-025 section 2): the reuse channel stays silent
+    // until M9 freezes its source semantics.
+    if (result.reused_count != 0) {
+        return false;
+    }
+    if (result.rec_forward_count != result.recognized_count + result.reused_count) {
+        return false;
+    }
+    if (result.det_limit_hit && result.det_limit <= 0) {
+        return false;
+    }
+
+    int32_t recognized = 0;
+    int32_t reused = 0;
+    int32_t deferred = 0;
+    if (!line_records_consistent(result, recognized, reused, deferred)) {
+        return false;
+    }
+    return stop_reason_consistent(result, deferred > 0);
 }
 
 uint64_t ocr_batch_request_params_digest(const OcrBatchRequest& request) noexcept {

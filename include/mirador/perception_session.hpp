@@ -180,7 +180,7 @@ public:
     /// the whole call — they never yield a partial report. Never throws.
     [[nodiscard]] Result<BudgetedOcrReport> run_ocr_budgeted(const Frame& frame, BudgetedOcrBackend* backend,
                                                              const BudgetedOcrRequest& request,
-                                                             const ExecutionContext& context = {}) noexcept;
+                                                             const ExecutionContext& context = {}) const noexcept;
 
     /// Runs object/UI detection; identical pipeline and error contract as
     /// `run_ocr` (DEC-012).
