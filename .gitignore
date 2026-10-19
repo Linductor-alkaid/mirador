@@ -25,3 +25,6 @@ __pycache__/
 
 # Mimosa local security-gate state
 .mimosa/
+
+# ZCode local session state
+.zcode/
