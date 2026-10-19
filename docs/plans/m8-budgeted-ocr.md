@@ -121,7 +121,14 @@ session 源码。仅新增方案和验收协议，未执行真实权重基准、
   exit 0（SUMMARY/CSV/计数正确），缺权重 exit 3。
 - **工程门禁**：debug/release/warnings/asan/ubsan/tsan 六预设 + integrations
   预设构建零警告；ctest debug 56/56、release 55/55、warnings 55/55、asan 55/55、
-  ubsan 55/55、tsan 55/55、integrations 61/61。实现修复两处自查契约缺陷（K<N
+  ubsan 55/55、tsan 55/55、integrations 61/61。CI（PR #43，commit `a5bd220`）
+  14/14 job 全绿，含 gcc integrations-ncnn（integrations 构建 + 冒烟 +
+  integrations 范围 clang-tidy）、clang-format/clang-tidy 全树 job、msvc 与
+  ndk/arm64-v8a（Windows/Android 构建级证据）。CI 修复过程：clang-format
+  158 处机械违规、integrations 范围 clang-tidy 54 处（直接包含/const 移动/计时
+  助手封装/复杂度拆分，测试侧由 IVA 修复）、全树 clang-tidy 范围调整
+  （integrations-only 的 benchmark harness 归入 integrations job 的 tidy）及
+  其余文件的 tidy 修复。实现修复两处自查契约缺陷（K<N
   全部执行完的 stop reason；execution_order 为执行序排列而非阅读序递增）与一处
   IVA 发现的语义不一致（负优先级钳 0 → 按冻结文档改为有效值）。
 - **限制与补跑条件**：AC8-01/02/05/10 需真实权重与受控场景（路径提供后按协议
@@ -134,3 +141,5 @@ session 源码。仅新增方案和验收协议，未执行真实权重基准、
   `TrackerBackendOrchestration.OrchestrationWritesNoFiles*` 对 /tmp 做前后快照，
   窗口内有并发进程写入即误报（本机复现 2 次、复跑即过；CI 干净环境稳定通过），
   建议后续将快照范围改为测试专属目录。
+- **CI 状态**：计划 PR #42 与实现 PR #43 均 14/14 job 全绿（2026-10-19）。
+  Windows/Android 结论维持"构建级验证"，不声明性能。
