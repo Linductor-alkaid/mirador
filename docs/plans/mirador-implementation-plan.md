@@ -583,9 +583,12 @@ run 35917953109 14/14 job 全绿，待合入）。
   [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)），真实模型 5 秒
   验收待 M8-06/07）。完整旧 API 保持全有或全无。
 - [ ] `SCOPE-15` 连续增量感知（Proposed）：实体重复/从属/重叠关系、调用方注意与
-  重要性策略、覆盖与陈旧结果绑定、跨帧语义稳定化、有界选择性事件；见
+  重要性策略、覆盖与陈旧结果绑定、跨帧语义稳定化、有界选择性事件、关系/事件
+  差分字段（来源/实例代际/证据时间窗/开始-更新-结束）与源重置旧代事件终结；见
   [M9](m9-continuous-perception.md) 与
-  [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)。采集、LLM、调度与动作仍归调用方。
+  [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)（第 8 节纳入
+  2026-10-20 下游后续）。采集、LLM、调度与动作仍归调用方；事件驱动的语义理解
+  为下游可选升级，不影响状态层连续性。
 
 ### 明确不包含
 
