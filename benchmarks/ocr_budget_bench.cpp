@@ -18,6 +18,7 @@
 #include <mirador/cache_policy.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/frame.hpp>
+#include <mirador/geometry.hpp>
 #include <mirador/image_buffer.hpp>
 #include <mirador/image_view.hpp>
 #include <mirador/ocr_backend.hpp>
@@ -36,8 +37,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -183,6 +187,152 @@ std::vector<LineSpec> scenario_lines(const std::string& scenario, int32_t sparse
 }
 
 // ---------------------------------------------------------------------------
+// Readable caller-provided scenes (M8-06; ocr-budget-protocol.md section 1).
+// `render_ocr_scenarios.py` writes scene.tsv / lines.tsv / scene.rgb; the
+// drawn-line boxes are the ground-truth geometry for the priority and
+// consistency gates below. Scenes are caller paths and never enter the repo.
+
+struct SceneLine {
+    mirador::RectF bounds{};
+    std::string text;
+    bool priority = false;  ///< designated caller-priority line (lines.tsv flag)
+};
+
+struct LoadedScene {
+    mirador::ImageBuffer image;
+    std::vector<SceneLine> lines;
+    int32_t priority_count = 0;
+};
+
+std::string path_in(const std::string& dir, const std::string& file) {
+    return dir + "/" + file;
+}
+
+mirador::Result<std::vector<std::byte>> read_raw_bytes(const std::string& path, size_t bytes) {
+    std::ifstream raw(path, std::ios::binary);
+    if (!static_cast<bool>(raw)) {
+        return mirador::Status{mirador::ErrorCode::kBackendUnavailable, "cannot open " + path};
+    }
+    std::vector<std::byte> data(bytes);
+    raw.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(bytes));
+    if (static_cast<size_t>(raw.gcount()) != bytes) {
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument, "truncated scene file: " + path};
+    }
+    return data;
+}
+
+/// Parses the single scene.tsv row (width, height, line_count); line_count may
+/// be 0 (empty sparse scenes are a legal scenario).
+mirador::Result<std::tuple<int32_t, int32_t, int32_t>> parse_scene_row(const std::string& row) {
+    std::istringstream fields(row);
+    std::string width_field;
+    std::string height_field;
+    std::string count_field;
+    if (!std::getline(fields, width_field, '\t') || !std::getline(fields, height_field, '\t') ||
+        !std::getline(fields, count_field, '\t')) {
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument, "malformed scene.tsv row"};
+    }
+    const int32_t width = std::atoi(width_field.c_str());
+    const int32_t height = std::atoi(height_field.c_str());
+    const int32_t count = std::atoi(count_field.c_str());
+    if (width <= 0 || height <= 0 || count < 0 || width > 100000 || height > 100000) {
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument, "out-of-range scene metadata"};
+    }
+    return std::make_tuple(width, height, count);
+}
+
+/// Parses one lines.tsv row (id, x, y, w, h, priority, text).
+mirador::Result<bool> parse_scene_line_row(const std::string& row, int32_t expected_id, SceneLine& line) {
+    std::istringstream fields(row);
+    std::string id_field;
+    std::string x_field;
+    std::string y_field;
+    std::string w_field;
+    std::string h_field;
+    std::string priority_field;
+    std::string text_field;
+    if (!std::getline(fields, id_field, '\t') || !std::getline(fields, x_field, '\t') ||
+        !std::getline(fields, y_field, '\t') || !std::getline(fields, w_field, '\t') ||
+        !std::getline(fields, h_field, '\t') || !std::getline(fields, priority_field, '\t') ||
+        !std::getline(fields, text_field, '\t')) {
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument, "malformed lines.tsv row: " + row};
+    }
+    const int32_t id = std::atoi(id_field.c_str());
+    const int32_t x = std::atoi(x_field.c_str());
+    const int32_t y = std::atoi(y_field.c_str());
+    const int32_t w = std::atoi(w_field.c_str());
+    const int32_t h = std::atoi(h_field.c_str());
+    const int32_t priority = std::atoi(priority_field.c_str());
+    if (id != expected_id || w <= 0 || h <= 0 || priority < 0 || priority > 1) {
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument, "out-of-range line metadata: " + row};
+    }
+    line.bounds =
+        mirador::RectF{static_cast<float>(x), static_cast<float>(y), static_cast<float>(w), static_cast<float>(h)};
+    line.text = text_field;
+    return priority != 0;
+}
+
+mirador::Result<LoadedScene> load_scene_dir(const std::string& dir) {
+    const std::string manifest_path = path_in(dir, "scene.tsv");
+    std::ifstream scene_stream(manifest_path);
+    if (!static_cast<bool>(scene_stream)) {
+        return mirador::Status{mirador::ErrorCode::kBackendUnavailable, "cannot open " + manifest_path};
+    }
+    std::string row;
+    if (!std::getline(scene_stream, row)) {
+        return mirador::Status{mirador::ErrorCode::kInvalidArgument, "scene.tsv is empty"};
+    }
+    auto meta = parse_scene_row(row);
+    if (!meta.ok()) {
+        return meta.status();
+    }
+    const auto [width, height, count] = std::move(meta).take_value();
+
+    std::vector<SceneLine> lines;
+    lines.reserve(static_cast<size_t>(count));
+    int32_t priority_count = 0;
+    std::ifstream lines_stream(path_in(dir, "lines.tsv"));
+    if (!static_cast<bool>(lines_stream)) {
+        return mirador::Status{mirador::ErrorCode::kBackendUnavailable, "cannot open " + path_in(dir, "lines.tsv")};
+    }
+    while (std::getline(lines_stream, row)) {
+        if (row.empty()) {
+            continue;
+        }
+        SceneLine line;
+        auto priority = parse_scene_line_row(row, static_cast<int32_t>(lines.size()), line);
+        if (!priority.ok()) {
+            return priority.status();
+        }
+        line.priority = priority.value();
+        priority_count += priority.value() ? 1 : 0;
+        lines.push_back(std::move(line));
+    }
+    if (static_cast<int32_t>(lines.size()) != count) {
+        return mirador::Status{
+            mirador::ErrorCode::kInvalidArgument,
+            "lines.tsv row count " + std::to_string(lines.size()) + " != scene.tsv count " + std::to_string(count)};
+    }
+
+    const size_t bytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 3U;
+    auto raw = read_raw_bytes(path_in(dir, "scene.rgb"), bytes);
+    if (!raw.ok()) {
+        return raw.status();
+    }
+    auto buffer = mirador::ImageBuffer::create(mirador::PixelFormat::kRgb8, width, height, int64_t{64} * 1024 * 1024);
+    if (!buffer.ok()) {
+        return buffer.status();
+    }
+    mirador::ImageBuffer image = std::move(buffer).take_value();
+    std::memcpy(image.data(), raw.value().data(), bytes);
+    LoadedScene scene;
+    scene.image = std::move(image);
+    scene.lines = std::move(lines);
+    scene.priority_count = priority_count;
+    return scene;
+}
+
+// ---------------------------------------------------------------------------
 // CLI
 
 struct Options {
@@ -196,6 +346,7 @@ struct Options {
     std::string scenario = "dense359";
     std::string mode = "budgeted";  // budgeted | baseline
     std::string csv_path;
+    std::string scene_dir;
     int32_t sparse_n = 32;
     int32_t det_threads = 1;
     int32_t rec_threads = 1;
@@ -203,6 +354,7 @@ struct Options {
     int32_t k = 64;
     int32_t warmup = 2;
     int32_t iterations = 20;
+    int32_t expect_boxes = 0;          // 0 disables the exact-candidate-count gate
     int64_t soft_budget_ms = -1;       // < 0 disables
     int64_t finalize_reserve_ms = -1;  // < 0 disables
     bool compare_baseline = false;
@@ -215,16 +367,29 @@ void print_usage() {
         "  --det-param PATH --det-bin PATH --rec-param PATH --rec-bin PATH --charset PATH\n"
         "  --model-id ID --model-revision REV   (recorded in every row)\n\n"
         "Scenario:\n"
-        "  --scenario dense359|dense512|longlines|sparse  (default dense359)\n"
-        "  --sparse-n N                                    (with --scenario sparse)\n\n"
+        "  --scenario dense359|dense512|longlines|sparse  (default dense359; selects\n"
+        "               the in-memory generator AND the gate class below)\n"
+        "  --sparse-n N                                    (with --scenario sparse)\n"
+        "  --scene-dir DIR   readable caller scene from render_ocr_scenarios.py\n"
+        "               (scene.tsv/lines.tsv/scene.rgb); overrides the in-memory\n"
+        "               generator and enables the M8-06 priority/consistency gates\n"
+        "  --expect-boxes N  gate: the det chain must report exactly N candidates\n\n"
         "Configuration:\n"
         "  --mode budgeted|baseline   baseline = all-or-nothing PpOcrBackend\n"
+        "               (cache-refresh per call: every call exercises the backend)\n"
         "  --det-threads T --rec-threads T --max-boxes B --k K\n"
-        "  --soft-budget-ms MS --finalize-reserve-ms MS  (< 0 = disabled)\n"
+        "  --soft-budget-ms MS --finalize-reserve-ms MS  (< 0 = disabled;\n"
+        "               enabling the reserve also sets the 5000 ms hard deadline)\n"
         "  --warmup W --iterations N --csv PATH --compare-baseline\n\n"
-        "Exit codes: 0 ok; 2 bad arguments; 3 missing model inputs; 4 gate failure\n"
-        "(scenario gate not met, e.g. the 512-box stress scene did not hit the cap);\n"
-        "5 backend failure during measurement.\n");
+        "Scene-mode gates (budgeted): every call <= 5000 ms (deadline on), zero\n"
+        "text mismatches against an untimed baseline reference pass, >= 32\n"
+        "non-empty matched lines for the dense scenarios, all designated\n"
+        "priority lines recognized; sparse additionally requires full completion\n"
+        "(K >= N, no soft budget) and bbox delta <= 1e-4 px. Failures exit 4 after\n"
+        "the CSV is written so the evidence is preserved.\n\n"
+        "Exit codes: 0 ok; 2 bad arguments; 3 missing model inputs or scene files;\n"
+        "4 gate failure (scenario gate not met, e.g. the 512-box stress scene did\n"
+        "not hit the cap); 5 backend failure during measurement.\n");
 }
 
 /// Outcome of one option-table scan over argv[i].
@@ -261,8 +426,8 @@ ConsumeResult scan_option_table(char** argv, int& i, int argc, Options& options,
     return ConsumeResult::kNoMatch;
 }
 
-const std::array<std::pair<const char*, std::string Options::*>, 10>& string_options() noexcept {
-    static const std::array<std::pair<const char*, std::string Options::*>, 10> table = {{
+const std::array<std::pair<const char*, std::string Options::*>, 11>& string_options() noexcept {
+    static const std::array<std::pair<const char*, std::string Options::*>, 11> table = {{
         {"--det-param", &Options::det_param},
         {"--det-bin", &Options::det_bin},
         {"--rec-param", &Options::rec_param},
@@ -273,12 +438,13 @@ const std::array<std::pair<const char*, std::string Options::*>, 10>& string_opt
         {"--scenario", &Options::scenario},
         {"--mode", &Options::mode},
         {"--csv", &Options::csv_path},
+        {"--scene-dir", &Options::scene_dir},
     }};
     return table;
 }
 
-const std::array<std::pair<const char*, int32_t Options::*>, 7>& int32_options() noexcept {
-    static const std::array<std::pair<const char*, int32_t Options::*>, 7> table = {{
+const std::array<std::pair<const char*, int32_t Options::*>, 8>& int32_options() noexcept {
+    static const std::array<std::pair<const char*, int32_t Options::*>, 8> table = {{
         {"--sparse-n", &Options::sparse_n},
         {"--det-threads", &Options::det_threads},
         {"--rec-threads", &Options::rec_threads},
@@ -286,6 +452,7 @@ const std::array<std::pair<const char*, int32_t Options::*>, 7>& int32_options()
         {"--k", &Options::k},
         {"--warmup", &Options::warmup},
         {"--iterations", &Options::iterations},
+        {"--expect-boxes", &Options::expect_boxes},
     }};
     return table;
 }
@@ -347,6 +514,12 @@ struct CallRecord {
     int32_t stop = 0;  // OcrBatchStopReason value
     bool det_limit_hit = false;
     bool partial = false;
+    // Scene-mode consistency columns (all zero without --scene-dir):
+    int32_t nonempty_matched = 0;    ///< recognized, non-empty, text == baseline reference
+    int32_t mismatched = 0;          ///< recognized lines whose text != baseline reference
+    int32_t priority_covered = 0;    ///< designated priority lines with a recognized intersecting line
+    double max_bbox_delta_px = 0.0;  ///< max per-component bbox delta vs the reference
+    uint64_t content_digest = 0;     ///< FNV-1a over the call's result identity (cross-run equality evidence)
 };
 
 double ms_of(int64_t nanoseconds) noexcept {
@@ -388,6 +561,81 @@ namespace {
 
 constexpr int32_t kBudgetDeadlineMs = 5000;
 
+// ---------------------------------------------------------------------------
+// Content digest (cross-run equality evidence for the protocol's "repeated
+// non-timed results must be bit-identical" checks). FNV-1a 64 over the call's
+// result identity — counts, per-candidate state/geometry/confidence bits and
+// text bytes. Text bytes are one-way digested and never printed, so the
+// privacy boundary (no OCR content in logs) holds.
+
+uint64_t digest_bytes(uint64_t hash, const void* data, size_t bytes) noexcept {
+    const auto* cursor = static_cast<const std::byte*>(data);
+    for (size_t i = 0; i < bytes; ++i) {
+        hash ^= static_cast<uint8_t>(cursor[i]);
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+uint64_t digest_uint64(uint64_t hash, uint64_t value) noexcept {
+    return digest_bytes(hash, &value, sizeof(value));
+}
+
+uint64_t digest_float(uint64_t hash, float value) noexcept {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return digest_uint64(hash, bits);
+}
+
+uint64_t digest_text(uint64_t hash, const std::string& text) noexcept {
+    hash = digest_uint64(hash, static_cast<uint64_t>(text.size()));
+    return digest_bytes(hash, text.data(), text.size());
+}
+
+/// Result identity of one budgeted report.
+uint64_t digest_report(const mirador::BudgetedOcrReport& report) noexcept {
+    uint64_t hash = 1469598103934665603ULL;
+    hash = digest_uint64(hash, static_cast<uint64_t>(report.batch.lines.size()));
+    hash = digest_uint64(hash, static_cast<uint64_t>(report.batch.detected_count));
+    hash = digest_uint64(hash, static_cast<uint64_t>(report.batch.recognized_count));
+    hash = digest_uint64(hash, static_cast<uint64_t>(report.batch.deferred_count));
+    hash = digest_uint64(hash, static_cast<uint64_t>(report.batch.rec_forward_count));
+    hash = digest_uint64(hash, static_cast<uint64_t>(report.batch.stop_reason));
+    hash = digest_uint64(hash, static_cast<uint64_t>(report.batch.completion));
+    hash = digest_uint64(hash, report.batch.det_limit_hit ? 1ULL : 0ULL);
+    for (const mirador::OcrLineRecord& line : report.batch.lines) {
+        hash = digest_uint64(hash, static_cast<uint64_t>(line.candidate_id));
+        hash = digest_float(hash, line.bounds.x);
+        hash = digest_float(hash, line.bounds.y);
+        hash = digest_float(hash, line.bounds.width);
+        hash = digest_float(hash, line.bounds.height);
+        hash = digest_float(hash, line.det_confidence);
+        hash = digest_uint64(hash, static_cast<uint64_t>(line.state));
+        hash = digest_uint64(hash, static_cast<uint64_t>(line.execution_order));
+        hash = digest_uint64(hash, line.rec_confidence.has_value() ? 1ULL : 0ULL);
+        if (line.rec_confidence.has_value()) {
+            hash = digest_float(hash, *line.rec_confidence);
+        }
+        hash = digest_text(hash, line.utf8_text);
+    }
+    return hash;
+}
+
+/// Result identity of one baseline call.
+uint64_t digest_regions(const std::vector<mirador::TextRegion>& regions) noexcept {
+    uint64_t hash = 1469598103934665603ULL;
+    hash = digest_uint64(hash, static_cast<uint64_t>(regions.size()));
+    for (const mirador::TextRegion& region : regions) {
+        hash = digest_float(hash, region.bounds.x);
+        hash = digest_float(hash, region.bounds.y);
+        hash = digest_float(hash, region.bounds.width);
+        hash = digest_float(hash, region.bounds.height);
+        hash = digest_float(hash, region.confidence);
+        hash = digest_text(hash, region.utf8_text);
+    }
+    return hash;
+}
+
 /// Runs the all-or-nothing baseline measurement loop; returns an exit code
 /// (0 ok) and appends one record per measured call. Every measured call uses
 /// kRefresh: with the default kReadWrite policy the first call would populate
@@ -424,13 +672,15 @@ int measure_baseline(mirador::PerceptionSession& session, const mirador::Frame& 
             record.nonempty_lines = static_cast<int32_t>(
                 std::count_if(regions.value().begin(), regions.value().end(),
                               [](const mirador::TextRegion& region) { return !region.utf8_text.empty(); }));
+            record.content_digest = digest_regions(regions.value());
             records.push_back(record);
         }
     }
     return 0;
 }
 
-/// Builds the budgeted request from the CLI options.
+/// Builds the budgeted request from the CLI options; scene-mode priorities are
+/// attached by the caller (they need the loaded scene).
 mirador::BudgetedOcrRequest budget_request(const Options& options) {
     mirador::BudgetedOcrRequest request;
     request.max_rec_lines = options.k;
@@ -442,6 +692,61 @@ mirador::BudgetedOcrRequest budget_request(const Options& options) {
         request.finalize_reserve = std::chrono::milliseconds(options.finalize_reserve_ms);
     }
     return request;
+}
+
+/// True when the two rects share a positive-area intersection.
+bool rects_intersect(const mirador::RectF& a, const mirador::RectF& b) noexcept {
+    const float w = std::min(a.x + a.width, b.x + b.width) - std::max(a.x, b.x);
+    const float h = std::min(a.y + a.height, b.y + b.height) - std::max(a.y, b.y);
+    return w > 0.0F && h > 0.0F;
+}
+
+/// Max per-component |a-b| across the rect fields.
+double bbox_delta_px(const mirador::RectF& a, const mirador::RectF& b) noexcept {
+    const double dx = std::fabs(static_cast<double>(a.x) - b.x);
+    const double dy = std::fabs(static_cast<double>(a.y) - b.y);
+    const double dw = std::fabs(static_cast<double>(a.width) - b.width);
+    const double dh = std::fabs(static_cast<double>(a.height) - b.height);
+    return std::max(std::max(dx, dy), std::max(dw, dh));
+}
+
+/// Fills the scene-mode consistency columns of one budgeted call: text and
+/// geometry are compared against the untimed baseline reference pass by
+/// candidate index (both paths share the same deterministic det prefix; the
+/// session recovers both to kOriented).
+void fill_consistency(CallRecord& record, const mirador::BudgetedOcrReport& report,
+                      const std::vector<mirador::TextRegion>& reference, const LoadedScene& scene) {
+    for (const mirador::OcrLineRecord& line : report.batch.lines) {
+        if (line.state != mirador::OcrCompletionState::kRecognized) {
+            continue;
+        }
+        if (line.candidate_id < 0 || static_cast<size_t>(line.candidate_id) >= reference.size()) {
+            ++record.mismatched;
+            continue;
+        }
+        const mirador::TextRegion& ref = reference[static_cast<size_t>(line.candidate_id)];
+        record.max_bbox_delta_px = std::max(record.max_bbox_delta_px, bbox_delta_px(line.bounds, ref.bounds));
+        if (line.utf8_text == ref.utf8_text) {
+            if (!line.utf8_text.empty()) {
+                ++record.nonempty_matched;
+            }
+        } else {
+            ++record.mismatched;
+        }
+    }
+    for (const SceneLine& gt : scene.lines) {
+        if (!gt.priority) {
+            continue;
+        }
+        // Priority ROIs arrive in kOriented frame space — the scene's own
+        // coordinate space (identity mapping).
+        const bool covered =
+            std::any_of(report.batch.lines.begin(), report.batch.lines.end(), [&](const mirador::OcrLineRecord& line) {
+                return line.state == mirador::OcrCompletionState::kRecognized &&
+                       rects_intersect(line.bounds, gt.bounds);
+            });
+        record.priority_covered += covered ? 1 : 0;
+    }
 }
 
 CallRecord budget_record(int32_t index, const mirador::integrations::PpOcrBudgetedBackend& backend,
@@ -470,12 +775,16 @@ CallRecord budget_record(int32_t index, const mirador::integrations::PpOcrBudget
     record.stop = static_cast<int32_t>(report.batch.stop_reason);
     record.det_limit_hit = report.batch.det_limit_hit;
     record.partial = report.batch.completion == mirador::OcrBatchCompletion::kPartial;
+    record.content_digest = digest_report(report);
     return record;
 }
 
-/// Runs the budgeted measurement loop (session entry timing boundary).
+/// Runs the budgeted measurement loop (session entry timing boundary). With a
+/// loaded scene, caller priorities are attached and an untimed baseline
+/// reference pass provides the per-candidate texts the consistency gates
+/// compare against.
 int measure_budgeted(mirador::PerceptionSession& session, const mirador::Frame& frame, const Options& options,
-                     std::vector<CallRecord>& records) {
+                     const LoadedScene* scene, std::vector<CallRecord>& records) {
     auto backend = mirador::integrations::PpOcrBudgetedBackend::create([&] {
         mirador::integrations::PpOcrBudgetedOptions budgeted;
         budgeted.det = det_options(options);
@@ -487,8 +796,44 @@ int measure_budgeted(mirador::PerceptionSession& session, const mirador::Frame& 
         return 3;
     }
     mirador::integrations::PpOcrBudgetedBackend ocr = std::move(backend).take_value();
-    const mirador::BudgetedOcrRequest request = budget_request(options);
+    mirador::BudgetedOcrRequest request = budget_request(options);
+    std::vector<mirador::TextRegion> reference;
+    if (scene != nullptr) {
+        // Only the designated priority lines become caller priorities; with
+        // K < N this is what guarantees they are recognized first.
+        for (const SceneLine& line : scene->lines) {
+            if (!line.priority) {
+                continue;
+            }
+            mirador::OcrPriorityEntry entry;
+            entry.roi = line.bounds;
+            entry.priority = 1.0F;
+            request.priorities.push_back(entry);
+        }
+    }
     const bool has_deadline = options.finalize_reserve_ms >= 0;
+
+    // Untimed baseline reference pass (kRefresh: a real forward, never a cache
+    // read); it also fails the run early when the complete path cannot.
+    if (scene != nullptr) {
+        auto reference_backend =
+            mirador::integrations::PpOcrBackend::create(det_options(options), rec_options(options));
+        if (!reference_backend.ok()) {
+            std::printf("FAIL: reference backend creation failed: %s\n", reference_backend.status().message().c_str());
+            return 3;
+        }
+        mirador::integrations::PpOcrBackend ref_ocr = std::move(reference_backend).take_value();
+        mirador::OcrRequest ref_request;
+        ref_request.cache_policy = mirador::CachePolicy::kRefresh;
+        auto regions = session.run_ocr(frame, &ref_ocr, ref_request);
+        if (!regions.ok()) {
+            std::printf("FAIL: baseline reference pass failed: %s\n", regions.status().message().c_str());
+            return 5;
+        }
+        reference = std::move(regions).take_value();
+        std::printf("SUMMARY reference_candidates=%zu scene_lines=%zu priority_entries=%zu\n", reference.size(),
+                    scene->lines.size(), request.priorities.size());
+    }
 
     for (int32_t call = 0; call < options.warmup + options.iterations; ++call) {
         mirador::ExecutionContext context;
@@ -504,8 +849,12 @@ int measure_budgeted(mirador::PerceptionSession& session, const mirador::Frame& 
         }
         if (call >= options.warmup) {
             const auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
-            records.push_back(
-                budget_record(call - options.warmup, ocr, report.value(), static_cast<double>(elapsed_ns) / 1.0e6));
+            CallRecord record =
+                budget_record(call - options.warmup, ocr, report.value(), static_cast<double>(elapsed_ns) / 1.0e6);
+            if (scene != nullptr) {
+                fill_consistency(record, report.value(), reference, *scene);
+            }
+            records.push_back(std::move(record));
         }
     }
     return 0;
@@ -536,11 +885,14 @@ void print_summary(const std::vector<CallRecord>& records, const Options& option
                 percentile(totals, 0.95), max_ms);
     if (!records.empty()) {
         print_last_record(records.back());
+        std::printf("SUMMARY content_digest=%016llx (last call; identical across repeated runs)\n",
+                    static_cast<unsigned long long>(records.back().content_digest));
     }
 }
 
 /// Writes the per-call no-content CSV; returns false when the file cannot be
-/// opened.
+/// opened. Scene-mode consistency columns are always present (zero without
+/// --scene-dir) so downstream cross-checks see one stable schema.
 bool write_csv(const std::vector<CallRecord>& records, const std::string& path) {
     FILE* out = std::fopen(path.c_str(), "w");
     if (out == nullptr) {
@@ -550,14 +902,18 @@ bool write_csv(const std::vector<CallRecord>& records, const std::string& path) 
     std::fprintf(out,
                  "index,total_ms,det_canvas_ms,det_pack_ms,det_forward_ms,det_post_ms,select_ms,crop_ms,"
                  "rec_pre_ms,rec_forward_ms,rec_decode_ms,finalize_ms,detected,recognized,deferred,forwards,"
-                 "nonempty_lines,stop,partial,det_limit_hit\n");
+                 "nonempty_lines,stop,partial,det_limit_hit,nonempty_matched,mismatched,priority_covered,"
+                 "max_bbox_delta_px,content_digest\n");
     for (const CallRecord& record : records) {
-        std::fprintf(out, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d\n",
+        std::fprintf(out,
+                     "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,"
+                     "%.6f,%016llx\n",
                      record.index, record.total_ms, record.det_canvas_ms, record.det_pack_ms, record.det_forward_ms,
                      record.det_post_ms, record.select_ms, record.crop_ms, record.rec_pre_ms, record.rec_forward_ms,
                      record.rec_decode_ms, record.finalize_ms, record.detected, record.recognized, record.deferred,
                      record.forwards, record.nonempty_lines, record.stop, record.partial ? 1 : 0,
-                     record.det_limit_hit ? 1 : 0);
+                     record.det_limit_hit ? 1 : 0, record.nonempty_matched, record.mismatched, record.priority_covered,
+                     record.max_bbox_delta_px, static_cast<unsigned long long>(record.content_digest));
     }
     std::fclose(out);
     std::printf("SUMMARY csv=%s\n", path.c_str());
@@ -565,21 +921,77 @@ bool write_csv(const std::vector<CallRecord>& records, const std::string& path) 
 }
 
 /// Scenario gates reported explicitly; failures exit 4 (never a silent pass).
-/// The readable-text gates of AC8-02 are out of scope: these scenes are
-/// pressure patterns.
+/// The readable-text gates live in check_scene_gates; this covers the cap and
+/// candidate-count gates that also apply to the in-memory pressure scenes.
 int check_scenario_gates(const std::vector<CallRecord>& records, const Options& options) {
-    if (options.scenario != "dense512" || records.empty()) {
-        return 0;
+    if (records.empty()) {
+        std::printf("GATE FAIL: no measured calls recorded\n");
+        return 4;
     }
     const CallRecord& last = records.back();
-    if (last.detected >= options.max_boxes) {
-        return 0;
+    if (options.expect_boxes > 0 && last.detected != options.expect_boxes) {
+        std::printf("GATE FAIL: --expect-boxes %d but the det chain reported %d candidates\n", options.expect_boxes,
+                    last.detected);
+        return 4;
     }
-    std::printf(
-        "GATE FAIL: dense512 scene produced %d candidates < max_boxes %d; "
-        "the stress gate needs a real 512-candidate chain\n",
-        last.detected, options.max_boxes);
-    return 4;
+    if (options.scenario == "dense512" && last.detected < options.max_boxes) {
+        std::printf(
+            "GATE FAIL: dense512 scene produced %d candidates < max_boxes %d; "
+            "the stress gate needs a real 512-candidate chain\n",
+            last.detected, options.max_boxes);
+        return 4;
+    }
+    return 0;
+}
+
+/// Scene-mode gates (M8-06): AC8-02 time/consistency/priority coverage for the
+/// dense scenarios (the >= 32 readable-line requirement is dense-only; the
+/// long-lines scenario is unit calibration with ~10 lines), AC8-05
+/// full-completion/text/geometry identity for the sparse scenarios. Runs after
+/// the CSV is written so failing evidence is preserved.
+int check_scene_gates(const std::vector<CallRecord>& records, const Options& options, const LoadedScene& scene) {
+    const bool dense = options.scenario == "dense359" || options.scenario == "dense512";
+    const bool sparse = options.scenario == "sparse";
+    const bool deadline_on = options.finalize_reserve_ms >= 0;
+    for (const CallRecord& record : records) {
+        if (deadline_on && record.total_ms > static_cast<double>(kBudgetDeadlineMs)) {
+            std::printf("GATE FAIL: call %d took %.3f ms > %d ms budget\n", record.index, record.total_ms,
+                        kBudgetDeadlineMs);
+            return 4;
+        }
+        if (record.mismatched != 0) {
+            std::printf("GATE FAIL: call %d has %d recognized lines that disagree with the baseline reference\n",
+                        record.index, record.mismatched);
+            return 4;
+        }
+        if (dense && record.nonempty_matched < 32) {
+            std::printf("GATE FAIL: call %d matched only %d non-empty lines (need >= 32)\n", record.index,
+                        record.nonempty_matched);
+            return 4;
+        }
+        if (dense && record.priority_covered != scene.priority_count) {
+            std::printf("GATE FAIL: call %d covered %d of %d designated priority lines\n", record.index,
+                        record.priority_covered, scene.priority_count);
+            return 4;
+        }
+        if (sparse) {
+            if (record.max_bbox_delta_px > 1e-4) {
+                std::printf("GATE FAIL: call %d bbox delta %.6f px > 1e-4\n", record.index, record.max_bbox_delta_px);
+                return 4;
+            }
+            const bool full_selection = options.k >= record.detected && options.soft_budget_ms < 0;
+            if (full_selection && (record.stop != 0 || record.deferred != 0)) {
+                std::printf(
+                    "GATE FAIL: sparse call %d with K >= N and no soft budget must complete fully "
+                    "(stop=%d deferred=%d)\n",
+                    record.index, record.stop, record.deferred);
+                return 4;
+            }
+        }
+    }
+    std::printf("SUMMARY scene_gates=pass scenario=%s records=%zu priority_count=%d\n", options.scenario.c_str(),
+                records.size(), scene.priority_count);
+    return 0;
 }
 
 }  // namespace
@@ -601,15 +1013,33 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    // Scene (deterministic, generated in memory, never persisted).
-    const std::vector<LineSpec> specs = scenario_lines(options.scenario, options.sparse_n);
-    const uint64_t scene_seed = options.scenario == "dense512" ? 20261020ULL : 20261019ULL;
-    auto scene_result = make_scene(specs, scene_seed);
-    if (!scene_result.ok()) {
-        std::printf("FAIL: scene allocation failed\n");
-        return 5;
+    // Scene: a caller-provided readable scene (M8-06) or the deterministic
+    // in-memory pressure generator; both stay in memory, nothing persists.
+    LoadedScene loaded;
+    const LoadedScene* scene_ptr = nullptr;
+    mirador::ImageBuffer generated;
+    if (!options.scene_dir.empty()) {
+        auto loaded_result = load_scene_dir(options.scene_dir);
+        if (!loaded_result.ok()) {
+            std::printf("FAIL: cannot load scene dir %s: %s\n", options.scene_dir.c_str(),
+                        loaded_result.status().message().c_str());
+            return 3;
+        }
+        loaded = std::move(loaded_result).take_value();
+        scene_ptr = &loaded;
+        std::printf("SUMMARY scene_dir=%s scene_lines=%zu priority_lines=%d\n", options.scene_dir.c_str(),
+                    loaded.lines.size(), loaded.priority_count);
+    } else {
+        const std::vector<LineSpec> specs = scenario_lines(options.scenario, options.sparse_n);
+        const uint64_t scene_seed = options.scenario == "dense512" ? 20261020ULL : 20261019ULL;
+        auto scene_result = make_scene(specs, scene_seed);
+        if (!scene_result.ok()) {
+            std::printf("FAIL: scene allocation failed\n");
+            return 5;
+        }
+        generated = scene_result.take_value();
     }
-    const mirador::ImageBuffer scene = scene_result.take_value();
+    const mirador::ImageBuffer& scene = scene_ptr != nullptr ? scene_ptr->image : generated;
 
     mirador::Frame frame;
     frame.image = scene.view();
@@ -622,7 +1052,7 @@ int main(int argc, char** argv) {
     std::vector<CallRecord> records;
     records.reserve(static_cast<size_t>(options.iterations));
     const int measured = options.mode == "baseline" ? measure_baseline(session, frame, options, records)
-                                                    : measure_budgeted(session, frame, options, records);
+                                                    : measure_budgeted(session, frame, options, scene_ptr, records);
     if (measured != 0) {
         return measured;
     }
@@ -631,5 +1061,9 @@ int main(int argc, char** argv) {
     if (!options.csv_path.empty() && !write_csv(records, options.csv_path)) {
         return 5;
     }
-    return check_scenario_gates(records, options);
+    int gates = check_scenario_gates(records, options);
+    if (gates == 0 && scene_ptr != nullptr) {
+        gates = check_scene_gates(records, options, *scene_ptr);
+    }
+    return gates;
 }
