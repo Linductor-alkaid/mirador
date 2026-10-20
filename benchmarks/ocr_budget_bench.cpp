@@ -15,6 +15,7 @@
 #include "ppocr_backend.hpp"
 #include "ppocr_budgeted.hpp"
 
+#include <mirador/cache_policy.hpp>
 #include <mirador/execution_context.hpp>
 #include <mirador/frame.hpp>
 #include <mirador/image_buffer.hpp>
@@ -388,7 +389,10 @@ namespace {
 constexpr int32_t kBudgetDeadlineMs = 5000;
 
 /// Runs the all-or-nothing baseline measurement loop; returns an exit code
-/// (0 ok) and appends one record per measured call.
+/// (0 ok) and appends one record per measured call. Every measured call uses
+/// kRefresh: with the default kReadWrite policy the first call would populate
+/// the capability cache and every later call would time a cache hit instead of
+/// the backend (AC8-01 needs real forwards in every cell).
 int measure_baseline(mirador::PerceptionSession& session, const mirador::Frame& frame, const Options& options,
                      std::vector<CallRecord>& records) {
     auto backend = mirador::integrations::PpOcrBackend::create(det_options(options), rec_options(options));
@@ -397,7 +401,11 @@ int measure_baseline(mirador::PerceptionSession& session, const mirador::Frame& 
         return 3;
     }
     mirador::integrations::PpOcrBackend ocr = std::move(backend).take_value();
-    const mirador::OcrRequest request;
+    const mirador::OcrRequest request = [] {
+        mirador::OcrRequest value;
+        value.cache_policy = mirador::CachePolicy::kRefresh;
+        return value;
+    }();
     for (int32_t call = 0; call < options.warmup + options.iterations; ++call) {
         const auto begin = std::chrono::steady_clock::now();
         auto regions = session.run_ocr(frame, &ocr, request);
