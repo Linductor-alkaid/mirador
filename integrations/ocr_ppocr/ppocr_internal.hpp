@@ -88,6 +88,31 @@ struct RecUnitTiming {
                                                  const ImageView& line_image, const ExecutionContext& context,
                                                  RecUnitTiming* timing = nullptr);
 
+/// Width policy of one rec unit (M8-05 experiment axes, DEC-025 section 7).
+/// kDynamic is the frozen path; the padded variants exist for measurement
+/// only and stay unadopted unless the AC8-09 evidence gate passes.
+enum class RecWidthPolicy : std::uint8_t {
+    kDynamic,   ///< aspect resize capped at rec_width (identical to run_rec_line)
+    kFixed,     ///< resize as kDynamic, then right-pad zeros to exactly rec_width
+    kBucket32,  ///< resize as kDynamic, then right-pad zeros to the next 32 px multiple (cap-bound)
+    kBucket64,  ///< resize as kDynamic, then right-pad zeros to the next 64 px multiple (cap-bound)
+};
+
+/// `run_rec_line` under an experimental width policy (M8-05 measurement only).
+/// kDynamic delegates to `run_rec_line`; the padded variants reproduce the
+/// same pipeline with a different destination width, so an arm difference is
+/// attributable to the width policy alone. `timing` (nullable) accumulates the
+/// stage split of this unit.
+[[nodiscard]] Result<RecLineOutput> run_rec_variant(const PpOcrRecOptions& options,
+                                                    const std::vector<std::string>& charset, const NcnnRuntime& runtime,
+                                                    const ImageView& line_image, RecWidthPolicy policy,
+                                                    const ExecutionContext& context, RecUnitTiming* timing = nullptr);
+
+/// Single-line rec runtime factory: the rec options' model paths with an
+/// explicit intra-op thread count (experiment/bench convenience over the
+/// runtime options aggregate; no caching, one runtime per call).
+[[nodiscard]] Result<NcnnRuntime> create_rec_runtime(const PpOcrRecOptions& options, int num_threads);
+
 }  // namespace mirador::integrations::ppocr_detail
 
 #endif  // MIRADOR_INTEGRATIONS_PPOCR_INTERNAL_HPP

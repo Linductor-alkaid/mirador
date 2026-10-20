@@ -1,6 +1,7 @@
 # M8：密集 OCR 的交互预算闭环
 
-> 状态：In Progress（M8-01…04 实现落地；M8-01 真实权重实测、M8-05…07 未开始）
+> 状态：In Progress（M8-01…04 实现落地；M8-05 实验收口为全 no-go；M8-01 真实权重
+> 实测、M8-06…07 待真实环境）
 > 负责人：linductor（Mirador 维护者；以下各工作项同责）
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M2/M5 已有 SPI、缓存和参考后端；基于主干 `cb45a102`
@@ -27,12 +28,13 @@ Core runtime/内部并发。M9 连续感知、实体关系和事件不是本里�
 | M8-02 | Delivered（契约与套件已落地） | 冻结 DEC-025、新领域结果/可选能力、伪 Backend 契约套件、旧 API 兼容样例；记录配置与内存限额 | M8-01 | AC8-03、04、08 |
 | M8-03 | Delivered（合成模型验证；真实模型部分随 M8-06） | PP-OCR 有界 rec 选择与软预算执行，逐框完成态、执行序和停止诊断，未识别几何可查询 | M8-02 | AC8-03…06 |
 | M8-04 | Delivered | 会话新入口、坐标恢复、source 绑定与完整缓存隔离；无新能力时显式失败 | M8-02、03 | AC8-04、07、08 |
-| M8-05 | Planned | 单行成本/packing/动态宽度及 batching 的独立实验报告，给出采用或 no-go 与理由；采用时单独 MR 回归 | M8-01…04 | AC8-09；no-go 不阻塞 M8-06 |
+| M8-05 | Delivered（全 no-go，见 [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)） | 单行成本/packing/动态宽度及 batching 的独立实验报告，给出采用或 no-go 与理由；采用时单独 MR 回归 | M8-01…04 | AC8-09；no-go 不阻塞 M8-06 |
 | M8-06 | Planned | 同机真实模型基准、质量对照和 5 秒配置判定，冻结参考 K/收尾预留与适用平台 | M8-01…04 | AC8-01、02、05、10 |
 | M8-07 | Planned | Mirage 连续 3 次调用验收、故障/边界/sanitizer/CI 证据，API/示例/兼容性/CHANGELOG 同步 | M8-06；M8-05 的判定报告 | AC8-06…10 与全部退出条件 |
 
 - [ ] M8-01…04 交付并通过各自验收。
-- [ ] M8-05 给出可复现的实验结论；不支持 batching 也必须留下证据。
+- [x] M8-05 给出可复现的实验结论；不支持 batching 也必须留下证据（2026-10-19，
+  全 no-go：batching 能力性、packing/固定宽/分桶质量性、线程负优化复现）。
 - [ ] M8-06…07 真实环境与工程门禁通过。
 
 建议分四个可独立评审的 MR：基准与契约 → 有界执行与会话接线 → 可选优化实验 →
@@ -143,3 +145,46 @@ session 源码。仅新增方案和验收协议，未执行真实权重基准、
   建议后续将快照范围改为测试专属目录。
 - **CI 状态**：计划 PR #42 与实现 PR #43 均 14/14 job 全绿（2026-10-19）。
   Windows/Android 结论维持"构建级验证"，不声明性能。
+
+2026-10-19：M8-05 优化实验收口（分支 `feat/m8-rec-opt-experiment`；测量执行由
+Independent-Verification-Agent 独立完成，主循环实现工具与分析数字）。前提发现：
+Mirage 工程本机已持有适配于 Mirador 契约的 PP-OCRv5-mobile 权重 bundle
+（`PP-OCRv5-mobile-ncnn-mirador-contract-v1`，五文件 SHA-256 与 Mirage 供应链审计
+`real-ocr-resources-20261009.md` 逐一相符，2026-10-11 补充审计已闭合许可），真实
+权重实验不再被"资源不在受控环境"阻塞。
+
+- **工具与语料**：`benchmarks/ocr_rec_experiment.cpp`（8 臂对照 + dense 端到端
+  对照，跨次确定性门 + 基线覆盖门 + 逐单元无内容 CSV，exit 0/2/3/4/5）与
+  `benchmarks/tools/render_ocr_corpus.py`（确定性渲染语料，两次生成逐字节一致）；
+  权重/语料均为调用方路径，不入仓。工程接线：benchmarks 目标、integrations 范围
+  clang-tidy 列表、benchmarks README。
+- **实验证据**（Release 构建、P 核 taskset 0-3、pinned ncnn e54f7b1、96 行中英文
+  语料 × 20 reps；全部由 IVA 独立构建执行并从 CSV 交叉验证）：单行成本 forward
+  占 93%；基线覆盖率 100%；8 臂 × 20 reps 输出逐位一致（含 threads>1）。
+- **结论（全 no-go，不改任何默认值）**：batching 能力性 no-go（pinned rec 图
+  Input 3 维无样本维 + ncnn Extractor/Mat 无 batch 轴，伪 batch 不计）；pack4cap/
+  pack4wide 质量崩塌（组级文本匹配 8.3%/20.8%，wide 且 wall 1.72×、RSS 4.9×）；
+  pad320 文本一致率 82.3%（动态宽度设计得到支持）；bucket32/64 文本一致率
+  96.9%/90.6% 违反 AC8-09 硬门槛（padding 改变 CTC 时间步，机制上不可修复）；
+  threads4 经同进程 ABBA 顺序对照证实为主矩阵 powersave 冷启动伪影，暖机 serial
+  （p50 32.9 ms/p95 35.7 ms）反而快 12.8–23.5%——DEC-025 备选方案"线程/绑核负
+  优化"在本机受控条件下复现，维持 `num_threads=1`。
+- **dense 端到端对照**：detected=recognized=338/338、deferred=0、kCompleted、
+  5 次报告逐位一致；wall 4.40–7.52 s（短行格子语料，powersave），det 前向仅占
+  2–6%。实验中修复工具自身缺陷（dense 臂未显式设置 det box 预算 256 < 338 框），
+  仅工具文件、库代码零改动。
+- **给 M8-06 的输入**：暖机 serial p95 35.7 ms/行可作 `rec_unit_upper_bound` 推导
+  参考（冻结时按参考机重测）；性能测量必须 ABBA 顺序对照或固定频率，单顺序轮次
+  臂间差在本机族不可归因（主矩阵性能列即反例）。
+- **限制**：powersave governor 下主矩阵性能列不可归因（质量/确定性/内存/覆盖率
+  结论不受影响）；语料为渲染短中长文本与短行 dense 格子，不代表真实桌面混合
+  宽度密度；5 秒判定仍以 M8-06 冻结参考机为准。数字与完整方法见
+  [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)。
+- **工程门禁与 CI**：integrations ctest 61/61（含架构扫描与 ppocr 冒烟回归）；
+  debug+ASAN/UBSAN（leak 检测、no-recover）四臂冒烟干净；三文件 clang-tidy
+  0 错误。CI 首轮暴露一处边界冲突——架构扫描禁止 benchmarks/*.cpp 出现小写
+  runtime 令牌而 include-cleaner 要求直接包含 runtime 头——修复为把宽度策略变体
+  下沉到 `ppocr_detail::run_rec_variant`/`create_rec_runtime`（kDynamic 委托
+  `run_rec_line`，默认路径零变更），另按 M8-01 先例把全树 tidy 范围排除该工具、
+  标注一处 va_list 分析器误报。PR #44 终轮 CI（run `39291634207`，commits
+  `48f2018`/`5bc1a42`）14/14 job 全绿。

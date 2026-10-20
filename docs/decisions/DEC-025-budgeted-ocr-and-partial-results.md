@@ -192,3 +192,29 @@ API 已存在、性能达标或既有决策已被替代。
   "任意有限 float" 的契约由此成立。
 - 缓存隔离：预算入口首版不读写能力结果缓存（请求类型不设 cache_policy 字段），
   与上文第 5 条一致。
+
+## M8-05 实验结论（2026-10-19）
+
+第 6 条"batching 有退出条件的实验"与第 1 条"单行优化"按 AC8-09 门槛完成实测：
+**全部 no-go，本决策与 M8-03 的有界逐行实现不变，未修改任何默认值。**
+
+- 真 batching：能力性不支持——pinned rec 计算图 `Input x 0 1 x` 为 3 维（无样本
+  维），pinned ncnn `Extractor::input(blob, Mat)`/`ncnn::Mat`（维度上限 4，最高维
+  为通道）执行模型无 batch 轴。真 batch 需带 batch 轴的模型重导出与逐层审查，
+  超出"不改 pinned runtime/权重"边界；伪 batch 未测（AC8-09 不计）。
+- 横向 packing（4 行拼接）：组级文本匹配 8.3%（钳 320）/20.8%（钳 4096）；
+  后者同内容 wall 1.72×、RSS 4.9×。
+- 固定宽 pad320：文本一致率 82.3%——动态宽度（保持纵横比、上限钳宽、不 padding）
+  的既有设计得到证据支持。
+- 宽度分桶 bucket32/64：性能方向无法弥补文本一致率 96.9%/90.6% 的硬伤；padding
+  改变 CTC 时间步，输出差异不能压到"文本一致 + 置信度差 ≤1e-4"，机制上不可修复。
+- 线程扩展：主矩阵表面收益（threads4 p95 −70%）经同进程 ABBA 顺序对照证伪——
+  暖机 serial（p50 32.9 ms/p95 35.7 ms）反而快 12.8–23.5%，为 powersave 冷启动
+  顺序伪影；备选方案表"线程/绑核已报告负优化"在本机受控条件下复现。
+  `num_threads=1` 默认（DEC-012 位确定性契约）不变。
+- 端到端对照：真实权重 dense 帧 338/338 全识别、kCompleted、5 次报告逐位一致。
+
+数字、方法与局限见[实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)；
+测量由 Independent-Verification-Agent 独立执行。给 M8-06 的输入：暖机 serial
+p95 35.7 ms/行作 `rec_unit_upper_bound` 推导参考（冻结时按参考机重测）；性能
+对比必须 ABBA 顺序对照或固定频率。

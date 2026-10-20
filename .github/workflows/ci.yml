@@ -178,13 +178,13 @@ jobs:
         run: cmake --build build/integrations
       - name: Test
         run: ctest --test-dir build/integrations --output-on-failure
-      - name: Run clang-tidy over integrations sources and the OCR budget harness
+      - name: Run clang-tidy over integrations sources and the OCR benchmark tools
         run: |
           clang-tidy --version
-          # The M8 harness lives in benchmarks/ but only compiles when the
-          # integrations are on, so it is linted here against this compile
-          # database (the debug database below does not contain it).
-          git ls-files 'integrations/*.cpp' 'benchmarks/ocr_budget_bench.cpp' | xargs clang-tidy --warnings-as-errors='*' -p build/integrations
+          # The M8 harnesses live in benchmarks/ but only compile when the
+          # integrations are on, so they are linted here against this compile
+          # database (the debug database below does not contain them).
+          git ls-files 'integrations/*.cpp' 'benchmarks/ocr_budget_bench.cpp' 'benchmarks/ocr_rec_experiment.cpp' | xargs clang-tidy --warnings-as-errors='*' -p build/integrations
 
   # M5-05: the optional capture adapters. The Linux X11 adapter builds and
   # runs its synthetic-window smoke test against a virtual display (no real
@@ -264,7 +264,7 @@ jobs:
       - name: Run clang-tidy
         run: |
           clang-tidy --version
-          # integrations/, the platform capture adapters and the OCR budget
-          # harness (integrations-only build) are linted in their own jobs
+          # integrations/, the platform capture adapters and the OCR benchmark
+          # tools (integrations-only build) are linted in their own jobs
           # against their own compile databases.
-          git ls-files '*.cpp' '*.cc' ':!integrations/**' ':!benchmarks/ocr_budget_bench.cpp' ':!adapters/capture-linux/**' ':!adapters/capture-windows/**' ':!adapters/capture-android/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug
+          git ls-files '*.cpp' '*.cc' ':!integrations/**' ':!benchmarks/ocr_budget_bench.cpp' ':!benchmarks/ocr_rec_experiment.cpp' ':!adapters/capture-linux/**' ':!adapters/capture-windows/**' ':!adapters/capture-android/**' | xargs clang-tidy --warnings-as-errors='*' -p build/debug

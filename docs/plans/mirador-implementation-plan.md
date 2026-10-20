@@ -578,8 +578,10 @@ run 35917953109 14/14 job 全绿，待合入）。
 - [ ] `SCOPE-14` 密集 OCR 交互预算：rec 数量上限、调用方优先级、显式完成度与
   部分报告、提前收尾、坐标/缓存隔离及真实模型 5 秒门槛；见
   [M8](m8-budgeted-ocr.md) 与 [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)
-  （Accepted，M8-02 冻结；M8-01…04 实现落地，真实模型验收待 M8-06/07）。
-  完整旧 API 保持全有或全无，batching 为独立 go/no-go 实验。
+  （Accepted，M8-02 冻结；M8-01…04 实现落地，M8-05 优化实验已收口为有证据的
+  全 no-go（batching 能力性、packing/宽度策略质量性，详见
+  [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)），真实模型 5 秒
+  验收待 M8-06/07）。完整旧 API 保持全有或全无。
 - [ ] `SCOPE-15` 连续增量感知（Proposed）：实体重复/从属/重叠关系、调用方注意与
   重要性策略、覆盖与陈旧结果绑定、跨帧语义稳定化、有界选择性事件；见
   [M9](m9-continuous-perception.md) 与

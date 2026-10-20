@@ -60,4 +60,12 @@ if(TARGET mirador_ocr_ppocr)
     add_executable(mirador_bench_ocr_budget ocr_budget_bench.cpp)
     target_link_libraries(mirador_bench_ocr_budget PRIVATE mirador_ocr_ppocr mirador::fusion)
     mirador_apply_warnings(mirador_bench_ocr_budget)
+
+    # M8-05 (DEC-025 AC8-09): rec optimization experiment on real caller-provided
+    # weights — single-line cost decomposition, width policy, packing and thread
+    # scaling arms plus the optional dense end-to-end sanity arm. Measurement
+    # evidence only; it changes no library code and freezes no default.
+    add_executable(mirador_bench_ocr_rec_experiment ocr_rec_experiment.cpp)
+    target_link_libraries(mirador_bench_ocr_rec_experiment PRIVATE mirador_ocr_ppocr)
+    mirador_apply_warnings(mirador_bench_ocr_rec_experiment)
 endif()
