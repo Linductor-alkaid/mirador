@@ -38,6 +38,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <ios>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -870,7 +871,7 @@ int measure_budgeted(mirador::PerceptionSession& session, const mirador::Frame& 
             if (scene != nullptr) {
                 fill_consistency(record, report.value(), reference, *scene);
             }
-            records.push_back(std::move(record));
+            records.push_back(record);
         }
     }
     return 0;

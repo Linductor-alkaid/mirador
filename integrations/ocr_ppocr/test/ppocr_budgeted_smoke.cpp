@@ -1012,13 +1012,13 @@ void check_probe_saturation_boundary(const std::filesystem::path& dir, const mir
     bool prefix_ok = result.lines.size() == 3;
     for (int32_t index = 0; prefix_ok && index < 3; ++index) {
         const mirador::OcrLineRecord& line = result.lines[static_cast<size_t>(index)];
-        prefix_ok = prefix_ok && line.candidate_id == index && line.utf8_text == "ABCD" &&
-                   line.state == mirador::OcrCompletionState::kRecognized && line.execution_order == index &&
-                   line.det_confidence > 0.75F && line.det_confidence <= 0.85F &&
-                   bounds_close(line.bounds, static_cast<float>(kColumnX[index] - kUnclipOffset),
-                                static_cast<float>(15 - kUnclipOffset),
-                                static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
-                                static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
+        prefix_ok =
+            prefix_ok && line.candidate_id == index && line.utf8_text == "ABCD" &&
+            line.state == mirador::OcrCompletionState::kRecognized && line.execution_order == index &&
+            line.det_confidence > 0.75F && line.det_confidence <= 0.85F &&
+            bounds_close(line.bounds, static_cast<float>(kColumnX[index] - kUnclipOffset),
+                         static_cast<float>(15 - kUnclipOffset), static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
+                         static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
     }
     expect_true(prefix_ok,
                 "probe saturation: kept prefix is the top row (candidates 0..2), fully recognized as \"ABCD\"");
