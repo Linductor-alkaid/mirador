@@ -149,6 +149,12 @@ def main() -> None:
 
     image = Image.new("RGB", (width, height), (247, 247, 249))
     draw = ImageDraw.Draw(image)
+    # Exactly PRIORITY_LINES designated lines (IVA round 1: `slot % step` marks
+    # a 17th line whenever count is not a multiple of 16).
+    priority_slots = set()
+    if count >= PRIORITY_LINES:
+        step = count // PRIORITY_LINES
+        priority_slots = {index * step for index in range(PRIORITY_LINES)}
     lines = []
     for slot in range(count):
         col = slot % layout["cols"]
@@ -158,15 +164,19 @@ def main() -> None:
         slot_width = min(layout["col_step"] - 8, width - layout["margin"] - slot_x)
         text = pick_line_text(draw, rng, slot_width, font)
         color = (35, 35, 40) if rng.random() < 0.85 else (40, 60, 130)
+        # textbbox with an absolute anchor returns absolute ink coordinates, so
+        # the text is drawn at the slot origin itself (IVA round 1 blocker:
+        # subtracting the bbox origin collapsed every line onto ~(0, 0)).
         left, top, right, bottom = draw.textbbox((slot_x, slot_y), text, font=font)
-        draw.text((slot_x - left, slot_y - top), text, font=font, fill=color)
-        priority = 1 if (count >= PRIORITY_LINES and slot % (count // PRIORITY_LINES) == 0) else 0
+        draw.text((slot_x, slot_y), text, font=font, fill=color)
+        priority = 1 if slot in priority_slots else 0
         lines.append({"id": slot, "x": int(left), "y": int(top), "w": int(right - left),
                       "h": int(bottom - top), "priority": priority, "text": text})
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "scene.rgb").write_bytes(image.convert("RGB").tobytes())
-    (args.out / "scene.tsv").write_text(f"{width}\t{height}\t{len(lines)}\n", encoding="utf-8")
+    # 4th column: the scenario name is the harness gate class source of truth.
+    (args.out / "scene.tsv").write_text(f"{width}\t{height}\t{len(lines)}\t{args.scenario}\n", encoding="utf-8")
     with (args.out / "lines.tsv").open("w", encoding="utf-8") as manifest:
         for line in lines:
             manifest.write(

@@ -202,6 +202,7 @@ struct LoadedScene {
     mirador::ImageBuffer image;
     std::vector<SceneLine> lines;
     int32_t priority_count = 0;
+    std::string scenario;  ///< gate class from scene.tsv (empty for older scenes)
 };
 
 std::string path_in(const std::string& dir, const std::string& file) {
@@ -221,24 +222,28 @@ mirador::Result<std::vector<std::byte>> read_raw_bytes(const std::string& path, 
     return data;
 }
 
-/// Parses the single scene.tsv row (width, height, line_count); line_count may
-/// be 0 (empty sparse scenes are a legal scenario).
-mirador::Result<std::tuple<int32_t, int32_t, int32_t>> parse_scene_row(const std::string& row) {
+/// Parses the single scene.tsv row (width, height, line_count[, scenario]);
+/// line_count may be 0 (empty sparse scenes are a legal scenario). The
+/// scenario name is the gate class source of truth (IVA round 1, defect 4);
+/// scenes rendered by older renderer versions may omit it.
+mirador::Result<std::tuple<int32_t, int32_t, int32_t, std::string>> parse_scene_row(const std::string& row) {
     std::istringstream fields(row);
     std::string width_field;
     std::string height_field;
     std::string count_field;
+    std::string scenario_field;
     if (!std::getline(fields, width_field, '\t') || !std::getline(fields, height_field, '\t') ||
         !std::getline(fields, count_field, '\t')) {
         return mirador::Status{mirador::ErrorCode::kInvalidArgument, "malformed scene.tsv row"};
     }
+    std::getline(fields, scenario_field, '\t');
     const int32_t width = std::atoi(width_field.c_str());
     const int32_t height = std::atoi(height_field.c_str());
     const int32_t count = std::atoi(count_field.c_str());
     if (width <= 0 || height <= 0 || count < 0 || width > 100000 || height > 100000) {
         return mirador::Status{mirador::ErrorCode::kInvalidArgument, "out-of-range scene metadata"};
     }
-    return std::make_tuple(width, height, count);
+    return std::make_tuple(width, height, count, scenario_field);
 }
 
 /// Parses one lines.tsv row (id, x, y, w, h, priority, text).
@@ -286,7 +291,7 @@ mirador::Result<LoadedScene> load_scene_dir(const std::string& dir) {
     if (!meta.ok()) {
         return meta.status();
     }
-    const auto [width, height, count] = std::move(meta).take_value();
+    const auto [width, height, count, scenario] = std::move(meta).take_value();
 
     std::vector<SceneLine> lines;
     lines.reserve(static_cast<size_t>(count));
@@ -329,6 +334,7 @@ mirador::Result<LoadedScene> load_scene_dir(const std::string& dir) {
     scene.image = std::move(image);
     scene.lines = std::move(lines);
     scene.priority_count = priority_count;
+    scene.scenario = scenario;
     return scene;
 }
 
@@ -372,7 +378,9 @@ void print_usage() {
         "  --sparse-n N                                    (with --scenario sparse)\n"
         "  --scene-dir DIR   readable caller scene from render_ocr_scenarios.py\n"
         "               (scene.tsv/lines.tsv/scene.rgb); overrides the in-memory\n"
-        "               generator and enables the M8-06 priority/consistency gates\n"
+        "               generator and enables the M8-06 priority/consistency gates.\n"
+        "               --scenario must match the rendered scenario (gate class);\n"
+        "               consistency gates apply to budgeted mode only\n"
         "  --expect-boxes N  gate: the det chain must report exactly N candidates\n\n"
         "Configuration:\n"
         "  --mode budgeted|baseline   baseline = all-or-nothing PpOcrBackend\n"
@@ -816,8 +824,16 @@ int measure_budgeted(mirador::PerceptionSession& session, const mirador::Frame& 
     // Untimed baseline reference pass (kRefresh: a real forward, never a cache
     // read); it also fails the run early when the complete path cannot.
     if (scene != nullptr) {
-        auto reference_backend =
-            mirador::integrations::PpOcrBackend::create(det_options(options), rec_options(options));
+        mirador::integrations::PpOcrDetOptions reference_det = det_options(options);
+        // The all-or-nothing reference must see the full candidate set: the
+        // frozen old postprocess fails the whole call (kBudgetExceeded) when
+        // boxes exceed its cap, which would break the untimed pass exactly on
+        // the overflow scenes the budgeted path is built for (IVA round 1,
+        // defect 2). Raise the reference cap to the postprocess domain maximum;
+        // the budgeted run keeps the caller's policy and compares per
+        // candidate_id against the shared det prefix order.
+        reference_det.postprocess.max_boxes = 65535;
+        auto reference_backend = mirador::integrations::PpOcrBackend::create(reference_det, rec_options(options));
         if (!reference_backend.ok()) {
             std::printf("FAIL: reference backend creation failed: %s\n", reference_backend.status().message().c_str());
             return 3;
@@ -1027,6 +1043,14 @@ int main(int argc, char** argv) {
         }
         loaded = std::move(loaded_result).take_value();
         scene_ptr = &loaded;
+        // The rendered scenario is the gate class source of truth (IVA round 1,
+        // defect 4): a --scene-dir whose scenario disagrees with --scenario is
+        // a caller error, never a silently mis-classified gate.
+        if (!loaded.scenario.empty() && loaded.scenario != options.scenario) {
+            std::printf("FAIL: --scenario %s does not match the rendered scene scenario %s\n", options.scenario.c_str(),
+                        loaded.scenario.c_str());
+            return 2;
+        }
         std::printf("SUMMARY scene_dir=%s scene_lines=%zu priority_lines=%d\n", options.scene_dir.c_str(),
                     loaded.lines.size(), loaded.priority_count);
     } else {
@@ -1062,7 +1086,11 @@ int main(int argc, char** argv) {
         return 5;
     }
     int gates = check_scenario_gates(records, options);
-    if (gates == 0 && scene_ptr != nullptr) {
+    // Scene consistency gates compare budgeted calls against the baseline
+    // reference; baseline mode has no reference and its consistency columns
+    // stay zero, so applying them there would fail every run (IVA round 1,
+    // defect 3). AC8-01 baseline evidence carries the candidate-count gates.
+    if (gates == 0 && scene_ptr != nullptr && options.mode == "budgeted") {
         gates = check_scene_gates(records, options, *scene_ptr);
     }
     return gates;
