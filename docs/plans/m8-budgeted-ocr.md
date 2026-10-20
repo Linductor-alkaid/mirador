@@ -244,3 +244,11 @@ digest 跨 20 次恒定）；dense359 digest 与第二轮逐位一致（跨轮�
 真 65535 饱和路径仅代码审读证据（域边界不可达，如实记录）。同轮修正基准报告
 中首轮"全量可进 5 s"结论为"骑在 5 s 边界随机器状态摆动"（第二轮同名探针
 soft 停止于 209–224/359 行）。证据：`/tmp/m8_06_iva_round3/`。
+
+2026-10-21：M8-06 CI 门禁回填——PR #46 终轮 CI（run `39470617909`，head
+`d940ddb`）14/14 job 全绿：clang-format/clang-tidy 双口径（首轮暴露 IVA 冒烟
+编辑缺 format 与 harness 缺 `<ios>` 直接包含、平凡可拷贝 `std::move` 三处机械
+违规，修复后本地以 CI 同款命令复验归零）、integrations-ncnn（integrations 构建
++ 冒烟 + integrations 范围 tidy）、msvc 与 ndk/arm64-v8a（Windows/Android 构建
+级证据）、debug/release/warnings/asan/ubsan/tsan/fuzz/capture/ubuntu-20.04。
+Windows/Android 结论维持"构建级验证"，不声明 5 秒。PR 合入待负责人授权。
