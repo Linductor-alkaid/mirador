@@ -59,10 +59,14 @@ private:
 /// Runs the frozen det stage and returns the candidate boxes in prepared-image
 /// space (post min_confidence, pad/scale recovered), together with the
 /// truncation diagnostics. `max_boxes` is the caller's det policy: the DB
-/// postprocess runs with a one-box internal probe so a cap hit is observable
-/// (DEC-025: det coverage uncertainty must be visible) while the kept prefix
-/// stays bitwise identical to a plain limit-capped run. The probe itself
-/// saturating (a 65535-box map) fails explicitly like the frozen postprocess.
+/// postprocess runs at its 65535-box domain maximum and this stage truncates
+/// to the policy cap, so any natural density up to the domain bound yields a
+/// kept prefix with an observable `det_limit_hit` (DEC-025: det coverage
+/// uncertainty must be visible; M8-06 revised the former det_limit+1 probe
+/// whose room the frozen postprocess could exceed into a whole-call failure).
+/// The kept prefix stays bitwise identical to a plain limit-capped run
+/// whenever that run would succeed; only true 65535-box saturation still
+/// fails explicitly like the frozen postprocess.
 struct DetStageOutput {
     std::vector<TextRegion> boxes;  ///< reading-order ready: recovered, filtered
     int32_t det_limit = 0;
@@ -124,11 +128,18 @@ Result<DetStageOutput> run_det_stage(const PpOcrDetOptions& options, const Image
 
     const int32_t det_limit = options.postprocess.max_boxes;
     DbPostprocessParams probe_params = options.postprocess;
-    // One-box internal probe: > det_limit returned boxes proves the cap bound
-    // a candidate set exists behind the policy cap. At det_limit == 65535 the
-    // frozen postprocess domain leaves no probe room; a hit there surfaces as
-    // its explicit kBudgetExceeded instead of det_limit_hit.
-    probe_params.max_boxes = std::min(det_limit + 1, 65535);
+    // Probe at the postprocess domain maximum and truncate here: any natural
+    // density up to 65535 boxes must yield a kept prefix with a visible
+    // det_limit_hit, not a whole-call failure. The former det_limit+1 probe
+    // relied on the frozen postprocess saturating past its cap, but the frozen
+    // semantics fail the call once components exceed the cap — M8-06 real
+    // density hit exactly that (a 529-slot desktop grid yields 530 candidates
+    // > cap+1 and the budgeted call died on the scenes it exists for; M8-03
+    // deferred this boundary to real-density data). kBudgetExceeded is now
+    // reserved for true 65535-box saturation. The kept prefix stays bitwise
+    // identical to a plain limit-capped run whenever that run would succeed
+    // (component scan order does not depend on the cap).
+    probe_params.max_boxes = 65535;
     auto boxed = db_postprocess_aabb(probability_view, probe_params);
     if (!boxed.ok()) {
         return boxed.status();
