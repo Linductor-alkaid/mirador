@@ -148,6 +148,8 @@ MiniCPM-o 范围澄清）；本计划同步目标/非目标、M9-01/05/06 交付
   `relation_view_consistent` kPartOf `merged_from` 条件反转缺陷，主循环修复后
   复验全绿。门禁：debug 全量 ctest 56/56 零回归（新增 1 二进制）；
   asan/ubsan 直跑零 sanitizer 报告；clang-format/clang-tidy 双口径归零。
+  CI 证据随 [PR #49](https://github.com/Linductor-alkaid/mirador/pull/49)
+  回填（run 39565345549，14/14 job 全绿，PR 待合入）。
 - 限制：阈值初值（`RelationClassifyOptions` 等）为开发默认值，随 M9-06 校准；
   AC9-01…11 的最终验收证据归 M9-02…07 各自交付；真实留出集数据与人工 GT
   未采集，相关真实质量门槛保持未完成。
