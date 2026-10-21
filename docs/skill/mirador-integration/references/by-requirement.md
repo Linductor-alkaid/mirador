@@ -4,6 +4,7 @@
 | --- | --- |
 | No exceptions; every failure visible as a code | [Quick start](quick-start.md) |
 | Cancel or time out a long operation without hangs | [Session and caching](session-and-caching.md) and [backends](backends.md) |
+| Return usable partial results when an OCR budget expires | [Budgeted OCR](budgeted-ocr.md) |
 | Do nothing when the screen is unchanged | [Session and caching](session-and-caching.md) |
 | Ignore a clock, cursor, or video overlay as non-change | [Session and caching](session-and-caching.md) |
 | Invalidate results when the model or weights change | [Backends](backends.md) |

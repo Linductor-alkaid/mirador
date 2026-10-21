@@ -14,6 +14,7 @@ Use this skill as an application developer. Public headers under `include/mirado
 | First integration, CMake target, first frame, or the minimal session loop | [Quick start](references/quick-start.md) |
 | Capture buffers, rotation, stride, ownership, or coordinate spaces | [Frames and coordinates](references/frames-and-coordinates.md) |
 | A real OCR, detector, or line-detector implementation | [Backends](references/backends.md) |
+| Dense-screen OCR under a time budget: K limits, priorities, partial reports, deferred lines | [Budgeted OCR](references/budgeted-ocr.md) |
 | Change gating, cache reuse, refresh, or ignore regions | [Session and caching](references/session-and-caching.md) |
 | Fusion, stable IDs, snapshots, or stale-reference detection | [Fusion and snapshots](references/fusion-and-snapshots.md) |
 | A numbered overlay for a VLM or resolving "click item N" | [Set-of-Mark](references/set-of-mark.md) |
