@@ -447,7 +447,7 @@ M6 已于 2026-09-20 收口：`DEC-017` 第 6 条四项晋升门槛初值在合�
 
 把 §16 的稳定 ID 从"相邻快照关联"扩展为带时间维度的持续跟踪：在 `PerceptionSession` 内对同一视觉对象维持身份与位置估计，常态以 §10/§11 变化检测门控短路（画面未变或变化 ROI 与目标外推不相交时近零成本复用），局部变化时以模板 NCC（峰值+峰旁瓣质量）与已冻结的 `GeometricRegionProposal` 闭合结构一致性做双通道邻域验证，丢失时以显式状态机（`kTracking/kUncertain/kLost/kTerminated`）与预算化原语支持上层按需触发 Detector 重检测并做候选身份复核。位置-时间先验作为条件化软证据参与门控：静止期全权重，经全局运动补偿后覆盖滚动期，布局代际递增时清零降权——先验只作门控与占位，身份确认需外观或语义证据。能力落在 `mirador::fusion`（状态机、有界目标池、条件化证据融合），`mirador::image` 新增纯 CPU 确定性全局位移估计原语，零新依赖、不触及核心链接闭包；`ObjectTracker` 契约在 M7 内保持 Experimental，go/no-go 判定 GO 后经决策冻结。详细设计（统计模型、状态机、管线、指标与 A/B/C/D 基准矩阵）见[跨帧目标跟踪设计](object-tracking-design.md)，工作项见 M7 里程碑，能力边界与转正路径见 [DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md)。轻量深度 tracker 经 `TrackerBackend` SPI 注入（契约语义见 [DEC-020](../decisions/DEC-020-tracker-backend-spi.md)）作为可选增强通道：NanoTrack ncnn 参考后端随 M7 落于 `integrations/`（复用 `DEC-015` ncnn 基础设施，权重不入仓），未注入时管线零变化；CF tracker 仍为延后项 `POST-07`，触发条件随决策记录冻结。
 
-### M8：密集 OCR 的交互预算闭环（In Progress，M8-01…06 已交付）
+### M8：密集 OCR 的交互预算闭环（Completed，2026-10-21）
 
 针对 [Issue #41](https://github.com/Linductor-alkaid/mirador/issues/41)，先提供候选
 限额、调用方优先级、显式部分报告与提前收尾，再测单行和 batching 优化，独立于
@@ -457,8 +457,9 @@ M8-05 优化实验收口为有证据的全 no-go（维持有界逐行实现）�
 （两轮独立实测）取得 AC8-01/02/05 证据并冻结参考配置——K=64 + 收尾预留 500 ms
 在两轮机器状态下对 5 秒预算余量均 >3 倍，全量识别骑在 5 秒边界上随机器状态
 摆动，预算路径是 5 秒交互的稳健保障；det 探测边界按真实密度数据修订（任意
-≤65535 自然密度得到 `det_limit_hit` 可见截断，DEC-025 M8-06 修订）。剩余 M8-07
-为 Mirage 下游验收。方法、原始环境与平台限制按
+≤65535 自然密度得到 `det_limit_hit` 可见截断，DEC-025 M8-06 修订）。M8-07
+Mirage 下游受控验收完成（AC8-10 两轮全部门禁 PASS；本仓 PR #48 与 Mirage
+PR #113 均已合入，里程碑同日转 Completed）。方法、原始环境与平台限制按
 [OCR 基准协议](../benchmarks/ocr-budget-protocol.md)记录；5 秒判定限于冻结参考机
 与冻结场景，不构成跨机器性能保证。工作项与门槛见 [M8](../plans/m8-budgeted-ocr.md)。
 
