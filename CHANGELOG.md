@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+### M9-02 关系视图构建器（DEC-026 第 4 节，Experimental）
+
+- 新增纯函数 `build_relation_view`（`continuous_perception.hpp`）：在既有融合
+  输出旁确定性构建有界关系视图——星形重复证据分组（锚字段决策，禁止传递误
+  合并，不以 stable_id 相等合并），合并以冻结的 kDuplicateEvidence 自指记录
+  表达并保留全部 `merged_from` 输入索引与证据 id；part_of 边按
+  child→parent 发射（按构造无环），普通重叠与冲突两侧独立、证据不销毁；
+  `expected_generation` 整批守卫、非法几何整批拒绝（DEC-021）、收紧式
+  实体/关系/字节预算与取消/deadline 显式转换；`coverage` 恒为 kIncomplete，
+  覆盖证明归 M9-04 协调层。`RelationClassifyOptions` 补充加法 `operator==`。
+  既有单帧融合、稳定 ID/generation 与动作绑定协议零变化。
+- 独立验证套件 `mirador.fusion.relation_view`（33 用例，
+  Independent-Verification-Agent 编写执行）：固定重复/part_of/重叠/冲突/
+  不相交夹具、星形无传递链不变量、证据 100% 可追溯、整批拒绝与校验顺序钉定、
+  预算恰等边界、确定性、取消/超时转换与新旧 API 隔离；debug/ASAN/UBSAN
+  全量 ctest 57/57。
+
 ### M9 立项与连续感知契约冻结（DEC-026，M9-01）
 
 - 新增公共契约 `continuous_perception.hpp`（Experimental，M9-01 冻结；
