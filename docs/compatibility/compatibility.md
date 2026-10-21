@@ -4,8 +4,9 @@
 > 阶段 1 转正后为正式兼容性登记；M7 新增 Experimental API 节；M7-10 判定
 > GO（合成口径），冻结评审草案
 > [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
-> Proposed 待批——批准前 Experimental 登记不计兼容性承诺）
-> 更新日期：2026-09-28
+> Proposed 待批——批准前 Experimental 登记不计兼容性承诺；M8 登记
+> `ocr_batch.hpp` 预算 OCR 契约）
+> 更新日期：2026-10-21
 > 负责人：linductor
 
 本文登记 Mirador 实际验证过的构建与运行组合，以及各可选依赖的已知可用版本
@@ -46,6 +47,7 @@
 | 头 / 符号 | 登记依据 | 状态说明 |
 | --- | --- | --- |
 | `include/mirador/geometric_proposal.hpp`（`propose_regions`、`GeometricRegionProposal`、`GeometricProposalParams`、`OrientedRect`） | M6 实验轨道交付（[DEC-017](../decisions/DEC-017-geometric-region-proposal-experiment.md)）；[DEC-018](../decisions/DEC-018-geometric-region-proposal-promotion.md)（Accepted，2026-09-20）阶段 1 转正 | 自 2026-09-20 起**计入兼容性承诺**：字段与签名变更走兼容性变更流程；随 `MIRADOR_BUILD_GEOMETRY` 交付，依赖闭包仍仅标准库。`temporal_stability` 契约与融合/输出模型集成属 `DEC-018` 阶段 2，另行立项 |
+| `include/mirador/ocr_batch.hpp`（`BudgetedOcrBackend` SPI、`OcrBatchRequest`、`OcrBatchResult`、`OcrLineRecord`、`OcrCompletionState`、`OcrBatchStopReason`、`OcrBatchCompletion`、`OcrSelectionStrategy`、`OcrPriorityEntry`、`kOcrBatchMax*`/`kOcrBatchReference*` 常量与校验/全序/字节核算/一致性/摘要自由函数）及 `include/mirador/perception_session.hpp` 的 `BudgetedOcrRequest`/`BudgetedOcrReport`/`PerceptionSession::run_ocr_budgeted` | [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)（Accepted；M8-02 冻结契约，M8-06 实测修订参考配置 K=64/`finalize_reserve` 500 ms 与 det 探测域上限）；M8-04 会话接线与坐标恢复 | 自 2026-10-19（M8-02 冻结）起**计入兼容性承诺**：字段与签名变更走兼容性变更流程。独立 opt-in 新面：旧 `OcrBackend`/`run_ocr` 签名与全有或全无语义零变化（有兼容样例证据）；旧接口仍不返回部分 vector，不支持新能力的 Backend 显式 `kBackendUnavailable`。取消/硬 deadline 始终整调用 `kCancelled`/`kTimeout`，仅软预算与行限额产生 partial（DEC-025 §3）。预算路径不读写能力结果缓存。M8-06 真实模型基准与质量对照见 [基准报告](../benchmarks/linux-x64-ocr-budget-2026-10.md) |
 
 ## Experimental API 登记（M7，不计兼容性承诺）
 
@@ -72,7 +74,7 @@
 | --- | --- | --- | --- |
 | core/image/cache/geometry/fusion/render 全套 | ✅ 测试通过 | ✅ 编译 + 测试（CI） | ✅ 编译 + 测试（CI） |
 | 采集适配 | ✅ X11 冒烟（Xvfb + XWayland 分支） | 🔨 编译验证（运行待补跑） | 🔨 编译验证（运行待补跑） |
-| 参考后端（integrations） | ✅ 合成模型冒烟（CI） | ❌ 未验证 | ❌ 未验证 |
+| 参考后端（integrations） | ✅ 合成模型冒烟（CI）；预算 OCR 后端 Linux x64 真实权重基准实测（M8-06，受控参考机 2026-10-21） | ❌ 未验证 | ❌ 未验证 |
 | NanoTrack 参考跟踪后端（`integrations/tracker_nanotrack`） | ✅ 合成模型冒烟（CI，M7-12 起） | ❌ 未验证 | ❌ 未验证 |
 | 基准数字 | ✅ 已发布（`DEC-011` 主环境） | ⏳ 补跑条件 | ⏳ 补跑条件（功耗/温升挂起） |
 
