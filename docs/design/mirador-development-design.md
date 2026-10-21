@@ -325,15 +325,18 @@ M4 冻结补充（`DEC-010`）：阶段一的证据关联门控为 IoU 与包含
 
 M5 冻结补充（`DEC-016`）：kDisplay 随平台适配定义变换来源后开放——适配层/调用方提供 `FusionOptions::display_transform`（kOriented→kDisplay），证据与融合目标空间均可为 kDisplay，kDisplay 参与时变换必须存在；`run_ocr`/`run_detector` 输出空间保持帧族（kFrame/kOriented/kCropped），显示映射是融合输出职责。
 
-连续感知的增量设计候选（2026-10-19，**Proposed，尚未实现**）见
-[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)：在现有融合/
-跟踪旁增加 opt-in 关系视图，分别表达同实体重复证据、组件从属与普通重叠，保留
-原始证据。由 `mirador::fusion` 的同步协调原语组合既有组件，在 OCR/Detector 前
-应用调用方焦点；跟踪与精确 ROI 验证支持复用，外围结构监测支持失效反馈。
-source epoch/帧/策略/内容绑定防止延迟结果污染当前状态；latest/confirmed/published
-分层和有界 pull 事件控制通知，通知过滤不得阻止内部状态更新或陈旧动作引用失效。
-调用方持有跨帧任务的图像生命周期及有界待处理帧，库不增加采集、调度和后台循环。
-详细覆盖、预算和验证规则在 M9-01 冻结；既有单帧融合与动作协议继续有效。
+连续感知的增量设计（2026-10-19 立档；2026-10-21 随 M9-01 契约冻结生效，
+[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)
+Accepted）见该决策：在现有融合/跟踪旁增加 opt-in 关系视图，分别表达同实体
+重复证据、组件从属与普通重叠，保留原始证据。由 `mirador::fusion` 的同步协调
+原语组合既有组件，在 OCR/Detector 前应用调用方焦点；跟踪与精确 ROI 验证支持
+复用，外围结构监测支持失效反馈。source epoch/帧/策略/内容绑定防止延迟结果
+污染当前状态；latest/confirmed/published 分层和有界 pull 事件控制通知，通知
+过滤不得阻止内部状态更新或陈旧动作引用失效。调用方持有跨帧任务的图像生命
+周期及有界待处理帧，库不增加采集、调度和后台循环。领域词表、source epoch、
+参考预算、事件来源/代际/时间窗/开始-更新-结束字段与冻结纯规则已随 M9-01
+落冻于 `continuous_perception.hpp`（Experimental）；状态化协调原语按 M9-02…05
+增长。既有单帧融合与动作协议继续有效。
 
 ## 17. SoM 渲染与网格细化
 
@@ -459,14 +462,16 @@ M8-05 优化实验收口为有证据的全 no-go（维持有界逐行实现）�
 [OCR 基准协议](../benchmarks/ocr-budget-protocol.md)记录；5 秒判定限于冻结参考机
 与冻结场景，不构成跨机器性能保证。工作项与门槛见 [M8](../plans/m8-budgeted-ocr.md)。
 
-### M9：任务焦点驱动的增量视觉状态与通知（Proposed）
+### M9：任务焦点驱动的增量视觉状态与通知（In Progress，M9-01 契约冻结已交付）
 
 在 M8 的完成度契约和 M2/M4/M7 组件上，依次验证实体关系、识别前注意与增量复用、
 跨帧语义稳定化与有界通知。重要性由调用方提供，Mirador 只处理视觉事实；连续
 输入仍通过同步 plan/accept/query/drain 组合，不内建线程或 LLM 控制流。真实留出
 数据必须同时验证减少推理、关系质量、外围发现与陈旧结果拒绝，不能只报缓存命中。
-DEC-026 与 [M9](../plans/m9-continuous-perception.md) 待评审，不自动批准既有
-Experimental 能力转正。
+DEC-026 已随 M9-01 契约冻结转 Accepted（`continuous_perception.hpp`，
+Experimental：领域词表、source epoch、参考预算、事件字段、冻结纯规则与协调
+对象核心；状态化原语按 M9-02…05 增长）；既有 Experimental 能力不因本里程碑
+自动转正，M9-07 依验证决定本面转正或回退。
 
 ## 25. 首版 API 使用示例
 

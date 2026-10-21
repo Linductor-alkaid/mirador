@@ -106,7 +106,17 @@ attach 为 owning-reference 语义：仅成功路径消费句柄、任何错误�
 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
 （Proposed）待批——批准前不计兼容性承诺）、
 `perception_session.hpp`（感知入口：变化分析 → 按需 Backend → 坐标恢复 → 缓存 →
-融合发布，`DEC-013`）。
+融合发布，`DEC-013`）、
+`continuous_perception.hpp`（连续感知协调契约：DEC-026 第 1/3/4/5/6/7/8 节的
+领域词表——`Freshness`/`ObservationState`/`EventSemantic`/`SemanticChangeKind`/
+`RelationKind`/`WorkRejectionReason`/`FocusUnresolvedReason` 等枚举，
+`RelationView`/`AttentionPolicy`/`WorkToken`/`SemanticEvent`/`TemporalEntityState`
+数据模型与第 7 节参考预算常量——加冻结纯规则 `classify_entity_relation`/
+`resolve_attention_focus`/`work_token_stale_reason`/`semantic_event_consistent`
+等与协调对象 `ContinuousPerception` 的 identity/epoch/字节核算核心；
+M9-01 契约冻结，状态化原语 plan/accept/query/drain_events 按 M9-02…05 在同一
+Experimental 头内增长；**Experimental**（`DEC-026` Accepted，M9-07 依验证决定
+转正或回退）——批准前不计兼容性承诺）。
 
 ### mirador::render（SoM 与调试）
 

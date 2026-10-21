@@ -1,10 +1,14 @@
 # DEC-026：调用方驱动的连续感知、实体关系与变化通知
 
-> 状态：Proposed
+> 状态：Accepted（2026-10-21 随 M9-01 契约冻结生效：协调/关系/策略/事件领域
+> 词表、source epoch、覆盖/预算、事件来源/代际/时间窗/开始-更新-结束字段
+> 冻结于 `continuous_perception.hpp`；能力面保持 Experimental，M9-07 依验证
+> 决定转正或回退）
 > 日期：2026-10-19；2026-10-20 纳入 Issue #41 日期化后续（关系/事件契约扩展与
-> 范围澄清，见第 8 节），状态仍为 Proposed
+> 范围澄清，见第 8 节）；2026-10-21 M9-01 契约冻结转 Accepted
 > 负责人：linductor（Mirador 维护者）
-> 冻结里程碑：M9-01；M9-07 根据验证决定是否冻结/转正
+> 冻结里程碑：M9-01（契约冻结，已生效）；M9-07 根据验证决定 Experimental
+> 面是否计入兼容性承诺或回退
 > 替代/被替代：无；保留 DEC-010/019/020/021 与现有 Experimental 登记
 > 工作项：[M9](../plans/m9-continuous-perception.md)
 
@@ -186,3 +190,39 @@ embedding 压缩依赖编码器/权重/下游 LLM 的联合兼容，压缩率不
 DEC-023、[DEC-025](DEC-025-budgeted-ocr-and-partial-results.md)；M9-01…07；
 [Issue #41 2026-10-20 后续](https://github.com/Linductor-alkaid/mirador/issues/41#issuecomment-6285521869)。
 全部新增接口为设计候选，批准及契约冻结前不计入兼容性承诺。
+
+## 冻结记录（M9-01，2026-10-21）
+
+负责人指示推进 M9 开发后，按本决策实施 M9-01 契约冻结（分支
+`feat/m9-01-continuous-perception-contracts`），状态转 Accepted。冻结面：
+
+- `include/mirador/continuous_perception.hpp`（Experimental）：领域词表——
+  `Freshness`/`ObservationState`/`EventSemantic`/`SemanticChangeKind`/
+  `RelationKind`/`RelationClassification`/`WorkRejectionReason`/
+  `FocusUnresolvedReason`/`CoverageState` 枚举，`EntityRecord`/
+  `RelationRecord`/`RelationView`/`AttentionCondition`/`AttentionPolicy`/
+  `ImportancePolicy`/`WorkToken`/`WorkBindingContext`/`ObservationWindow`/
+  `SemanticEvent`/`TemporalEntityState` 数据模型，第 7 节参考预算常量
+  （8 MiB/1,024/4,096/256/64，收紧式校验），以及协调对象名称
+  `ContinuousPerception`（第 1 节"名称在 M9-01 冻结"）与其 identity/epoch/
+  字节核算核心（`create`/`source_epoch`/`notify_source_reset`/
+  `coordination_owned_bytes`）。
+- 冻结纯规则：`classify_entity_relation`（第 4 节逐对判定结构：duplicate/
+  part_of/overlap/conflict，可靠性只门控合并、冲突不销毁证据）、
+  `entity_semantics_compatible`、`resolve_attention_focus`（第 2 节冻结判据
+  优先序与显式 `focus_unresolved`，未见文本不定位）、`validate_attention_policy`
+  与 `attention_policy_digest`、`validate_work_token`/`work_token_stale_reason`
+  （第 5 节冻结检查顺序：来源→epoch→策略→generation→帧；重复提交与内容失配
+  归 M9-04 accept 路径）、`relation_view_consistent`/
+  `relation_view_owned_bytes`、`semantic_event_consistent`/
+  `semantic_event_owned_bytes`（第 8 节冻结配对：begin=出现、update=文字/
+  外观/关系、end=确认消失或 source reset；source reset 端携带零边界）。
+- 阈值初值（`RelationClassifyOptions` 四项等）为开发默认值，随 M9-06 校准；
+  冻结的是判定结构而非数字。
+- 状态化协调原语（plan/accept/query/drain_events、关系视图构建、时间状态机
+  与事件队列）按 M9-02…05 在同一 Experimental 头内增长；既有单帧融合、
+  稳定 ID、`DEC-021` 动作协议零变化，全部新增面为 opt-in 附加。
+- 验证：独立验证套件 `mirador.fusion.continuous_perception`（83 用例，
+  Independent-Verification-Agent 编写与执行；验证轮发现并修复
+  `relation_view_consistent` kPartOf `merged_from` 条件反转缺陷后全绿，
+  debug/asan/ubsan 零 sanitizer 报告）。

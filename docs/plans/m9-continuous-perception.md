@@ -1,13 +1,15 @@
 # M9：任务焦点驱动的增量视觉状态与通知
 
-> 状态：Proposed
+> 状态：In Progress（2026-10-21 立项生效：M8-07 已收口，负责人指示推进 M9；
+> DEC-026 随 M9-01 契约冻结转 Accepted，能力面保持 Experimental）
 > 负责人：linductor（Mirador 维护者；以下各工作项同责）
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M8 增量结果契约；M2/M4/M7 已有能力；不等待 M7 Experimental 自动转正
-> 决策：[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)（Proposed）
+> 决策：[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)
+> （Accepted，M9-01 冻结；M9-07 依验证决定转正或回退）
 > 建议发布点：独立 Experimental 增量，具体 minor 版本在 M9-07 判定后确认
-> 更新日期：2026-10-21（M8 依赖就绪状态与 Issue #41 直接诉求优先排序同步；
-> 2026-10-20 纳入 Issue #41 日期化后续，诉求优先级不变）
+> 更新日期：2026-10-21（M9-01 契约冻结交付；M8 依赖就绪状态与 Issue #41
+> 直接诉求优先排序同步；2026-10-20 纳入 Issue #41 日期化后续，诉求优先级不变）
 
 ## 目标、范围与非目标
 
@@ -29,7 +31,7 @@ token 压缩模型/权重/runtime 或模型序列协议（MiniCPM-o 仅为下游
 
 | 工作项 | 状态 | 可评审交付物 | 依赖 | 验收 |
 | --- | --- | --- | --- | --- |
-| M9-01 | Proposed | 冻结 DEC-026 与 opt-in 协调/关系/策略/事件领域契约，明确 source epoch、覆盖、预算、generation、事件来源/代际/时间窗/开始-更新-结束字段与旧 API 兼容 | M8-02 | AC9-01、06…11 |
+| M9-01 | Delivered（契约与套件已落地） | 冻结 DEC-026 与 opt-in 协调/关系/策略/事件领域契约（`continuous_perception.hpp`）：source epoch、覆盖/预算、generation、事件来源/代际/时间窗/开始-更新-结束字段与旧 API 兼容；冻结纯规则与验证套件；状态化原语按 M9-02…05 增长 | M8-02 | AC9-01、06…11 |
 | M9-02 | Proposed | 同实体去重/part_of/普通重叠关系视图，原始证据、冲突与 trace 可追溯，固定融合夹具 | M9-01 | AC9-01、02 |
 | M9-03 | Proposed | Attention/Importance 到 ROI 和候选优先级的同步规划，ID 焦点随跟踪移动、外围监测与失效 | M9-01；M8-03/04 | AC9-03、04、08 |
 | M9-04 | Proposed | 增量覆盖/缓存接线，plan/accept 绑定、延迟/乱序拒绝、调用方 latest-pending 示例与积压测试 | M9-02、03；M8-04 | AC9-03、05…07、09 |
@@ -42,8 +44,8 @@ token 压缩模型/权重/runtime 或模型序列协议（MiniCPM-o 仅为下游
 - [ ] 状态稳定化、通知和真实收益对照可单独验收。
 
 预期三个交付阶段为“实体关系 → 注意与增量闭环 → 语义稳定化与通知”。每阶段单独
-MR，不要求一次引入所有候选接口。M9-01 未评审前保持 Proposed；不得改动既有
-M7 测试门槛或把 M7 的合成 GO 当作真实连续桌面能力证明。
+MR，不要求一次引入所有候选接口。M9 已转 In Progress；不得改动既有 M7 测试门槛
+或把 M7 的合成 GO 当作真实连续桌面能力证明。
 
 ## 验收数据与方法
 
@@ -104,7 +106,7 @@ M7 测试门槛或把 M7 的合成 GO 当作真实连续桌面能力证明。
 
 | 风险/依赖 | 负责人、应对与解除条件 |
 | --- | --- |
-| M8 契约依赖已就绪（M8-02 冻结、M8-03/04 交付、M8-06 实测完成），但 [Issue #41](https://github.com/Linductor-alkaid/mirador/issues/41) 2026-10-20 指示直接性能诉求优先：M8-07（Mirage 5 秒下游验收）排在 M9-01 实施之前；M9-01 契约评审可并行准备 | linductor：M8-07 收口后启动 M9-01 实施；关系夹具评审不受限，不预写与未定结果冲突的公共接口 |
+| M8 契约依赖已就绪且 M8-07 已收口（2026-10-21，本仓 PR #48）：M9-01 契约冻结已交付，M9-02 起按三阶段推进 | linductor：关系夹具与 M9-02 实施不受限；不预写与未定结果冲突的公共接口 |
 | 缺少真实连续序列/人工 GT | linductor 按上述场景采集受控数据并提供显式路径；M9-06 真实门槛保持未完成 |
 | 局部 diff 漏掉低对比文字 | 精细模式+焦点精确摘要验证；漏检计入 AC9-03/08，不能靠通知过滤排除 |
 | 把从属关系当重复目标导致误点 | AC9-01/02 强制父子独立可查询、关系 trace 与错合并计数 |
@@ -123,3 +125,31 @@ M7 测试门槛或把 M7 的合成 GO 当作真实连续桌面能力证明。
 MiniCPM-o 范围澄清）；本计划同步目标/非目标、M9-01/05/06 交付与验收引用、
 场景清单六条补充序列、AC9-08 扩展与新增 AC9-11。仅文档调整，未实现任何
 契约或测试；全部工作项与门槛保持未完成。
+
+2026-10-21：M9-01 契约冻结交付（分支 `feat/m9-01-continuous-perception-contracts`，
+基于 master `e0857f6`；M8-07 已于同日经 PR #48 收口，启动前置满足）。交付：
+
+- `include/mirador/continuous_perception.hpp`（Experimental，DEC-026 随本项
+  冻结转 Accepted）：领域词表与第 7 节参考预算常量（收紧式校验）、协调对象
+  `ContinuousPerception` 的 identity/epoch/字节核算核心（`create`/`source_epoch`/
+  `notify_source_reset`/`coordination_owned_bytes`），以及冻结纯规则——
+  `classify_entity_relation`（第 4 节判定结构）、`entity_semantics_compatible`、
+  `resolve_attention_focus`（第 2 节判据优先序与显式 unresolved）、
+  `validate_attention_policy`/`attention_policy_digest`、
+  `validate_work_token`/`work_token_stale_reason`（第 5 节检查顺序）、
+  `relation_view_consistent`/`relation_view_owned_bytes`、
+  `semantic_event_consistent`/`semantic_event_owned_bytes`（第 8 节配对与
+  source reset 零边界）。状态化协调原语（plan/accept/query/drain_events、
+  关系视图构建、时间状态机与事件队列）按 M9-02…05 在同一 Experimental 头内
+  增长（M7-01 先例）；既有单帧融合/稳定 ID/动作协议零变化。
+- `src/fusion/continuous_perception.cpp` 实现与根 CMakeLists fusion 源注册。
+- 验证：套件 `mirador.fusion.continuous_perception` 83 用例由
+  Independent-Verification-Agent 独立编写与执行；验证轮发现
+  `relation_view_consistent` kPartOf `merged_from` 条件反转缺陷，主循环修复后
+  复验全绿。门禁：debug 全量 ctest 56/56 零回归（新增 1 二进制）；
+  asan/ubsan 直跑零 sanitizer 报告；clang-format/clang-tidy 双口径归零。
+  CI 证据随 [PR #49](https://github.com/Linductor-alkaid/mirador/pull/49)
+  回填（run 39565345549，14/14 job 全绿，PR 待合入）。
+- 限制：阈值初值（`RelationClassifyOptions` 等）为开发默认值，随 M9-06 校准；
+  AC9-01…11 的最终验收证据归 M9-02…07 各自交付；真实留出集数据与人工 GT
+  未采集，相关真实质量门槛保持未完成。

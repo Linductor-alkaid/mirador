@@ -5,7 +5,8 @@
 > GO（合成口径），冻结评审草案
 > [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)
 > Proposed 待批——批准前 Experimental 登记不计兼容性承诺；M8 登记
-> `ocr_batch.hpp` 预算 OCR 契约）
+> `ocr_batch.hpp` 预算 OCR 契约；M9 新增 Experimental API 节，`DEC-026`
+> 随 M9-01 冻结转 Accepted）
 > 更新日期：2026-10-21
 > 负责人：linductor
 
@@ -67,6 +68,17 @@
 | `include/mirador/stable_id_tracker.hpp`（M4 冻结契约，`DEC-010`）+ M7-06 扩展（`ConfirmedAssociation`、`advance` 的 `confirmed_associations` 参数，默认空） | M7-06 跟踪确认配对门控直通（[跟踪设计](../design/object-tracking-design.md) §6.5；`DEC-010` 第 4 节预留演进通道） | 扩展部分按 **Experimental** 对待：空关联列表下既有冻结静态匹配语义逐位不变（M4 兼容性承诺不受影响）；直通语义随 `ObjectTracker` Experimental 面一同于 M7-10 判定（GO，合成口径）；冻结评审草案 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)（Proposed）——批准前本登记持续有效，批准后计入兼容性承诺 |
 | `include/mirador/shift_estimation.hpp`（`ShiftEstimationParams`、`ShiftEstimate`、`estimate_global_shift`） | M7-04 全局位移估计原语（[DEC-019](../decisions/DEC-019-cross-frame-object-tracking.md) 第 2 条；[跟踪设计](../design/object-tracking-design.md) §6.3） | **Experimental**：M7 内字段与签名可调整。置信度/位移精度/默认参数口径冻结于头文件契约注释，默认参数经 M7-09 校准冻结（thumbnail 64 / max_shift 16 / 512 KiB 维持，`DEC-019` 第 5 条）；M7-10 判定 GO（合成口径），冻结评审草案 [DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)（Proposed）——批准前本登记持续有效，批准后计入兼容性承诺；不发布性能承诺（效果随 A/B/C/D 矩阵门控，`RISK-2026-17`） |
 | `include/mirador/tracker_backend.hpp`（`TrackerBackend`、`TrackerSession`、`TrackerInitRequest`、`TrackerUpdateRequest`、`TrackerUpdateResult`） | M7-11 `TrackerBackend` SPI 契约冻结（[DEC-020](../decisions/DEC-020-tracker-backend-spi.md) Accepted，接口字段与错误语义定稿：句柄制三段式生命周期、状态归属与失败可见、同步/取消语义——冻结裁定校验先于取消（M7-05/06 池先例）——、缓存豁免界定、prepared 空间输出、`BackendInfo` 身份字段沿用；fusion 侧句柄槽沿池侧并行单槽先例的字节记账归属决策冻结于头注释，槽常量随 M7-13 注入接线落地；[跟踪设计](../design/object-tracking-design.md) §2 行 D/§6.2） | **Experimental**：M7 内字段与签名可调整；纯接口头文件，`mirador-core` 链接闭包不变（架构测试锁定）。M7-10 判定 GO（合成口径）不改变本面登记；[DEC-022](../decisions/DEC-022-object-tracker-contract-freeze.md)（Proposed）阶段 1 目前仅列三处 Experimental 面，本面为其第四处——须随 M7 收尾/`DEC-022` 评审一并纳入冻结范围，批准前本登记持续有效且不计兼容性承诺 |
+
+## Experimental API 登记（M9，不计兼容性承诺）
+
+> M9-01 契约冻结（2026-10-21）：[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)
+> 随冻结转 Accepted，能力面保持 Experimental——M9 内字段与签名可调整；
+> M9-07 依验证决定 Experimental 面是否计入兼容性承诺或回退。批准前本登记
+> 持续有效。
+
+| 头 / 符号 | 登记依据 | 状态说明 |
+| --- | --- | --- |
+| `include/mirador/continuous_perception.hpp`（`Freshness`、`ObservationState`、`EventSemantic`、`SemanticChangeKind`、`RelationKind`、`RelationClassification`、`WorkRejectionReason`、`FocusUnresolvedReason`、`CoverageState`、`EntitySemantics`、`EntityRecord`、`RelationRecord`、`RelationView`、`AttentionCondition`、`AttentionPolicy`、`ImportancePolicy`、`ResolvedFocus`、`FocusResolution`、`WorkToken`、`WorkBindingContext`、`ObservationWindow`、`SemanticEvent`、`TemporalEntityState`、`RelationClassifyOptions`、`RelationDecision`、`ContinuousPerceptionOptions`、`SourceResetReport`、`ContinuousPerception` 与 `kContinuousMax*` 常量、冻结纯函数） | M9-01 契约冻结（[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) Accepted；[M9 计划](../plans/m9-continuous-perception.md)）；独立验证套件 `mirador.fusion.continuous_perception` 83 用例 | **Experimental**：M9 内字段与签名可调整；阈值初值（`RelationClassifyOptions` 等）为开发默认值，随 M9-06 校准；状态化协调原语（plan/accept/query/drain_events）按 M9-02…05 在同一 Experimental 头内增长。既有单帧融合、稳定 ID/generation 与 `DEC-021` 动作协议零变化；全部新增面为 opt-in 附加。旧 API 兼容证据：全量 ctest 零回归（M9-01 验证记录） |
 
 ## 平台功能可用性
 
