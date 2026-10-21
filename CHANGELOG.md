@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+### M8-07 收口：检查点故障注入证据与下游接入说明（DEC-025，issue #41）
+
+- 冒烟套件 137→163 checks：probe 自校准的检查点级故障注入补齐 AC8-06——
+  det 后/第 1 行后/中途取消（整调用 `kCancelled`、已执行前缀丢弃）、同 poll
+  取消优先于硬超时、中途硬超时（整调用 `kTimeout` 非 partial）、rec 预算
+  耗尽（`kBudgetExceeded` 非 partial）、det 窗口取消两变体；Debug/ASAN/UBSAN
+  零报告，全仓 ctest 61/61。
+- 兼容性登记：`ocr_batch.hpp` 预算 OCR 契约（含会话 `run_ocr_budgeted`）计入
+  兼容性承诺（DEC-025，M8-02 冻结/M8-06 修订）；旧 `OcrBackend`/`run_ocr`
+  语义零变化。
+- 下游接入说明：集成技能新增 budgeted-ocr 卡（K 限额、优先级、软预算、逐行
+  完成态、deferred 几何、partial 非授权）并接入四个索引。
+- 下游受控验收（Mirage 消费，AC8-10）：连续 3 次真实权重 OCR 全部 ≤5,000 ms
+  返回可消费报告（69 框 / K=64 绑定 / partial / 跨进程 digest 逐位一致 /
+  registry 不变），证据与边界见 Mirage 仓库
+  `docs/compatibility/mirador-budgeted-ocr-20261021.md`（PR #113）。
+
 ### M8-06 真实模型 OCR 预算基准（DEC-025，issue #41）
 
 - 真实权重基准交付（PP-OCRv5-mobile，参考机三轮独立实测）：AC8-01/02/05 证据

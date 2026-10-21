@@ -1,6 +1,7 @@
 # M8：密集 OCR 的交互预算闭环
 
-> 状态：In Progress（M8-01…06 交付；M8-07 下游验收待 Mirage 受控接入）
+> 状态：In Progress（M8-01…07 证据齐备；双仓 MR 待授权合入——本仓 PR #48、
+> Mirage PR #113；合入后 M8 交付）
 > 负责人：linductor（Mirador 维护者；以下各工作项同责）
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M2/M5 已有 SPI、缓存和参考后端；基于主干 `cb45a102`
@@ -31,8 +32,10 @@ Issue 正文"期望最小能力"三条与 2026-10-20 评论"直接性能问题�
 - **deadline 部分结果**：M8-01…04 交付（软预算/硬 deadline/取消三分、显式
   kPartial 与停止原因，不静默丢弃已完成行）。
 
-真实权重 5 秒验收（AC8-01/02/05）已由 M8-06 完成；剩余 M8-07 为 Mirage 下游
-受控验收。2026-10-20 评论的关系/事件契约扩展与六条补充序列已入
+真实权重 5 秒验收（AC8-01/02/05）已由 M8-06 完成；M8-07 Mirage 下游受控验收
+于 2026-10-21 完成（两轮独立进程全部门禁 PASS，[Mirage 兼容性报告]
+(https://github.com/Linductor-alkaid/mirage/blob/master/docs/compatibility/mirador-budgeted-ocr-20261021.md)）。
+2026-10-20 评论的关系/事件契约扩展与六条补充序列已入
 [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) §8 与
 [M9](m9-continuous-perception.md)（AC9-11），按该评论指示排在 M8-07 之后、
 不改变直接诉求优先级。
@@ -47,7 +50,7 @@ Issue 正文"期望最小能力"三条与 2026-10-20 评论"直接性能问题�
 | M8-04 | Delivered | 会话新入口、坐标恢复、source 绑定与完整缓存隔离；无新能力时显式失败 | M8-02、03 | AC8-04、07、08 |
 | M8-05 | Delivered（全 no-go，见 [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)） | 单行成本/packing/动态宽度及 batching 的独立实验报告，给出采用或 no-go 与理由；采用时单独 MR 回归 | M8-01…04 | AC8-09；no-go 不阻塞 M8-06 |
 | M8-06 | Delivered（真实权重两轮实测 + 探测边界修订；见[基准报告](../benchmarks/linux-x64-ocr-budget-2026-10.md)） | 同机真实模型基准、质量对照和 5 秒配置判定，冻结参考 K/收尾预留与适用平台 | M8-01…04 | AC8-01、02、05（AC8-10 归 M8-07 下游验收） |
-| M8-07 | Planned（[Issue #41 直接性能诉求](https://github.com/Linductor-alkaid/mirador/issues/41)的最后一块，按 2026-10-20 维护者指示优先于 M9-01 启动） | Mirage 连续 3 次调用验收、故障/边界/sanitizer/CI 证据，API/示例/兼容性/CHANGELOG 同步 | M8-06；M8-05 的判定报告 | AC8-06…10 与全部退出条件 |
+| M8-07 | Delivered（证据齐备；本仓 PR #48 与 Mirage PR #113 待授权合入） | Mirage 连续 3 次调用验收、故障/边界/sanitizer/CI 证据，API/示例/兼容性/CHANGELOG 同步 | M8-06；M8-05 的判定报告 | AC8-06…10 与全部退出条件 |
 
 - [x] M8-01…04 交付并通过各自验收（M8-01 真实权重实测随 M8-06 于 2026-10-20/21
   补齐）。
@@ -55,7 +58,8 @@ Issue 正文"期望最小能力"三条与 2026-10-20 评论"直接性能问题�
   全 no-go：batching 能力性、packing/固定宽/分桶质量性、线程负优化复现）。
 - [x] M8-06 真实模型基准与 5 秒配置判定完成（2026-10-21，AC8-01/02/05 实测
   PASS，参考配置与 `rec_unit_upper_bound` 冻结入 DEC-025）。
-- [ ] M8-07 Mirage 下游验收与收口。
+- [x] M8-07 Mirage 下游验收与收口（2026-10-21，AC8-10 两轮受控验收 PASS、
+  AC8-06 检查点故障注入补齐；双仓 MR 待授权合入）。
 
 建议分四个可独立评审的 MR：基准与契约 → 有界执行与会话接线 → 可选优化实验 →
 真实模型/下游验收收口。实验可并行开展，但不得先改默认值再补正确性证据。实现前
@@ -86,14 +90,14 @@ det 的 `max_boxes`、rec 的 K、候选/优先级字节限额分别测试零、
 
 ## 退出条件
 
-- [ ] DEC-025 评审与新增接口/完成度/时间边界冻结，旧接口兼容性有证据。
-- [ ] AC8-01…10 全部具备实际证据；AC8-09 可为有证据的 no-go，其他门槛不可豁免。
-- [ ] Linux 六预设 debug/release/asan/ubsan/tsan/warnings 适用门禁与架构测试通过；
+- [x] DEC-025 评审与新增接口/完成度/时间边界冻结，旧接口兼容性有证据。
+- [x] AC8-01…10 全部具备实际证据；AC8-09 可为有证据的 no-go，其他门槛不可豁免。
+- [x] Linux 六预设 debug/release/asan/ubsan/tsan/warnings 适用门禁与架构测试通过；
   integrations 专用构建和 ASAN/UBSAN 覆盖新增执行路径；涉及共享缓存时增加 TSAN/故障注入。
-- [ ] Windows/Android 的新公共抽象及 integrations 构建/适用测试有 CI 证据；
+- [x] Windows/Android 的新公共抽象及 integrations 构建/适用测试有 CI 证据；
   这些平台没有实机性能数据时只声明构建支持，不声明 5 秒。
-- [ ] 文档、示例、兼容性、CHANGELOG、基准原始摘要与下游接入说明齐备；无权重/真实帧入仓。
-- [ ] 交互验收独立完成后可交付 M8；不以 M9 尚未开始拖延修复，不提前关闭整个 Issue #41 的后续诉求。
+- [x] 文档、示例、兼容性、CHANGELOG、基准原始摘要与下游接入说明齐备；无权重/真实帧入仓。
+- [x] 交互验收独立完成后可交付 M8；不以 M9 尚未开始拖延修复，不提前关闭整个 Issue #41 的后续诉求。
 
 ## 风险、阻塞与补跑归属
 
@@ -270,3 +274,45 @@ soft 停止于 209–224/359 行）。证据：`/tmp/m8_06_iva_round3/`。
 + 冒烟 + integrations 范围 tidy）、msvc 与 ndk/arm64-v8a（Windows/Android 构建
 级证据）、debug/release/warnings/asan/ubsan/tsan/fuzz/capture/ubuntu-20.04。
 Windows/Android 结论维持"构建级验证"，不声明 5 秒。PR 合入待负责人授权。
+
+2026-10-21：M8-07 收口交付（本仓分支 `feat/m8-07-closeout`，PR #48；Mirage 侧
+分支 `feat/m8-07-budgeted-ocr`，Mirage PR #113；测试与测量执行由
+Independent-Verification-Agent 独立完成，主循环实现、修复与文档）。
+
+- **AC8-06 检查点故障注入**（本仓，smoke 137→163 checks）：probe 自校准计数式
+  `is_cancelled` 覆盖入口级守卫不可达的检查点——det 后取消、第 1 行后取消、
+  中途取消（整调用 `kCancelled`，已执行前缀按 DEC-025 丢弃）、同 poll 取消
+  优先于 deadline、中途硬超时（整调用 `kTimeout` 非 partial）、rec 预算耗尽
+  （`kBudgetExceeded` 非 partial）、det 窗口取消两变体（forward 未启动 /
+  已完成 forward 丢弃）。校准自检 pin 实测 poll 结构 D=5/U=5/K=6 并与生产
+  poll 位点静态分析吻合；IVA 修正草稿一处自毒化缺陷（有限哨兵误触发 deadline
+  武装）。Debug 直跑 163 ok ×5、ASAN（leak 检测）×3 与 UBSAN（no-recover）
+  零报告、全仓 ctest 61/61（TMPDIR 隔离并发构建的汇编临时文件；/tmp 快照
+  哨兵 flake 为 M8-01 已载既有项）、format/tidy clean。确定性注入边界如实
+  记录：真实时间流逝型 mid-loop 超时无自然回调缝隙，以"probe 武装过期
+  deadline"确定性替代；FI-2 翻转点存在 1-poll 固有粒度（契约断言仍成立）。
+- **下游消费接线**（Mirage 侧）：pin `cb45a102..5565436`；`PpOcrPipeline`
+  并列装载 `PpOcrBudgetedBackend`（缺失即创建失败，不静默降级）；
+  `read_image_ocr` 仅在预算后端配置时切换（K=64 + finalize_reserve 500 ms，
+  legacy-only 管线保持旧路径）；诊断贯通会话主机与 mira 层（DEC-003 无
+  mirador 类型泄漏）；partial 不发布 actionable 引用。round 1 独立验证暴露
+  一处 legacy-only 回归（无条件切预算致 e2e 3 checks 失败，基线对照证实）
+  与 11 处格式违例，主循环修复后 round 2 复验通过。
+- **AC8-10 受控验收**（两轮独立进程，真实权重 `ppocrv5-mobile-v1` 受控路径）：
+  1600×1000 密集中英文场景（69 框）每次调用 detected=69 / recognized=64 /
+  deferred=5 / partial / `rec_line_limit`；耗时 1.7–3.2 s 全部 ≤5,000 ms；
+  跨进程文本 FNV digest 逐位一致（`41f4881bf1f14c55`）；registry 不变
+  （partial 不授权动作）。主机层新增 136 checks（字段映射、recognized/
+  deferred 拆分、三停止原因、det_limit 透传、fail-closed 无静默回退、
+  partial 与 detector 共存、永不走能力缓存、后端失败整请求失败）×
+  Release/ASAN/UBSAN 三构建全过。
+- **门禁**：Mirage Release 全量 ctest 96/96；本仓 PR #48 CI 14/14 job 全绿
+  （run `39541564034`，head `933244d`）；Windows/Android 维持构建级验证。
+  本仓交付：集成技能 budgeted-ocr 卡（下游接入说明）、compatibility.md
+  `ocr_batch.hpp` 兼容性承诺登记、平台表 M8-06 真实模型证据行。
+- **限制与补跑条件**：AC8-10 性能数字为本机受控环境（powersave 未固定频点，
+  跨机绝对值不可比）；验收场景为合成渲染网格，真实桌面混合密度质量收益随
+  `linux-ocr-desktop-real-v1` 归后续真实会话观察；Mirage 台账条目
+  MIRADOR-20261018-001 随 `feat/desktop-input-policy` 分支提交，其状态更新
+  在该分支合入时回链兼容性报告。Issue #41 的连续感知/关系事件后续诉求依
+  2026-10-20 评论归 M9，不随 M8 关闭。
