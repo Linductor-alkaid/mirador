@@ -5,6 +5,7 @@
 | First integration or the minimal working loop | [Quick start](quick-start.md) |
 | Submit capture buffers, rotated/strided input, or map coordinates | [Frames and coordinates](frames-and-coordinates.md) |
 | Connect a real OCR, detector, or line-detector runtime | [Backends](backends.md) |
+| Finish dense-screen OCR inside an interactive budget (top-K, priorities, partial results) | [Budgeted OCR](budgeted-ocr.md) |
 | Skip work when the screen did not change; reuse previous results | [Session and caching](session-and-caching.md) |
 | Force a fresh backend run for one request | [Session and caching](session-and-caching.md) |
 | Merge accessibility data with vision into one snapshot | [Fusion and snapshots](fusion-and-snapshots.md) |

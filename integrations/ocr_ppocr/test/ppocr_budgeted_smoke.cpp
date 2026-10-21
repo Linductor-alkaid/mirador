@@ -47,6 +47,13 @@
 // commit e54f7b1): Convolution param keys 7..18 are omitted except kernel_h
 // (key 11); .bin blobs carry a leading flag word (0 = raw float32) while conv
 // bias blobs are raw float32 without a flag word.
+//
+// Round 4 addition — checkpoint-level fault injection for the bounded rec
+// loop (AC8-06): cancellation and hard-timeout flips at exact loop
+// checkpoints (after det / after line 1 / mid-loop / inside the det window),
+// same-poll cancel-vs-deadline priority, and rec work-budget exhaustion. The
+// flips are calibrated in-process against a counting is_cancelled callback;
+// see the CancelProbe comment for the injection principle.
 
 #include "ppocr_backend.hpp"
 #include "ppocr_budgeted.hpp"
@@ -1126,6 +1133,291 @@ void check_request_validation(mirador::integrations::PpOcrBudgetedBackend& backe
     expect_code(wrong_format.status(), mirador::ErrorCode::kUnsupportedFormat, "kGray8 input -> kUnsupportedFormat");
 }
 
+// ---------------------------------------------------------------------------
+// Round 4 (AC8-06): checkpoint-level fault injection over the bounded rec
+// loop. DEC-025 section 3 freezes: explicit cancellation always fails the
+// whole call with kCancelled, a reached hard deadline always with kTimeout,
+// cancellation wins when both are visible at the same poll, and neither a
+// hard timeout nor an allocation overrun may be wrapped into a successful
+// partial — only kSoftBudget/kRecLineLimit stops may return a report.
+//
+// Injection principle: for a fixed fixture the budgeted path invokes
+// ExecutionContext::is_cancelled a fixed number of times — once at the entry
+// precheck, a fixture-determined count D inside the det stage (canvas packing
+// loop, normalization, pre/post forward checks), and a uniform count U per
+// rec unit (loop-top check, line packing, normalization, pre/post forward
+// checks). A never-flipping counting callback therefore measures the whole
+// structure in-process: a det-only probe (min_confidence above every fixture
+// det score leaves zero candidates, so the rec loop never runs) yields D, a
+// full probe yields P_total with K executed units, and U = (P_total - D) / K
+// must divide exactly because all six det boxes crop to identical geometry.
+// Poll D + j*U + 1 is then exactly the loop-top cancellation check of rec
+// unit j (0-based), so a flip point "after poll D + j*U" cancels the call
+// deterministically at the top of unit j — no sleeps, no timing races. The
+// calibration is self-checking (probe runs must succeed, the division must
+// be exact); a future change that makes poll counts uneven or data-dependent
+// fails these probes loudly instead of silently moving a flip point.
+//
+// Mid-loop hard timeouts have no natural callback seam (the deadline is a
+// time point, and an already-expired one is rejected by the entry precheck),
+// so the probe arms one deterministically: at a calibrated poll the callback
+// writes an already-past deadline into the caller-owned context (the context
+// is this test's own non-const value; the backend only reads it) and either
+// keeps returning false — the loop's very next deadline_reached poll then
+// observes an expired deadline, because the steady clock only moves forward —
+// or returns true at the same poll, which must win over the freshly armed
+// deadline (the loop polls cancellation before the deadline).
+class CancelProbe {
+public:
+    CancelProbe(int64_t flip_after, bool flip_cancels) : flip_after_(flip_after), flip_cancels_(flip_cancels) {
+        context_.is_cancelled = [this] { return poll(); };
+    }
+
+    mirador::ExecutionContext& context() { return context_; }
+    [[nodiscard]] int64_t poll_count() const { return polls_; }
+
+    /// True when the flip poll really armed an already-past deadline (the
+    /// steady clock only moves forward, so it stays expired after the call).
+    [[nodiscard]] bool armed_expired_deadline() const {
+        return context_.deadline.has_value() && context_.deadline.value() < std::chrono::steady_clock::now();
+    }
+
+private:
+    bool poll() {
+        ++polls_;
+        if (polls_ > flip_after_) {
+            context_.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds{1};
+            return flip_cancels_;
+        }
+        return false;
+    }
+
+    mirador::ExecutionContext context_;
+    int64_t polls_ = 0;
+    int64_t flip_after_;
+    bool flip_cancels_;
+};
+
+// Runs one probe call that never flips and returns its is_cancelled poll
+// count; a failed probe call poisons the calibration through `ok`. The flip
+// point INT64_MAX keeps both post-flip side effects (deadline arming and the
+// flip return value) permanently off — a finite "never" like -1 would arm an
+// expired deadline at the first poll and the entry precheck would reject the
+// call with kTimeout before any stage ran.
+int64_t count_polls(mirador::integrations::PpOcrBudgetedBackend& backend, const mirador::ImageView& view,
+                    const mirador::OcrBatchRequest& request, bool& ok) {
+    CancelProbe probe{INT64_MAX, false};
+    const auto outcome = backend.recognize_budgeted(view, request, probe.context());
+    ok = ok && outcome.ok();
+    return probe.poll_count();
+}
+
+/// Measured poll structure of the bounded loop on one fixture scene.
+struct RecPollStructure {
+    int64_t det_polls = 0;  ///< entry precheck + det stage polls (D)
+    int64_t per_unit = 0;   ///< uniform polls per rec unit (U)
+    int32_t units = 0;      ///< rec units the full probe executed (K)
+};
+
+// Calibrates D/U/K on the six-block scene: the det-only probe filters every
+// candidate out before selection (no rec loop -> D), the full probe runs all
+// K units (-> P_total), and U = (P_total - D) / K must be integral.
+bool measure_rec_poll_structure(mirador::integrations::PpOcrBudgetedBackend& backend, const mirador::ImageView& view,
+                                RecPollStructure& structure) {
+    bool ok = true;
+    mirador::OcrBatchRequest det_only = batch_request(64);
+    det_only.min_confidence = 0.95F;  // above every fixture det score (~0.80): zero candidates
+    const int64_t det_polls = count_polls(backend, view, det_only, ok);
+
+    CancelProbe full_probe{INT64_MAX, false};
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), full_probe.context());
+    ok = ok && outcome.ok();
+    int32_t units = 0;
+    if (outcome.ok()) {
+        const mirador::OcrBatchResult& result = outcome.value();
+        units = result.recognized_count;
+        ok = ok && units > 1 && result.rec_forward_count == units &&
+             result.stop_reason == mirador::OcrBatchStopReason::kCompleted;
+    }
+
+    expect_true(ok, "fault injection: calibration probes completed with recognized units");
+    if (!ok || units == 0) {
+        return false;
+    }
+    const int64_t loop_polls = full_probe.poll_count() - det_polls;
+    expect_true(loop_polls > 0 && loop_polls % units == 0,
+                "fault injection: per-unit poll count is uniform across the rec loop");
+    if (loop_polls <= 0 || loop_polls % units != 0) {
+        return false;
+    }
+    structure.det_polls = det_polls;
+    structure.per_unit = loop_polls / units;
+    structure.units = units;
+    std::printf("info: rec poll structure: det+precheck polls D=%d, per-unit polls U=%d, units K=%d\n",
+                static_cast<int>(det_polls), static_cast<int>(structure.per_unit), structure.units);
+    return true;
+}
+
+// FI-1: the flip lands exactly between det completion and the first rec unit
+// (poll D + 1 is unit 0's loop-top check): the whole call fails with
+// kCancelled — never a partial report — while the stage timings prove det ran
+// and no rec unit started.
+void check_fi_cancel_after_det(mirador::integrations::PpOcrBudgetedBackend& backend, const mirador::ImageView& view,
+                               const RecPollStructure& structure) {
+    CancelProbe probe{structure.det_polls, true};
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), probe.context());
+    expect_code(outcome.status(), mirador::ErrorCode::kCancelled,
+                "fi cancel after det / before unit 1: whole call kCancelled, not a partial report");
+    const mirador::integrations::PpOcrStageTimings timings = backend.last_stage_timings();
+    expect_true(timings.det_forward_ns > 0, "fi cancel after det: the det forward already ran (det ns accounted)");
+    expect_true(timings.rec_forward_ns == 0 && timings.rec_preprocess_ns == 0 && timings.crop_ns == 0,
+                "fi cancel after det: no rec unit did any work (crop and rec timings zero)");
+}
+
+// FI-2: the flip lands at the top of rec unit 1, after unit 0 really
+// executed: the whole call still fails with kCancelled and the completed
+// unit's work is discarded (DEC-025: failures never carry completed lines).
+void check_fi_cancel_after_first_line(mirador::integrations::PpOcrBudgetedBackend& backend,
+                                      const mirador::ImageView& view, const RecPollStructure& structure) {
+    CancelProbe probe{structure.det_polls + structure.per_unit, true};
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), probe.context());
+    expect_code(outcome.status(), mirador::ErrorCode::kCancelled,
+                "fi cancel after line 1: whole call kCancelled, the completed line is discarded");
+    const mirador::integrations::PpOcrStageTimings timings = backend.last_stage_timings();
+    expect_true(timings.rec_forward_ns > 0, "fi cancel after line 1: unit 0 really forwarded before cancellation");
+    expect_true(timings.det_forward_ns > 0, "fi cancel after line 1: det ran before the rec loop");
+}
+
+// FI-3: the same contract at a later mid-loop unit (unit 3 of six): several
+// units really executed, then the flip discards everything with kCancelled.
+void check_fi_cancel_mid_loop(mirador::integrations::PpOcrBudgetedBackend& backend, const mirador::ImageView& view,
+                              const RecPollStructure& structure) {
+    CancelProbe probe{structure.det_polls + 3 * structure.per_unit, true};
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), probe.context());
+    expect_code(outcome.status(), mirador::ErrorCode::kCancelled,
+                "fi cancel at a later mid unit: whole call kCancelled, the executed prefix is discarded");
+    const mirador::integrations::PpOcrStageTimings timings = backend.last_stage_timings();
+    expect_true(timings.rec_forward_ns > 0, "fi cancel at a later mid unit: earlier units really forwarded");
+    expect_true(timings.det_forward_ns > 0, "fi cancel at a later mid unit: det ran before the rec loop");
+}
+
+// FI-4a: cancellation and a hard deadline become visible at the same loop
+// poll (unit 2's top): the callback arms an expired deadline AND reports
+// cancelled, so both are simultaneously visible — the frozen priority is
+// kCancelled (the loop polls cancellation before the deadline), never
+// kTimeout and never a partial report.
+void check_fi_cancel_beats_deadline_same_poll(mirador::integrations::PpOcrBudgetedBackend& backend,
+                                              const mirador::ImageView& view, const RecPollStructure& structure) {
+    CancelProbe probe{structure.det_polls + 2 * structure.per_unit, true};
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), probe.context());
+    expect_true(probe.armed_expired_deadline(),
+                "fi same-poll cancel + deadline: the injection really armed an expired deadline");
+    expect_code(outcome.status(), mirador::ErrorCode::kCancelled,
+                "fi same-poll cancel + expired deadline: kCancelled wins (cancel is polled first)");
+}
+
+// FI-4b: a hard deadline reaching zero mid-loop, armed at unit 2's top poll
+// while the callback keeps reporting not-cancelled: the loop's very next
+// deadline_reached poll observes the expired deadline deterministically and
+// the whole call fails with kTimeout — the units completed before the
+// deadline are discarded, never wrapped into a partial report.
+void check_fi_deadline_mid_loop_fails_whole_call(mirador::integrations::PpOcrBudgetedBackend& backend,
+                                                 const mirador::ImageView& view, const RecPollStructure& structure) {
+    CancelProbe probe{structure.det_polls + 2 * structure.per_unit, false};
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), probe.context());
+    expect_true(probe.armed_expired_deadline(), "fi mid-loop deadline: the injection really armed the deadline");
+    expect_code(outcome.status(), mirador::ErrorCode::kTimeout,
+                "fi mid-loop hard deadline: whole call kTimeout, never a partial report");
+    const mirador::integrations::PpOcrStageTimings timings = backend.last_stage_timings();
+    expect_true(timings.rec_forward_ns > 0, "fi mid-loop deadline: earlier units forwarded, then were discarded");
+}
+
+// FI-5: rec work-budget exhaustion at the line crop (a 48x14 RGB crop needs
+// 2016 bytes, the rec budget is 64): the crop fails kBudgetExceeded before
+// any rec forward and the whole call fails — allocation overruns are never
+// wrapped into a partial (DEC-025 section 3). Det keeps its own budget.
+void check_fi_rec_work_budget_exhaustion(const std::filesystem::path& dir, const mirador::ImageView& view) {
+    auto options = sensitive_budgeted_options(dir, 256);
+    options.rec.work_budget_bytes = 64;
+    auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(options);
+    expect_true(backend_result.ok(), "fi rec budget: backend with a 64-byte rec budget loads (det budget separate)");
+    if (!backend_result.ok()) {
+        return;
+    }
+    auto backend = std::move(backend_result).take_value();
+    const mirador::ExecutionContext never_cancelled;
+    const auto outcome = backend.recognize_budgeted(view, batch_request(64), never_cancelled);
+    expect_code(outcome.status(), mirador::ErrorCode::kBudgetExceeded,
+                "fi rec budget exhausted: whole call kBudgetExceeded, not a partial report");
+    const mirador::integrations::PpOcrStageTimings timings = backend.last_stage_timings();
+    expect_true(timings.det_forward_ns > 0, "fi rec budget exhausted: det ran with its own budget before the failure");
+    expect_true(timings.rec_forward_ns == 0, "fi rec budget exhausted: no rec forward ran (crop fails first)");
+}
+
+// FI-6: cancellation inside the det window propagates out of the single
+// atomic det forward path (DEC-025: det is not interruptible, cancellation
+// still fails the whole call). Variant A flips after poll 1 — the entry
+// precheck is the only poll before det, so poll 2 is the first det canvas
+// pack poll and the forward never starts. Variant B flips after poll D-1 —
+// the det stage's last poll (poll D) is always run_multi's post-forward
+// check, so the forward completes and its output is discarded.
+void check_fi_det_window_cancel(mirador::integrations::PpOcrBudgetedBackend& backend, const mirador::ImageView& view,
+                                const RecPollStructure& structure) {
+    {
+        CancelProbe probe{1, true};
+        const auto outcome = backend.recognize_budgeted(view, batch_request(64), probe.context());
+        expect_code(outcome.status(), mirador::ErrorCode::kCancelled,
+                    "fi det window during packing: whole call kCancelled propagates out of the det stage");
+        const mirador::integrations::PpOcrStageTimings timings = backend.last_stage_timings();
+        expect_true(timings.det_forward_ns == 0 && timings.rec_forward_ns == 0,
+                    "fi det window during packing: the atomic det forward never started and rec never ran");
+    }
+    {
+        CancelProbe probe{structure.det_polls - 1, true};
+        const auto outcome = backend.recognize_budgeted(view, batch_request(64), probe.context());
+        expect_code(outcome.status(), mirador::ErrorCode::kCancelled,
+                    "fi det window after the forward: whole call kCancelled, the det output is discarded");
+        const mirador::integrations::PpOcrStageTimings timings = backend.last_stage_timings();
+        expect_true(timings.det_forward_ns > 0 && timings.rec_forward_ns == 0,
+                    "fi det window after the forward: the completed forward is discarded and rec never ran");
+    }
+}
+
+// Round 4 dispatcher: measures the poll structure on the six-block scene and
+// drives every checkpoint scenario from it. Runs after
+// check_multi_candidate_scenarios, which calibrated and wrote the sensitive
+// fixtures (det_sensitive.* and rec_s.* sized to the measured 165 px kernel);
+// the calibration probes re-validate every premise of the flips.
+void check_rec_loop_fault_injection(const std::filesystem::path& dir) {
+    const std::vector<BlockPos> six_blocks = {{40, 15}, {180, 15}, {320, 15}, {40, 38}, {180, 38}, {320, 38}};
+    const std::vector<std::byte> scene = make_block_scene(kFrameWidth, kFrameHeight, six_blocks);
+    const mirador::ImageView view = make_rgb_view(scene, kFrameWidth, kFrameHeight);
+
+    auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 256));
+    expect_true(backend_result.ok(), "fault injection: budgeted backend (max_boxes=256) loads");
+    if (!backend_result.ok()) {
+        return;
+    }
+    auto backend = std::move(backend_result).take_value();
+
+    RecPollStructure structure;
+    if (!measure_rec_poll_structure(backend, view, structure)) {
+        return;
+    }
+    expect_true(structure.units > 3,
+                "fault injection: the scene provides more than three rec units for mid-loop flips");
+
+    check_fi_cancel_after_det(backend, view, structure);
+    check_fi_cancel_after_first_line(backend, view, structure);
+    if (structure.units > 3) {
+        check_fi_cancel_mid_loop(backend, view, structure);
+    }
+    check_fi_cancel_beats_deadline_same_poll(backend, view, structure);
+    check_fi_deadline_mid_loop_fails_whole_call(backend, view, structure);
+    check_fi_rec_work_budget_exhaustion(dir, view);
+    check_fi_det_window_cancel(backend, view, structure);
+}
+
 bool run_all_checks(const std::filesystem::path& dir) {
     if (!write_det_model(dir) || !write_rec_model(dir) || !write_text_file(dir / "charset.txt", "A\nB\nC\nD\n")) {
         std::printf("FAIL: writing synthetic fixtures to %s\n", dir.string().c_str());
@@ -1159,6 +1451,7 @@ bool run_all_checks(const std::filesystem::path& dir) {
     check_timings_reset(backend, frame_bytes);
     check_request_validation(backend, frame_bytes);
     check_multi_candidate_scenarios(dir);
+    check_rec_loop_fault_injection(dir);
     return g_failed_checks == 0;
 }
 
@@ -1186,6 +1479,8 @@ int main() {
     std::printf(
         "ppocr budgeted smoke: PASS (create validation, happy path, K boundaries, soft budget, "
         "deadline/cancel guards, finalize guard soft stop, timings reset, request validation, "
-        "det_limit report, multi-candidate reading order/K<N/priority/det_limit_hit)\n");
+        "det_limit report, multi-candidate reading order/K<N/priority/det_limit_hit, "
+        "checkpoint fault injection: cancel after det/after line 1/mid-loop, "
+        "same-poll cancel vs deadline, mid-loop hard timeout, rec budget exhaustion, det window cancel)\n");
     return 0;
 }

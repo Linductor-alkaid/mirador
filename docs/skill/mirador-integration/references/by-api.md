@@ -11,6 +11,9 @@
 | `ExecutionContext`, `is_cancelled`, `deadline` | [Session and caching](session-and-caching.md) |
 | `OcrBackend`, `DetectorBackend`, `LineDetector`, `BackendInfo`, `recognize`, `detect` | [Backends](backends.md) |
 | `TextRegion`, `DetectionRegion`, `LineSegmentSet`, `LineDetectRequest` | [Backends](backends.md) |
+| `BudgetedOcrBackend`, `OcrBatchRequest`, `OcrBatchResult`, `OcrLineRecord`, `recognize_budgeted` | [Budgeted OCR](budgeted-ocr.md) |
+| `OcrCompletionState`, `OcrBatchStopReason`, `OcrBatchCompletion`, `OcrSelectionStrategy`, `OcrPriorityEntry`, `kSoftBudget`, `kRecLineLimit`, `kDeferred` | [Budgeted OCR](budgeted-ocr.md) |
+| `BudgetedOcrRequest`, `BudgetedOcrReport`, `run_ocr_budgeted`, `det_limit_hit` | [Budgeted OCR](budgeted-ocr.md) |
 | `EvidenceSet`, `EvidenceItem`, `ExternalRegion`, `add_external`, `add_text`, `add_detection`, `add_template` | [Fusion and snapshots](fusion-and-snapshots.md) |
 | `fuse`, `fuse_evidence`, `FusionOptions`, `FusionTrace`, `display_transform` | [Fusion and snapshots](fusion-and-snapshots.md) |
 | `SemanticSnapshot`, `VisualRegion`, `RegionSource`, `stable_id`, `generation`, `find_region`, `is_generation_current` | [Fusion and snapshots](fusion-and-snapshots.md) |
