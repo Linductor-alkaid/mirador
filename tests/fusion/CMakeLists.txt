@@ -163,6 +163,22 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M9-01 continuous-perception contract (DEC-026, Experimental): the frozen
+# reference limits and byte-sized enums, the per-pair relation decision table
+# with inclusive threshold boundaries, decision traces, symmetry and invalid-
+# geometry rejection, the semantics-compatibility predicate, relation-view
+# invariants and byte accounting, attention-policy validation, the field-
+# sensitive policy digest and focus resolution with the frozen criterion
+# priority, work-token validation and the frozen staleness check order,
+# semantic-event invariants and byte accounting, and the coordinator identity
+# core (create validation, source-epoch lifecycle, zero coordination bytes,
+# move-only semantics, twin determinism).
+mirador_add_test(
+    NAME mirador.fusion.continuous_perception
+    SOURCES continuous_perception_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 # M5-07 concurrency matrix (TSAN preset): published-snapshot readers and
 # parallel sessions. Threads need the system threads library on platforms
 # where std::thread does not link transitively.

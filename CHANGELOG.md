@@ -5,6 +5,29 @@
 
 ## [Unreleased]
 
+### M9 立项与连续感知契约冻结（DEC-026，M9-01）
+
+- 新增公共契约 `continuous_perception.hpp`（Experimental，M9-01 冻结；
+  [DEC-026](docs/decisions/DEC-026-continuous-perception-and-attention.md) 随
+  冻结转 Accepted）：连续感知协调/关系/策略/事件领域词表——覆盖/新鲜度、
+  中间观测态（遮挡/跟踪丢失/未分析不等同确认消失）、事件开始-更新-结束语义、
+  关系四分类、工作令牌绑定字段（source/epoch/帧/generation/策略修订/ROI/
+  内容摘要）与第 7 节参考预算常量（8 MiB/1,024 实体/4,096 关系/256 事件/64
+  焦点条件，收紧式校验）；冻结纯规则 `classify_entity_relation`（同实体重复/
+  part_of/普通重叠/冲突判定结构，冲突不销毁证据）、`resolve_attention_focus`
+  （显式 unresolved，未见文本不定位）、`work_token_stale_reason`（来源→epoch→
+  策略→generation→帧冻结检查序）、`semantic_event_consistent`（含 source
+  reset 零边界终结）与字节核算；协调对象 `ContinuousPerception` 的
+  identity/epoch/字节核算核心。状态化原语（plan/accept/query/drain_events）
+  按 M9-02…05 在同一 Experimental 头内增长；全部新增面 opt-in 附加，既有
+  单帧融合、稳定 ID/generation 与动作绑定协议零变化（旧 API 全量回归证据）。
+- 独立验证套件 `mirador.fusion.continuous_perception`（83 用例，
+  Independent-Verification-Agent 编写执行；验证轮发现并修复 relation view
+  一致性检查的 kPartOf 条件反转缺陷后全绿）；debug 全量 ctest 56/56，
+  ASAN/UBSAN 零报告。
+- 文档同步：DEC-026 冻结记录、M9 计划转 In Progress、总计划 1.34、API 索引、
+  Experimental 兼容性登记（M9 节，不计兼容性承诺）。
+
 ### M8-07 收口：检查点故障注入证据与下游接入说明（DEC-025，issue #41）
 
 - 冒烟套件 137→163 checks：probe 自校准的检查点级故障注入补齐 AC8-06——

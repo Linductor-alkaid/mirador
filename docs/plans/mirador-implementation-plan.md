@@ -9,11 +9,22 @@
 （DP-01…05，In Progress），对应 issue #36；同步无内部并发、预算与隐私边界不变。
 
 > 状态：Active
-> 版本：1.33
+> 版本：1.34
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-10-21
+>
+> 1.34 修订（2026-10-21）：M9 立项生效——M8-07 于同日收口（本仓 PR #48）后
+> 负责人指示推进 M9 开发，[M9](m9-continuous-perception.md) 转 In Progress；
+> [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) 随
+> M9-01 契约冻结转 Accepted（能力面保持 Experimental，M9-07 依验证决定转正
+> 或回退）。M9-01 交付 `continuous_perception.hpp` 冻结契约：协调/关系/策略/
+> 事件领域词表、source epoch、第 7 节参考预算、事件来源/代际/时间窗/
+> 开始-更新-结束字段、冻结纯规则与协调对象 identity/epoch 核心（83 用例
+> 独立验证套件；验证轮发现并修复 relation view 一致性检查条件反转缺陷）；
+> 状态化协调原语按 M9-02…05 在同一 Experimental 头内增长。既有单帧融合/
+> 稳定 ID/动作协议零变化；AC9-01…11 最终验收证据归后续工作项。
 >
 > 1.33 修订（2026-10-21）：对齐 [Issue #41](https://github.com/Linductor-alkaid/mirador/issues/41)
 > 台账最新状态——2026-10-20 维护者补充（关系/事件契约扩展，已由 1.31/PR #45 纳入
@@ -480,12 +491,20 @@
 
 Issue #41 后续工作分两项独立交付：M8 已定义范围与验收，可排期，新增契约需在
 M8-02 评审冻结；M9 为独立 Proposed 增量，待 M8 契约与自身决策评审后实施。
-M8-01…06 已交付并合入 master（M8-06 经 PR #46，CI 14/14 绿）：真实权重基准
-（三轮独立实测）取得 AC8-01/02/05 证据并冻结参考配置，5 秒交互由预算路径保障
-（K=64 p50 0.86–1.52 s）；Issue 三条直接性能诉求已闭环映射（top-K/部分结果
-交付、batching no-go 证据、真实 5 秒实测）。剩余 M8-07（Mirage 下游验收与
-收口）为直接诉求最后一块，按 Issue 2026-10-20 指示排在 M9-01 实施之前；
-M9 契约评审可并行准备。5 秒判定限于冻结参考机与冻结场景，不构成跨机器声明。
+M8-01…07 已全部交付（M8-06 经 PR #46、M8-07 经 PR #48 合入 master，CI 14/14
+绿）：真实权重基准（三轮独立实测）取得 AC8-01/02/05 证据并冻结参考配置，
+5 秒交互由预算路径保障（K=64 p50 0.86–1.52 s）；Mirage 下游受控验收（AC8-10）
+两轮全部门禁 PASS。Issue 三条直接性能诉求已闭环映射（top-K/部分结果交付、
+batching no-go 证据、真实 5 秒实测）。5 秒判定限于冻结参考机与冻结场景，
+不构成跨机器声明。
+
+M9 已于 2026-10-21 立项生效（负责人指示推进，M8-07 收口后启动）：
+[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) 随
+M9-01 契约冻结转 Accepted（`continuous_perception.hpp` Experimental——领域
+词表、source epoch、参考预算、事件字段、冻结纯规则与协调对象核心；83 用例
+独立验证套件全绿）；M9-02 起按"实体关系 → 注意与增量闭环 → 语义稳定化与
+通知"三阶段推进，AC9-01…11 最终验收证据归后续工作项，真实留出集质量门槛
+保持未完成。
 
 M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项与退出条件通过，CI 9/9
 绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、
@@ -604,12 +623,13 @@ run 35917953109 14/14 job 全绿，待合入）。
   [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)），M8-06 真实权重
   实测 PASS 并冻结参考配置（[基准报告](../benchmarks/linux-x64-ocr-budget-2026-10.md)），
   M8-07 Mirage 下游验收待执行）。完整旧 API 保持全有或全无。
-- [ ] `SCOPE-15` 连续增量感知（Proposed）：实体重复/从属/重叠关系、调用方注意与
+- [ ] `SCOPE-15` 连续增量感知（In Progress，M9-01 契约冻结已交付）：实体重复/从属/重叠关系、调用方注意与
   重要性策略、覆盖与陈旧结果绑定、跨帧语义稳定化、有界选择性事件、关系/事件
   差分字段（来源/实例代际/证据时间窗/开始-更新-结束）与源重置旧代事件终结；见
   [M9](m9-continuous-perception.md) 与
-  [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)（第 8 节纳入
-  2026-10-20 下游后续）。采集、LLM、调度与动作仍归调用方；事件驱动的语义理解
+  [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)
+  （Accepted，M9-01 契约冻结；能力面 Experimental，M9-07 判定转正或回退）。
+  采集、LLM、调度与动作仍归调用方；事件驱动的语义理解
   为下游可选升级，不影响状态层连续性。
 
 ### 明确不包含
@@ -661,7 +681,7 @@ run 35917953109 14/14 job 全绿，待合入）。
 | M6 | 几何区域 Proposal 实验（实验轨道） | M5 | `v0.3.0` | Completed | [m6-geometric-region-proposal-experiment.md](m6-geometric-region-proposal-experiment.md) |
 | M7 | 跨帧目标跟踪（低负载 SOT 与级联重检测） | M6 | `v0.4.0`（暂定） | In Progress | [m7-cross-frame-object-tracking.md](m7-cross-frame-object-tracking.md) |
 | M8 | 密集 OCR 的交互预算闭环 | M2/M5；DEC-025 已随 M8-02 冻结 | integrations 独立修复；公共增量随下一 minor（待定） | In Progress | [m8-budgeted-ocr.md](m8-budgeted-ocr.md) |
-| M9 | 任务焦点驱动的增量视觉状态与通知 | M8 契约、M4/M7 原语；DEC-026 待评审 | Experimental，版本待定 | Proposed | [m9-continuous-perception.md](m9-continuous-perception.md) |
+| M9 | 任务焦点驱动的增量视觉状态与通知 | M8 契约、M4/M7 原语；DEC-026 已随 M9-01 冻结（Accepted） | Experimental，版本待定 | In Progress | [m9-continuous-perception.md](m9-continuous-perception.md) |
 
 里程碑划分、范围与退出条件以设计文档第 24 节为准；发布点为暂定映射，里程碑启动时确认
 并与 tag 一一对应。M4 完成设计文档第 26 节的"首个可用版本"验收。
@@ -676,7 +696,7 @@ run 35917953109 14/14 job 全绿，待合入）。
 | [DEC-010](../decisions/DEC-010-stable-id-matching.md) | 稳定 ID 匹配算法 | 已冻结：门控后贪心一对一匹配起步，分裂/合并做事件识别与 generation 递增（见 [DEC-010](../decisions/DEC-010-stable-id-matching.md)） | linductor | M4 |
 | [DEC-011](../decisions/DEC-011-benchmark-environments.md) | 基准设备清单 | 已冻结：Linux x64 主基准环境 + 方法口径；物理 Android/Windows 记录补跑条件（见 [DEC-011](../decisions/DEC-011-benchmark-environments.md)） | linductor | M5 |
 | [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md) | OCR 候选预算与部分结果 | Accepted（M8-02 冻结；M8-06 实测修订）：独立 opt-in 能力，契约见 `ocr_batch.hpp` 与冻结记录；参考配置 K=64 + 收尾预留 500 ms 经实测冻结，`rec_unit_upper_bound` 参考 100 ms，det 探测边界按真实密度数据修订 | linductor | 已冻结（M8-06，2026-10-21） |
-| [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) | 连续感知与注意策略 | Proposed：fusion 同步协调原语、关系视图、2 次有效观测确认、额外状态 8 MiB；均待验证 | linductor | M9-01 契约；M9-07 转正判定 |
+| [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) | 连续感知与注意策略 | Accepted（M9-01 冻结，2026-10-21）：`continuous_perception.hpp` 冻结协调/关系/策略/事件领域词表、source epoch、参考预算与事件字段；冻结纯规则（关系判定、焦点解析、陈旧检查、事件一致性）与协调对象核心；阈值初值为开发默认值，随 M9-06 校准；能力面 Experimental，M9-07 依验证决定转正或回退 | linductor | 契约已冻结（M9-01）；转正判定 M9-07 |
 
 已生效决策见 [docs/decisions/](../decisions/)：`DEC-001` 同步 API 与无 executor、`DEC-002`
 Core 不链接模型 runtime、`DEC-003` 公共 API 不暴露 OpenCV 类型、`DEC-004` 公共边界

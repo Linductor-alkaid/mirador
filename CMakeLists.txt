@@ -126,6 +126,7 @@ foreach(mirador_module IN LISTS MIRADOR_MODULES)
                 src/fusion/fusion.cpp
                 src/fusion/stable_id_tracker.cpp
                 src/fusion/object_tracker.cpp
+                src/fusion/continuous_perception.cpp
                 src/fusion/perception_session.cpp
             )
             mirador_apply_warnings(mirador_${mirador_module})
