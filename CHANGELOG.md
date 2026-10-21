@@ -5,6 +5,28 @@
 
 ## [Unreleased]
 
+### M9-03 注意规划：策略状态、跟踪焦点与同步计划（DEC-026 第 2 节，Experimental）
+
+- `ContinuousPerception` 引入首个协调状态与同步规划面：`set_attention_policy`
+  （冻结校验 + kFrame/kOriented 条件 ROI 限制 + 收紧式字节预算；digest 变化驱动
+  单调 policy revision，幂等重设不递增）、`attach_tracker`（注入非拥有跟踪器）、
+  `resolve_focus`（冻结快照规则优先；快照不可见的 stable-id 条件回退跟踪池——
+  kTracking/kUncertain 解析到 `TargetTrack::last_bounds` 现位置、kLost 显式
+  `kMissingLocalization`、kTerminated/absent 保持 unknown，ID 焦点随跟踪移动而
+  非记忆坐标）、`plan_attention`（逐条件显式解析表、kFocus/kBootstrap 工作 ROI
+  按 importance 优先级排序——bootstrap 仅在调用方 `allow_bootstrap_full_frame`
+  授权时产生；kFrame↔kOriented 全旋转换算；外围监测把焦点外变化区域记为可查询
+  `FocusReconsideration`，kGlobal 折叠为全帧记录；coverage 恒 kIncomplete，
+  不做覆盖/复用声明，M9-04 plan/accept 接线消费本计划）。
+- `coordination_owned_bytes()` 纳入已启用策略的条件与匹配文本（未启用为 0）；
+  `attention_policy()`/`policy_revision()`/`has_attention_policy()` 查询面。
+- 独立验证套件 `mirador.fusion.attention_plan`（47 用例，
+  Independent-Verification-Agent 编写执行）：策略状态矩阵（幂等/单调 revision/
+  预算拒绝保旧/字节公式）、四个跟踪状态全由公开 API 驱动的解析矩阵、规划
+  全字段回显与排序、k0/90/180/270 坐标矩阵（含宽高互换）、外围三路分类、
+  取消/超时与确定性；验证轮发现并修复 ROI-only work 误回显 snapshot
+  generation 缺陷后 47/47 全绿；debug/ASAN/UBSAN 全量 ctest 58/58。
+
 ### M9-02 关系视图构建器（DEC-026 第 4 节，Experimental）
 
 - 新增纯函数 `build_relation_view`（`continuous_perception.hpp`）：在既有融合
