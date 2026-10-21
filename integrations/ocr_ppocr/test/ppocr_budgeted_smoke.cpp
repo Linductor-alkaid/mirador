@@ -31,12 +31,17 @@
 // (self-calibrating; the coordinator estimate of 166 skipped the crop-ROI
 // integer rounding step).
 //
-// det_limit_hit==true is closed with a separate 4-block scene at
-// max_boxes=3 (kept boxes == cap + 1 -> probe returns 4). A 6-block scene at
-// max_boxes=3 cannot truncate: the frozen db_postprocess cap check fires for
-// any component once `boxes.size()` reaches the cap (before the score drop),
-// so the max_boxes+1 probe saturates and the whole call fails with
-// kBudgetExceeded — that explicit-failure boundary is asserted too.
+// det_limit_hit==true is closed with a separate 4-block scene at max_boxes=3
+// (4 natural candidates > cap 3). The det probe runs at the frozen postprocess
+// domain maximum (65535) — not det_limit+1 — so ANY natural density up to that
+// domain truncates instead of failing: a 6-block scene at max_boxes=3 keeps
+// the first 3 candidates in component scan order, reports det_limit_hit, and
+// the whole call succeeds with conserved counts (the M8-06 probe change; the
+// former det_limit+1 probe saturated the frozen cap here and failed the call
+// with kBudgetExceeded). kBudgetExceeded in this suite is now request
+// validation only (65 priority entries vs the 64-entry cap); true 65535-box
+// saturation stays an explicit backend failure that synthetic fixtures do not
+// reach.
 //
 // ncnn param/bin layout notes are shared with ppocr_smoke.cpp (pinned ncnn
 // commit e54f7b1): Convolution param keys 7..18 are omitted except kernel_h
@@ -940,9 +945,9 @@ void check_priority_execution_order(const std::filesystem::path& dir, const mira
     expect_true(ocr_batch_result_consistent(result), "priority: report is consistent");
 }
 
-// Check D: det_limit_hit truncation. With exactly cap+1 kept boxes the
-// max_boxes+1 probe returns cap+1, the run keeps the cap-sized prefix and
-// reports the hit; full recognition of the prefix still completes.
+// Check D: det_limit_hit truncation. With 4 natural candidates against a cap
+// of 3 the domain-maximum probe returns 4, the run keeps the cap-sized prefix
+// and reports the hit; full recognition of the prefix still completes.
 void check_det_limit_hit_truncation(const std::filesystem::path& dir) {
     const mirador::ExecutionContext never_cancelled;
     const std::vector<BlockPos> four_blocks = {{40, 15}, {180, 15}, {40, 38}, {180, 38}};
@@ -972,9 +977,13 @@ void check_det_limit_hit_truncation(const std::filesystem::path& dir) {
     expect_true(ocr_batch_result_consistent(result), "det_limit_hit: report is consistent");
 }
 
-// Check E: probe saturation boundary. More kept boxes than the probe cap
-// (cap+1) cannot truncate — the frozen postprocess cap check fires for any
-// component once the cap is reached, so the whole call fails explicitly.
+// Check E: natural-density truncation boundary. With natural candidates
+// strictly above cap+1 (6 blocks vs cap 3) the domain-maximum det probe still
+// returns every component, so the backend keeps the cap-sized reading-order
+// prefix and reports det_limit_hit — the whole call succeeds. This is exactly
+// the boundary where the former det_limit+1 probe saturated the frozen
+// postprocess and failed the whole call with kBudgetExceeded (M8-03 deferred
+// to M8-06 real-density data, which ruled the relaxation mandatory).
 void check_probe_saturation_boundary(const std::filesystem::path& dir, const mirador::ImageView& view) {
     const mirador::ExecutionContext never_cancelled;
     auto backend_result = mirador::integrations::PpOcrBudgetedBackend::create(sensitive_budgeted_options(dir, 3));
@@ -984,14 +993,42 @@ void check_probe_saturation_boundary(const std::filesystem::path& dir, const mir
     }
     auto backend = std::move(backend_result).take_value();
     const auto outcome = backend.recognize_budgeted(view, batch_request(64), never_cancelled);
-    expect_code(outcome.status(), mirador::ErrorCode::kBudgetExceeded,
-                "probe saturation: 6 kept boxes vs cap 3 fails the whole call with kBudgetExceeded");
+    expect_true(outcome.ok(), "probe saturation: 6 natural candidates vs cap 3 truncate, not kBudgetExceeded");
+    if (!outcome.ok()) {
+        std::printf("  probe saturation status: %s\n", outcome.status().message().c_str());
+        return;
+    }
+    const mirador::OcrBatchResult& result = outcome.value();
+    expect_true(result.det_limit == 3 && result.det_limit_hit,
+                "probe saturation: cap 3 reported, hit flag set (probe returned 6 > cap)");
+    expect_true(result.detected_count == 3, "probe saturation: only the cap-sized prefix became candidates");
+    expect_true(result.recognized_count == 3 && result.rec_forward_count == 3 && result.deferred_count == 0 &&
+                    result.reused_count == 0,
+                "probe saturation: counts conserve (3 detected = 3 recognized + 0 deferred + 0 reused)");
+    expect_true(result.stop_reason == mirador::OcrBatchStopReason::kCompleted &&
+                    result.completion == mirador::OcrBatchCompletion::kComplete,
+                "probe saturation: completion is kComplete although coverage is truncated (check the hit flag)");
+    static constexpr std::array<int32_t, 3> kColumnX = {40, 180, 320};
+    bool prefix_ok = result.lines.size() == 3;
+    for (int32_t index = 0; prefix_ok && index < 3; ++index) {
+        const mirador::OcrLineRecord& line = result.lines[static_cast<size_t>(index)];
+        prefix_ok =
+            prefix_ok && line.candidate_id == index && line.utf8_text == "ABCD" &&
+            line.state == mirador::OcrCompletionState::kRecognized && line.execution_order == index &&
+            line.det_confidence > 0.75F && line.det_confidence <= 0.85F &&
+            bounds_close(line.bounds, static_cast<float>(kColumnX[index] - kUnclipOffset),
+                         static_cast<float>(15 - kUnclipOffset), static_cast<float>(kBlockWidth + 2 * kUnclipOffset),
+                         static_cast<float>(kBlockHeight + 2 * kUnclipOffset), 0.5F);
+    }
+    expect_true(prefix_ok,
+                "probe saturation: kept prefix is the top row (candidates 0..2), fully recognized as \"ABCD\"");
+    expect_true(ocr_batch_result_consistent(result), "probe saturation: report is consistent");
 }
 
 // Multi-candidate scenarios dispatcher: reading order over 6 lines, K<N
 // deferral with bitwise-stable repeats, caller-priority execution order,
-// det_limit_hit truncation (4-block scene: kept == cap+1) and the
-// probe-saturation boundary.
+// det_limit_hit truncation (4-block scene: natural 4 vs cap 3) and the
+// natural-density boundary (6-block scene: natural 6 > cap+1 still truncates).
 void check_multi_candidate_scenarios(const std::filesystem::path& dir) {
     const std::vector<BlockPos> six_blocks = {{40, 15}, {180, 15}, {320, 15}, {40, 38}, {180, 38}, {320, 38}};
     const std::vector<std::byte> scene = make_block_scene(kFrameWidth, kFrameHeight, six_blocks);

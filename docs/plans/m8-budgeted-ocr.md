@@ -1,13 +1,12 @@
 # M8：密集 OCR 的交互预算闭环
 
-> 状态：In Progress（M8-01…04 实现落地；M8-05 实验收口为全 no-go；M8-01 真实权重
-> 实测、M8-06…07 待真实环境）
+> 状态：In Progress（M8-01…06 交付；M8-07 下游验收待 Mirage 受控接入）
 > 负责人：linductor（Mirador 维护者；以下各工作项同责）
 > 所属计划：[Mirador 实施总计划](mirador-implementation-plan.md)
 > 前置：M2/M5 已有 SPI、缓存和参考后端；基于主干 `cb45a102`
-> 决策：[DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)（Accepted，M8-02 冻结）
+> 决策：[DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)（Accepted，M8-02 冻结；M8-06 实测修订）
 > 建议发布点：独立 integrations 修复交付；公共增量接口随下一 minor，版本号发布前确认
-> 更新日期：2026-10-19
+> 更新日期：2026-10-21
 
 ## 目标、范围与非目标
 
@@ -24,18 +23,21 @@ Core runtime/内部并发。M9 连续感知、实体关系和事件不是本里�
 
 | 工作项 | 状态 | 可评审交付物 | 依赖 | 验收 |
 | --- | --- | --- | --- | --- |
-| M8-01 | In Progress（harness 已交付；真实权重实测待补） | 入仓无权重基准 harness、复现指南；359 框报告复核与 512 框压力数据，分解 det/裁剪/预处理/forward/解码/收尾，固定参考环境与时间余量 | 无 | AC8-01、02 |
+| M8-01 | Delivered（harness + 可读场景；真实权重实测随 M8-06 完成） | 入仓无权重基准 harness、复现指南；359 框报告复核与 512 框压力数据，分解 det/裁剪/预处理/forward/解码/收尾，固定参考环境与时间余量 | 无 | AC8-01、02 |
 | M8-02 | Delivered（契约与套件已落地） | 冻结 DEC-025、新领域结果/可选能力、伪 Backend 契约套件、旧 API 兼容样例；记录配置与内存限额 | M8-01 | AC8-03、04、08 |
 | M8-03 | Delivered（合成模型验证；真实模型部分随 M8-06） | PP-OCR 有界 rec 选择与软预算执行，逐框完成态、执行序和停止诊断，未识别几何可查询 | M8-02 | AC8-03…06 |
 | M8-04 | Delivered | 会话新入口、坐标恢复、source 绑定与完整缓存隔离；无新能力时显式失败 | M8-02、03 | AC8-04、07、08 |
 | M8-05 | Delivered（全 no-go，见 [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)） | 单行成本/packing/动态宽度及 batching 的独立实验报告，给出采用或 no-go 与理由；采用时单独 MR 回归 | M8-01…04 | AC8-09；no-go 不阻塞 M8-06 |
-| M8-06 | Planned | 同机真实模型基准、质量对照和 5 秒配置判定，冻结参考 K/收尾预留与适用平台 | M8-01…04 | AC8-01、02、05、10 |
+| M8-06 | Delivered（真实权重两轮实测 + 探测边界修订；见[基准报告](../benchmarks/linux-x64-ocr-budget-2026-10.md)） | 同机真实模型基准、质量对照和 5 秒配置判定，冻结参考 K/收尾预留与适用平台 | M8-01…04 | AC8-01、02、05（AC8-10 归 M8-07 下游验收） |
 | M8-07 | Planned | Mirage 连续 3 次调用验收、故障/边界/sanitizer/CI 证据，API/示例/兼容性/CHANGELOG 同步 | M8-06；M8-05 的判定报告 | AC8-06…10 与全部退出条件 |
 
-- [ ] M8-01…04 交付并通过各自验收。
+- [x] M8-01…04 交付并通过各自验收（M8-01 真实权重实测随 M8-06 于 2026-10-20/21
+  补齐）。
 - [x] M8-05 给出可复现的实验结论；不支持 batching 也必须留下证据（2026-10-19，
   全 no-go：batching 能力性、packing/固定宽/分桶质量性、线程负优化复现）。
-- [ ] M8-06…07 真实环境与工程门禁通过。
+- [x] M8-06 真实模型基准与 5 秒配置判定完成（2026-10-21，AC8-01/02/05 实测
+  PASS，参考配置与 `rec_unit_upper_bound` 冻结入 DEC-025）。
+- [ ] M8-07 Mirage 下游验收与收口。
 
 建议分四个可独立评审的 MR：基准与契约 → 有界执行与会话接线 → 可选优化实验 →
 真实模型/下游验收收口。实验可并行开展，但不得先改默认值再补正确性证据。实现前
@@ -188,3 +190,65 @@ Mirage 工程本机已持有适配于 Mirador 契约的 PP-OCRv5-mobile 权重 b
   `run_rec_line`，默认路径零变更），另按 M8-01 先例把全树 tidy 范围排除该工具、
   标注一处 va_list 分析器误报。PR #44 终轮 CI（run `39291634207`，commits
   `48f2018`/`5bc1a42`）14/14 job 全绿。
+
+2026-10-20/21：M8-06 真实模型基准交付（分支 `feat/m8-06-real-model-benchmark`；
+测量执行由 Independent-Verification-Agent 三轮独立完成，主循环实现工具与分析）。
+前提：Mirage 侧 `PP-OCRv5-mobile-ncnn-mirador-contract-v1` 权重 bundle 在受控路径
+（五文件 SHA-256 与 manifest 复核一致），不入仓；pinned ncnn `e54f7b1` 本机缓存。
+
+- **工具交付**：`benchmarks/tools/render_ocr_scenarios.py`（协议 §1 可读场景：确定性
+  渲染桌面风格中英文 + 逐行真值框 + 恰 16 个指定优先行 + scene.tsv 场景名列）；
+  `ocr_budget_bench.cpp` 增 `--scene-dir`（基线参照遍 + 逐调用文本/几何一致性、
+  优先覆盖、稀疏全完成/1e-4 几何、≤5,000 ms 门）与 `--expect-boxes`（真实 det 候选
+  数门）与 FNV-1a content_digest（跨运行逐位相同证据）；协议 §4.1 与 benchmarks
+  README 同步。随附修复 baseline 测量口径缺陷（原 `kReadWrite` 下同帧重复调用
+  测到缓存命中，改 `kRefresh` 每调用真实前向）。
+- **AC8-01**：dense359 九 cell 基线矩阵（det=1/2/4×rec=1/2/4，各 ≥20 次热调用）
+  全部测出；rec 线程扩展负优化在真实权重端到端复现；bookend 漂移 +6.8%
+  （powersave 如实记录），绑核对照单列。
+- **AC8-02**：dense359/dense512 预算配置全部门禁通过（每次 ≤5,000 ms、mismatch=0、
+  非空一致 ≥32 行、优先 16 行全覆盖；512 触顶场景 `det_limit_hit=1` 补测通过）；
+  三次独立进程 content_digest 逐位相同；全量探针两轮对照证明全量识别骑在 5 s
+  边界上随机器状态摆动——预算路径（K=64 两轮 p50 862/1520 ms）是 5 秒交互的
+  稳健保障。
+- **AC8-05**：稀疏 N=0/1/32/99 全完成、对基线 mismatch=0、几何 ≤1e-4 px，
+  p95 相对回归最大 +0.58%（门槛 5%）。
+- **配置冻结**（DEC-025 M8-06 修订）：K=64 + 收尾预留 500 ms 维持初值冻结；
+  `rec_unit_upper_bound` 参考 100 ms（长行实测 max 60.9 ms × 1.6 余量）；
+  `num_threads=1` 不变。
+- **探测边界修订**（DEC-025 M8-06 修订）：det 探测从 `det_limit+1` 改为后处理域
+  上限 65535 + 后端自截断——第二轮实测 529 槽自然 530 候选 > cap+1 使旧探测整
+  调用失败（M8-03 记录的待真实密度数据项），修订后任意 ≤65535 自然密度都得到
+  `det_limit_hit` 可见截断；核心后处理与旧路径零改动，冒烟断言随验证轮更新。
+- **工程门禁与验证轮**：首轮测量后 IVA 报告 4 个工具缺陷（渲染器 textbbox 绝对
+  坐标叠字【阻塞】、参照遍共享调用方 det cap、场景门误套 baseline、场景名来源），
+  修复后第二轮以仓库工具复验全过并字节级复现冻结场景；26 对 CSV/stdout 交叉验证
+  全 OK（行数、nearest-rank 重算、计数守恒）。ASAN 冒烟零报告。第三轮完成探测
+  修订的冒烟断言更新与自然密度端到端复测（记录见下）。CI 门禁随 PR 回填。
+- **限制与补跑条件**：`linux-ocr-desktop-real-v1`（受控真实截图 + 人工标注）未
+  执行，真实桌面质量收益归 M8-07；powersave 未固定频点，跨轮绝对值不可比
+  （AC8-05 为背靠背测量故可信）；绑核对照仅 det=1/rec=1 一列；Windows/Android
+  仅构建级验证，不声明 5 秒。
+
+2026-10-21：M8-06 探测边界修订与第三轮验证（同一分支）。第二轮实测发现自然候选
+> det_limit+1 的真实密度（529 槽自然 530 候选）使旧 `det_limit+1` 探测整调用
+`kBudgetExceeded`——即 M8-03 记录挂起的"kept ≥ cap+2 是否放宽待 M8-06 真实密度
+数据"项，数据判定放宽。主循环修订 `run_det_stage`：探测 cap 改为后处理域上限
+65535 + 后端自截断（`kBudgetExceeded` 保留给真饱和；核心后处理与旧
+`PpOcrBackend` 路径零改动；kept 前缀与"普通限幅运行成功时"逐位一致）。第三轮
+独立验证 PASS：冒烟套件按新语义更新（Check E 重写为自然密度截断边界，8 项具体
+断言），`ppocr_budgeted_smoke` 137/137 exit 0、integrations ctest 6/6、全仓
+ctest 61/61、ASAN/UBSAN 直跑 137/137 零报告；自然 529 槽场景（530 候选）修复前
+exit 5 → 修复后 exit 0 且 `det_limit_hit=1` 截断（p50 1534.6 ms，门禁全过，
+digest 跨 20 次恒定）；dense359 digest 与第二轮逐位一致（跨轮文本稳定）。遗留：
+真 65535 饱和路径仅代码审读证据（域边界不可达，如实记录）。同轮修正基准报告
+中首轮"全量可进 5 s"结论为"骑在 5 s 边界随机器状态摆动"（第二轮同名探针
+soft 停止于 209–224/359 行）。证据：`/tmp/m8_06_iva_round3/`。
+
+2026-10-21：M8-06 CI 门禁回填——PR #46 终轮 CI（run `39470617909`，head
+`d940ddb`）14/14 job 全绿：clang-format/clang-tidy 双口径（首轮暴露 IVA 冒烟
+编辑缺 format 与 harness 缺 `<ios>` 直接包含、平凡可拷贝 `std::move` 三处机械
+违规，修复后本地以 CI 同款命令复验归零）、integrations-ncnn（integrations 构建
++ 冒烟 + integrations 范围 tidy）、msvc 与 ndk/arm64-v8a（Windows/Android 构建
+级证据）、debug/release/warnings/asan/ubsan/tsan/fuzz/capture/ubuntu-20.04。
+Windows/Android 结论维持"构建级验证"，不声明 5 秒。PR 合入待负责人授权。

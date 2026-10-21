@@ -9,11 +9,20 @@
 （DP-01…05，In Progress），对应 issue #36；同步无内部并发、预算与隐私边界不变。
 
 > 状态：Active
-> 版本：1.31
+> 版本：1.32
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-10-19
+> 更新日期：2026-10-21
+>
+> 1.32 修订（2026-10-21）：M8-06 真实模型基准交付——PP-OCRv5-mobile 权重两轮
+> 独立实测（AC8-01/02/05 全 PASS），参考配置 K=64 + 收尾预留 500 ms 冻结、
+> `rec_unit_upper_bound` 参考 100 ms，det 探测边界按真实密度数据修订
+> （`det_limit+1` → 域上限 65535 + 后端自截断）；数字与两轮验证记录见
+> [linux-x64-ocr-budget-2026-10](../benchmarks/linux-x64-ocr-budget-2026-10.md)，
+> 修订理由入 [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)。
+> M8-07（Mirage 下游验收）保持未完成；无公共契约变更（探测边界为 integrations
+> 内部行为，旧路径语义不变）。
 >
 > 1.31 修订（2026-10-19）：针对 [Issue #41](https://github.com/Linductor-alkaid/mirador/issues/41)
 > 及维护者补充，新增 [M8 密集 OCR 预算闭环](m8-budgeted-ocr.md)（Planned）与
@@ -464,7 +473,9 @@
 
 Issue #41 后续工作分两项独立交付：M8 已定义范围与验收，可排期，新增契约需在
 M8-02 评审冻结；M9 为独立 Proposed 增量，待 M8 契约与自身决策评审后实施。
-5 秒/512 框是拟定验收目标，不是已有能力声明；全部实现工作项仍未完成。
+M8-01…06 已交付：真实权重基准（两轮独立实测）取得 AC8-01/02/05 证据并冻结
+参考配置，5 秒交互由预算路径保障（K=64 p50 0.86–1.52 s）；M8-07（Mirage 下游
+验收与收口）待执行。5 秒判定限于冻结参考机与冻结场景，不构成跨机器声明。
 
 M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项与退出条件通过，CI 9/9
 绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、
@@ -580,8 +591,9 @@ run 35917953109 14/14 job 全绿，待合入）。
   [M8](m8-budgeted-ocr.md) 与 [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md)
   （Accepted，M8-02 冻结；M8-01…04 实现落地，M8-05 优化实验已收口为有证据的
   全 no-go（batching 能力性、packing/宽度策略质量性，详见
-  [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)），真实模型 5 秒
-  验收待 M8-06/07）。完整旧 API 保持全有或全无。
+  [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)），M8-06 真实权重
+  实测 PASS 并冻结参考配置（[基准报告](../benchmarks/linux-x64-ocr-budget-2026-10.md)），
+  M8-07 Mirage 下游验收待执行）。完整旧 API 保持全有或全无。
 - [ ] `SCOPE-15` 连续增量感知（Proposed）：实体重复/从属/重叠关系、调用方注意与
   重要性策略、覆盖与陈旧结果绑定、跨帧语义稳定化、有界选择性事件、关系/事件
   差分字段（来源/实例代际/证据时间窗/开始-更新-结束）与源重置旧代事件终结；见
@@ -653,7 +665,7 @@ run 35917953109 14/14 job 全绿，待合入）。
 | [DEC-009](../decisions/DEC-009-elsed-integration.md) | ELSED 集成方式 | 已冻结：一方等价实现进 M3，ELSED 本体为可选适配延后（见 [DEC-009](../decisions/DEC-009-elsed-integration.md)） | linductor | M3 |
 | [DEC-010](../decisions/DEC-010-stable-id-matching.md) | 稳定 ID 匹配算法 | 已冻结：门控后贪心一对一匹配起步，分裂/合并做事件识别与 generation 递增（见 [DEC-010](../decisions/DEC-010-stable-id-matching.md)） | linductor | M4 |
 | [DEC-011](../decisions/DEC-011-benchmark-environments.md) | 基准设备清单 | 已冻结：Linux x64 主基准环境 + 方法口径；物理 Android/Windows 记录补跑条件（见 [DEC-011](../decisions/DEC-011-benchmark-environments.md)） | linductor | M5 |
-| [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md) | OCR 候选预算与部分结果 | Accepted（M8-02 冻结）：独立 opt-in 能力，契约见 `ocr_batch.hpp` 与冻结记录；K=64/收尾预留 500 ms 仍为参考初值，实测后冻结 | linductor | M8-02 契约已冻结；M8-06 实测冻结配置 |
+| [DEC-025](../decisions/DEC-025-budgeted-ocr-and-partial-results.md) | OCR 候选预算与部分结果 | Accepted（M8-02 冻结；M8-06 实测修订）：独立 opt-in 能力，契约见 `ocr_batch.hpp` 与冻结记录；参考配置 K=64 + 收尾预留 500 ms 经实测冻结，`rec_unit_upper_bound` 参考 100 ms，det 探测边界按真实密度数据修订 | linductor | 已冻结（M8-06，2026-10-21） |
 | [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) | 连续感知与注意策略 | Proposed：fusion 同步协调原语、关系视图、2 次有效观测确认、额外状态 8 MiB；均待验证 | linductor | M9-01 契约；M9-07 转正判定 |
 
 已生效决策见 [docs/decisions/](../decisions/)：`DEC-001` 同步 API 与无 executor、`DEC-002`
