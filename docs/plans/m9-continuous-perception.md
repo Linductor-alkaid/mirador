@@ -8,8 +8,8 @@
 > 决策：[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)
 > （Accepted，M9-01 冻结；M9-07 依验证决定转正或回退）
 > 建议发布点：独立 Experimental 增量，具体 minor 版本在 M9-07 判定后确认
-> 更新日期：2026-10-21（M9-02 关系视图构建器交付；M9-01 契约冻结交付；
-> 2026-10-20 纳入 Issue #41 日期化后续，诉求优先级不变）
+> 更新日期：2026-10-21（M9-03 注意规划交付；M9-02 关系视图构建器与 M9-01
+> 契约冻结交付；2026-10-20 纳入 Issue #41 日期化后续，诉求优先级不变）
 
 ## 目标、范围与非目标
 
@@ -33,7 +33,7 @@ token 压缩模型/权重/runtime 或模型序列协议（MiniCPM-o 仅为下游
 | --- | --- | --- | --- | --- |
 | M9-01 | Delivered（契约与套件已落地） | 冻结 DEC-026 与 opt-in 协调/关系/策略/事件领域契约（`continuous_perception.hpp`）：source epoch、覆盖/预算、generation、事件来源/代际/时间窗/开始-更新-结束字段与旧 API 兼容；冻结纯规则与验证套件；状态化原语按 M9-02…05 增长 | M8-02 | AC9-01、06…11 |
 | M9-02 | Delivered（构建器与套件已落地） | 同实体去重/part_of/普通重叠关系视图，原始证据、冲突与 trace 可追溯，固定融合夹具 | M9-01 | AC9-01、02 |
-| M9-03 | Proposed | Attention/Importance 到 ROI 和候选优先级的同步规划，ID 焦点随跟踪移动、外围监测与失效 | M9-01；M8-03/04 | AC9-03、04、08 |
+| M9-03 | Delivered（规划面与套件已落地） | Attention/Importance 到 ROI 和候选优先级的同步规划，ID 焦点随跟踪移动、外围监测与失效 | M9-01；M8-03/04 | AC9-03、04、08 |
 | M9-04 | Proposed | 增量覆盖/缓存接线，plan/accept 绑定、延迟/乱序拒绝、调用方 latest-pending 示例与积压测试 | M9-02、03；M8-04 | AC9-03、05…07、09 |
 | M9-05 | Proposed | latest/confirmed/published 状态、有界事件 drain、去抖与过滤、切换焦点查询/初始差量；事件携带来源/代际/证据时间窗与 begin/update/end 语义，源重置显式终结旧代事件 | M9-04 | AC9-07、08、09、11 |
 | M9-06 | Proposed | 伪 Backend 确定性矩阵、真实桌面留出集、全屏基线与增量对照；校准并固定阈值 | M9-02…05；M8-06 | AC9-01…11 |
@@ -188,3 +188,40 @@ master `7b5047d`）。交付：
   真实留出集质量门槛保持未完成（数据与人工 GT 未采集）。
 - 限制：阈值初值（`min_merge_confidence` 0.5 等）为开发默认值，随 M9-06
   校准；冻结的是判定结构与发射顺序而非数字。
+
+2026-10-21：M9-03 注意规划交付（分支 `feat/m9-03-attention-planning`，基于
+master `72a834f`，即 M9-02 合并提交）。交付：
+
+- `ContinuousPerception` 引入首个协调状态与同步规划面（M9-01 Experimental
+  头内增长）：`set_attention_policy`（冻结校验透传 + 条件 ROI 空间
+  kFrame/kOriented 限制 + 收紧式字节预算，超预算启用拒绝且保留旧策略；
+  digest 变化驱动单调 policy revision，幂等重设不递增）；`attach_tracker`
+  注入非拥有 `ObjectTracker`；`resolve_focus` 冻结快照规则优先，仅快照
+  不可见的 stable-id 条件回退跟踪池——kTracking/kUncertain 解析到
+  `TargetTrack::last_bounds` 现位置（ID 焦点随跟踪移动而非记忆坐标），
+  kLost 显式 kMissingLocalization，kTerminated/absent 保持 unknown；
+  `plan_attention` 产出纯确定性 `AttentionPlan`（逐条件解析平行表、
+  kFocus/kBootstrap 工作按 importance 优先级与冻结排序、k0…k270 全旋转
+  坐标转换、外围监测 `FocusReconsideration` 记录、kGlobal 折叠全帧）。
+  bootstrap 仅在调用方 `allow_bootstrap_full_frame` 授权时产生；规划器
+  绝不自行回退全帧识别。`coverage` 恒 kIncomplete，规划为零副作用纯
+  输出——覆盖证明、工作令牌与 plan/accept 绑定归 M9-04，不预写。
+  `coordination_owned_bytes()` 纳入已启用策略（未启用保持 M9-01 零点）。
+- 验证：套件 `mirador.fusion.attention_plan` 47 用例（策略状态矩阵、四个
+  跟踪状态全由公开 tracker API 驱动的解析矩阵、规划字段回显与排序、
+  k0/90/180/270 坐标矩阵、外围三路分类、取消/超时、确定性/零副作用）由
+  Independent-Verification-Agent 独立编写与执行；验证轮发现 ROI-only work
+  误回显 snapshot generation 到身份绑定的缺陷，主循环修复（身份仅在焦点
+  携带 stable_id 时回显）后复验 47/47 并加强 text/label/零身份边界断言。
+  门禁：debug/ASAN/UBSAN 全量 ctest 58/58 零回归零 sanitizer 报告；
+  clang-format/clang-tidy 归零。CI 证据随
+  [PR #52](https://github.com/Linductor-alkaid/mirador/pull/52) 回填
+  （run 39636058016，14/14 job 全绿）；合并不在本项自动授权范围内。
+- 验收状态：AC9-03/04/08 的本项机制证据（注意规划、ID 焦点随跟踪、外围
+  监测记录、策略/焦点显式失效）在案；AC9-03 的静止序列 zero-forward 计数
+  与复用验证、AC9-04 的收益量化归 M9-04 增量接线与 M9-06 对照基准；
+  AC9-08 的焦点切换即时查询归 M9-05 状态面（本项提供规划侧新鲜度与解析
+  表）。真实留出集门槛保持未完成。
+- 限制：无新增阈值常量（外围显著性判读、bootstrap 授权语义随 M9-06
+  校准与 M9-04 接线细化）；kDisplay 快照/条件 ROI 空间在本项显式拒绝，
+  随 M9-04 display-transform 接线评估放开。
