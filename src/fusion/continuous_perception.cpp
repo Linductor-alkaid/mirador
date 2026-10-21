@@ -1,5 +1,6 @@
 #include <mirador/continuous_perception.hpp>
 
+#include <mirador/execution_context.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
@@ -15,6 +16,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace mirador {
 namespace {
@@ -54,6 +56,17 @@ namespace {
 [[nodiscard]] uint64_t digest_string(uint64_t hash, const std::string& text) noexcept {
     hash = digest_u64(hash, static_cast<uint64_t>(text.size()));
     return digest_bytes(hash, text.data(), text.size());
+}
+
+/// Stage-boundary cancellation/deadline check (same contract as fuse_evidence).
+[[nodiscard]] Status context_status(const ExecutionContext& context) noexcept {
+    if (is_cancelled(context)) {
+        return {ErrorCode::kCancelled, "build_relation_view cancelled"};
+    }
+    if (deadline_reached(context)) {
+        return {ErrorCode::kTimeout, "build_relation_view deadline exceeded"};
+    }
+    return {};
 }
 
 }  // namespace
@@ -175,6 +188,246 @@ int64_t relation_view_owned_bytes(const RelationView& view) noexcept {
         bytes += static_cast<int64_t>(relation.merged_from.capacity() * sizeof(size_t));
     }
     return bytes;
+}
+
+/// Options, generation-binding and whole-batch geometry validation of the
+/// relation-view builder (DEC-026 sections 4/7). A single illegal region
+/// rejects the snapshot instead of producing a partial view (DEC-021
+/// discipline).
+[[nodiscard]] Status validate_relation_view_input(const RelationViewOptions& options,
+                                                  const SemanticSnapshot& snapshot) noexcept {
+    if (options.max_entities <= 0 || options.max_relations <= 0 || options.max_view_bytes <= 0) {
+        return {ErrorCode::kInvalidArgument, "relation-view budgets must be positive"};
+    }
+    if (options.max_entities > kContinuousMaxEntities || options.max_relations > kContinuousMaxRelations ||
+        options.max_view_bytes > kContinuousMaxCoordinationBytes) {
+        return {ErrorCode::kBudgetExceeded, "relation-view caps looser than DEC-026"};
+    }
+    if (!std::isfinite(options.min_merge_confidence) || options.min_merge_confidence < 0.0F ||
+        options.min_merge_confidence > 1.0F) {
+        return {ErrorCode::kInvalidArgument, "min_merge_confidence must be finite in [0, 1]"};
+    }
+    if (options.expected_generation.has_value() && *options.expected_generation != snapshot.generation) {
+        return {ErrorCode::kInvalidArgument, "snapshot generation differs from the bound generation"};
+    }
+    for (const VisualRegion& region : snapshot.regions) {
+        if (!usable_rect(region.bounds)) {
+            return {ErrorCode::kInvalidArgument, "non-finite or negative-size region bounds"};
+        }
+    }
+    return {};
+}
+
+/// Phase 1 — star-shaped duplicate grouping (DEC-026 section 4): anchors are
+/// first-seen regions; a region joins an anchor only on a direct kDuplicate
+/// decision against the anchor, never chained through another absorbed member
+/// and never on stable ids alone. Each group lists its anchor first, then the
+/// absorbed input indexes ascending.
+[[nodiscard]] Status group_duplicates(const SemanticSnapshot& snapshot, const RelationViewOptions& options,
+                                      const ExecutionContext& context,
+                                      std::vector<std::vector<size_t>>* members) noexcept {
+    const size_t region_count = snapshot.regions.size();
+    const size_t unassigned = region_count;
+    std::vector<size_t> anchor_of(region_count, unassigned);
+    for (size_t i = 0; i < region_count; ++i) {
+        if (anchor_of[i] != unassigned) {
+            continue;
+        }
+        anchor_of[i] = i;
+        members->emplace_back(1, i);
+        const VisualRegion& anchor = snapshot.regions[i];
+        const EntitySemantics anchor_semantics{anchor.text, anchor.label};
+        for (size_t j = i + 1; j < region_count; ++j) {
+            if ((j & 63) == 0) {
+                if (const Status stage = context_status(context); !stage.ok()) {
+                    return stage;
+                }
+            }
+            if (anchor_of[j] != unassigned) {
+                continue;
+            }
+            const VisualRegion& region = snapshot.regions[j];
+            const bool reliable =
+                anchor.confidence >= options.min_merge_confidence && region.confidence >= options.min_merge_confidence;
+            const bool compatible =
+                entity_semantics_compatible(anchor_semantics, EntitySemantics{region.text, region.label});
+            const RelationClassification decision =
+                classify_entity_relation(anchor.bounds, region.bounds, compatible, reliable, options.classify)
+                    // Unreachable fallback: every bounds pair passed the
+                    // whole-batch validation above.
+                    .value_or(RelationClassification::kNone);
+            if (decision == RelationClassification::kDuplicate) {
+                anchor_of[j] = i;
+                members->back().push_back(j);
+            }
+        }
+    }
+    return {};
+}
+
+/// Kept entity per group: the anchor's geometry, confidence and semantics
+/// decide every later relation; identity, sources and evidence aggregate over
+/// all members so nothing is dropped (DEC-026 section 4 trace).
+void emit_kept_entities(const SemanticSnapshot& snapshot, const std::vector<std::vector<size_t>>& members,
+                        std::vector<size_t>* anchor_index_of_entity, RelationView* view) noexcept {
+    view->entities.reserve(members.size());
+    anchor_index_of_entity->reserve(members.size());
+    std::vector<uint64_t> evidence_scratch;
+    for (const std::vector<size_t>& group : members) {
+        const VisualRegion& anchor = snapshot.regions[group.front()];
+        EntityRecord record;
+        record.generation = snapshot.generation;
+        record.bounds = anchor.bounds;
+        record.space = snapshot.coordinate_space;
+        record.confidence = anchor.confidence;
+        record.freshness = Freshness::kUnvalidated;
+        evidence_scratch.clear();
+        for (const size_t index : group) {
+            const VisualRegion& member = snapshot.regions[index];
+            if (member.stable_id != 0 && (record.stable_id == 0 || member.stable_id < record.stable_id)) {
+                record.stable_id = member.stable_id;
+            }
+            record.source_mask |= member.source_mask;
+            evidence_scratch.insert(evidence_scratch.end(), member.evidence_ids.begin(), member.evidence_ids.end());
+        }
+        std::sort(evidence_scratch.begin(), evidence_scratch.end());
+        evidence_scratch.erase(std::unique(evidence_scratch.begin(), evidence_scratch.end()), evidence_scratch.end());
+        record.evidence_ids = evidence_scratch;
+        view->entities.push_back(std::move(record));
+        anchor_index_of_entity->push_back(group.front());
+    }
+}
+
+/// Duplicate merges as records of the frozen self-referential shape
+/// (first_entity == second_entity == kept entity, absorbed inputs in
+/// merged_from), emitted in kept-entity order before the pairwise pass.
+[[nodiscard]] Status append_duplicate_records(const std::vector<std::vector<size_t>>& members,
+                                              const RelationViewOptions& options, RelationView* view) noexcept {
+    for (size_t entity_index = 0; entity_index < members.size(); ++entity_index) {
+        const std::vector<size_t>& group = members[entity_index];
+        if (group.size() < 2) {
+            continue;
+        }
+        if (static_cast<int32_t>(view->relations.size()) >= options.max_relations) {
+            return {ErrorCode::kBudgetExceeded, "relation view exceeds max_relations"};
+        }
+        RelationRecord record;
+        record.relation_id = view->relations.size() + 1;
+        record.kind = RelationKind::kDuplicateEvidence;
+        record.first_entity = entity_index;
+        record.second_entity = entity_index;
+        record.merged_from.assign(group.begin() + 1, group.end());
+        view->relations.push_back(std::move(record));
+    }
+    return {};
+}
+
+/// Edge kind of one pairwise classification; empty for the two non-edge
+/// outcomes (kNone, and the phase-1-invariant kDuplicate that must never
+/// become an edge because it would violate the view's data model).
+[[nodiscard]] std::optional<RelationKind> relation_edge_kind(RelationClassification classification) noexcept {
+    switch (classification) {
+        case RelationClassification::kPartOf:
+            return RelationKind::kPartOf;
+        case RelationClassification::kOverlap:
+            return RelationKind::kOverlap;
+        case RelationClassification::kConflict:
+            return RelationKind::kConflict;
+        case RelationClassification::kNone:
+        case RelationClassification::kDuplicate:
+            return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+/// Phase 2 — pairwise relations between kept entities (DEC-026 section 4).
+/// The pass replays exactly the phase-1 decisions (anchor bounds, semantics
+/// and reliability), so kDuplicate cannot occur here: every region duplicate
+/// with an anchor was already absorbed in phase 1. Part-of edges run child
+/// (smaller area) -> parent (larger area), keeping the view acyclic by
+/// construction.
+[[nodiscard]] Status append_pair_relations(const SemanticSnapshot& snapshot,
+                                           const std::vector<size_t>& anchor_index_of_entity,
+                                           const RelationViewOptions& options, const ExecutionContext& context,
+                                           RelationView* view) noexcept {
+    for (size_t p = 0; p < view->entities.size(); ++p) {
+        if ((p & 63) == 0) {
+            if (const Status stage = context_status(context); !stage.ok()) {
+                return stage;
+            }
+        }
+        const VisualRegion& anchor_p = snapshot.regions[anchor_index_of_entity[p]];
+        const EntitySemantics semantics_p{anchor_p.text, anchor_p.label};
+        for (size_t q = p + 1; q < view->entities.size(); ++q) {
+            const VisualRegion& anchor_q = snapshot.regions[anchor_index_of_entity[q]];
+            const bool reliable = anchor_p.confidence >= options.min_merge_confidence &&
+                                  anchor_q.confidence >= options.min_merge_confidence;
+            RelationDecision decision{};
+            const RelationClassification classification =
+                classify_entity_relation(
+                    view->entities[p].bounds, view->entities[q].bounds,
+                    entity_semantics_compatible(semantics_p, EntitySemantics{anchor_q.text, anchor_q.label}), reliable,
+                    options.classify, &decision)
+                    .value_or(RelationClassification::kNone);
+            const std::optional<RelationKind> kind = relation_edge_kind(classification);
+            if (!kind.has_value()) {
+                continue;
+            }
+            RelationRecord record;
+            record.relation_id = view->relations.size() + 1;
+            record.kind = *kind;
+            // Equal areas cannot classify as part-of (size ratio gate), so
+            // the child is always the strictly smaller side here.
+            if (*kind == RelationKind::kPartOf && fusion_internal::rect_area(view->entities[q].bounds) <
+                                                      fusion_internal::rect_area(view->entities[p].bounds)) {
+                record.first_entity = q;
+                record.second_entity = p;
+            } else {
+                record.first_entity = p;
+                record.second_entity = q;
+            }
+            record.iou = decision.iou;
+            record.containment = decision.containment;
+            if (static_cast<int32_t>(view->relations.size()) >= options.max_relations) {
+                return {ErrorCode::kBudgetExceeded, "relation view exceeds max_relations"};
+            }
+            view->relations.push_back(std::move(record));
+        }
+    }
+    return {};
+}
+
+Result<RelationView> build_relation_view(const SemanticSnapshot& snapshot, const RelationViewOptions& options,
+                                         const ExecutionContext& context) noexcept {
+    if (const Status validated = validate_relation_view_input(options, snapshot); !validated.ok()) {
+        return Result<RelationView>{validated};
+    }
+
+    std::vector<std::vector<size_t>> members;  // per group: anchor first, then absorbed ascending
+    if (const Status grouped = group_duplicates(snapshot, options, context, &members); !grouped.ok()) {
+        return Result<RelationView>{grouped};
+    }
+    if (members.size() > static_cast<size_t>(options.max_entities)) {
+        return Result<RelationView>{Status(ErrorCode::kBudgetExceeded, "relation view exceeds max_entities")};
+    }
+
+    RelationView view;
+    view.space = snapshot.coordinate_space;
+    view.coverage = CoverageState::kIncomplete;
+    std::vector<size_t> anchor_index_of_entity;
+    emit_kept_entities(snapshot, members, &anchor_index_of_entity, &view);
+    if (const Status duplicates = append_duplicate_records(members, options, &view); !duplicates.ok()) {
+        return Result<RelationView>{duplicates};
+    }
+    if (const Status paired = append_pair_relations(snapshot, anchor_index_of_entity, options, context, &view);
+        !paired.ok()) {
+        return Result<RelationView>{paired};
+    }
+
+    if (relation_view_owned_bytes(view) > options.max_view_bytes) {
+        return Result<RelationView>{Status(ErrorCode::kBudgetExceeded, "relation view exceeds max_view_bytes")};
+    }
+    return Result<RelationView>{std::move(view)};
 }
 
 Result<void> validate_attention_policy(const AttentionPolicy& policy) noexcept {
@@ -393,10 +646,12 @@ SourceResetReport ContinuousPerception::notify_source_reset() noexcept {
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static): frozen public member of the M9-01 contract surface
 int64_t ContinuousPerception::coordination_owned_bytes() const noexcept {
-    // M9-01 stores no coordination state yet: entities land with the M9-02
-    // relation view, tokens with the M9-04 accept, events with the M9-05
-    // queue. The formula grows with each surface; configuration itself is
-    // caller-owned and never counted (DEC-026 section 7).
+    // M9-01 stores no coordination state yet. The M9-02 relation-view builder
+    // is a pure free function and holds nothing: the stateful view lands with
+    // the M9-04 coordination wiring, tokens with the M9-04 accept, events
+    // with the M9-05 queue. The formula grows with each surface;
+    // configuration itself is caller-owned and never counted (DEC-026
+    // section 7).
     return 0;
 }
 

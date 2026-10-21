@@ -23,8 +23,9 @@ namespace mirador {
 /// bindings, event provenance with begin/update/end semantics and the
 /// DEC-026 section 7 reference budgets — plus the pure rules that pin those
 /// semantics (relation classification, focus resolution, staleness checks,
-/// structural consistency and byte accounting). The stateful coordination
-/// primitives (plan / accept / query / drain_events) follow in M9-02..M9-05
+/// structural consistency and byte accounting). The deterministic relation-view
+/// builder over a snapshot landed in M9-02; the stateful coordination
+/// primitives (plan / accept / query / drain_events) follow in M9-03..M9-05
 /// inside this same Experimental header, the way `ObjectTracker` grew its
 /// pipeline in M7-03..M7-08. Existing single-frame fusion, stable ids and
 /// the DEC-021 action-binding protocol are untouched: everything here is
@@ -234,8 +235,9 @@ struct RelationRecord {
 };
 
 /// The bounded opt-in relation view beside a fused snapshot (DEC-026
-/// section 4). Data model frozen at M9-01; the deterministic builder over a
-/// `SemanticSnapshot` follows in M9-02 with the fixed fusion fixtures.
+/// section 4). Data model frozen at M9-01; built deterministically over a
+/// `SemanticSnapshot` by `build_relation_view` (M9-02) with the fixed fusion
+/// fixtures.
 struct RelationView {
     CoordinateSpaceId space = CoordinateSpaceId::kOriented;
     std::vector<EntityRecord> entities;
@@ -452,6 +454,13 @@ struct RelationClassifyOptions {
     /// min/max(area) at or below which the contained region counts as
     /// "clearly smaller" (component), not as a similar-size duplicate.
     double part_of_max_size_ratio = 0.50;
+
+    [[nodiscard]] friend bool operator==(const RelationClassifyOptions& lhs,
+                                         const RelationClassifyOptions& rhs) noexcept {
+        return lhs.duplicate_iou == rhs.duplicate_iou && lhs.duplicate_containment == rhs.duplicate_containment &&
+               lhs.part_of_containment == rhs.part_of_containment &&
+               lhs.part_of_max_size_ratio == rhs.part_of_max_size_ratio;
+    }
 };
 
 /// Decision metrics of one classification, recorded on the relation edge for
@@ -460,6 +469,37 @@ struct RelationDecision {
     double iou = 0.0;          ///< intersection / union
     double containment = 0.0;  ///< intersection / min(area_a, area_b)
     double size_ratio = 0.0;   ///< min(area_a, area_b) / max(area_a, area_b)
+};
+
+/// Options of the deterministic relation-view builder (DEC-026 section 4).
+/// Caps follow the tighten-only discipline of the coordination budgets: values
+/// looser than the DEC-026 reference constants are rejected, never silently
+/// widened.
+struct RelationViewOptions {
+    /// The frozen per-pair decision rule with its development-default
+    /// thresholds (calibrated at M9-06; the rule structure is frozen).
+    RelationClassifyOptions classify{};
+    /// Reliability gate of duplicate merges (DEC-026 section 4): both regions'
+    /// confidence must reach this floor for duplicate geometry to merge;
+    /// otherwise duplicate geometry degrades to a plain overlap and both sides
+    /// stay independent. Development default pending the M9-06 calibration.
+    float min_merge_confidence = 0.5F;
+    /// When set, a snapshot whose `generation` differs is rejected as a stale
+    /// batch (kInvalidArgument): evidence from another visual generation must
+    /// never mix into one view. Binding the coordinator's source epoch is the
+    /// accept path's job (M9-04); this guard pins only the snapshot
+    /// generation.
+    std::optional<uint64_t> expected_generation;
+    /// Tighten-only output caps (DEC-026 section 7).
+    int32_t max_entities = kContinuousMaxEntities;
+    int32_t max_relations = kContinuousMaxRelations;
+    int64_t max_view_bytes = kContinuousMaxCoordinationBytes;
+
+    [[nodiscard]] friend bool operator==(const RelationViewOptions& lhs, const RelationViewOptions& rhs) noexcept {
+        return lhs.classify == rhs.classify && lhs.min_merge_confidence == rhs.min_merge_confidence &&
+               lhs.expected_generation == rhs.expected_generation && lhs.max_entities == rhs.max_entities &&
+               lhs.max_relations == rhs.max_relations && lhs.max_view_bytes == rhs.max_view_bytes;
+    }
 };
 
 /// Classifies one pair of regions (DEC-026 section 4, frozen rule):
@@ -497,6 +537,58 @@ struct RelationDecision {
 /// lists and merge traces), for budget enforcement (DEC-026 section 7).
 /// Deterministic for a given standard library.
 [[nodiscard]] int64_t relation_view_owned_bytes(const RelationView& view) noexcept;
+
+/// Deterministically builds the bounded relation view beside a fused snapshot
+/// (DEC-026 section 4, M9-02). Pure and snapshot-order-deterministic: the
+/// same snapshot and options always produce an equal view; regions never
+/// merge on stable ids alone.
+///
+/// Pipeline: validate options -> optional `expected_generation` guard ->
+/// whole-batch geometry validation -> duplicate grouping -> entity emission ->
+/// pairwise relation pass -> budget checks.
+///
+/// Duplicate grouping (star-shaped, no transitive chains): regions are scanned
+/// in input order; the first unassigned region anchors a group, and a later
+/// unassigned region joins only when `classify_entity_relation` on the two
+/// anchor bounds returns kDuplicate — i.e. duplicate geometry plus compatible
+/// anchor semantics (`entity_semantics_compatible` over the anchor's text and
+/// label) plus the reliability gate (both confidences at or above
+/// `min_merge_confidence`). A region duplicating an already-absorbed member
+/// but not the anchor stays independent: absorption is never chained through
+/// another absorbed region.
+///
+/// The kept entity of a group is its anchor (first member): anchor bounds,
+/// anchor confidence and anchor semantics decide every later relation for it.
+/// Aggregated from all members: `source_mask` is the bitwise OR,
+/// `evidence_ids` the ascending duplicate-free union (nothing is dropped),
+/// `stable_id` the smallest non-zero member id (0 when untracked),
+/// `generation` and `space` come from the snapshot, `freshness` stays
+/// kUnvalidated — the builder makes no coverage or validation claim. Absorbed
+/// input indexes are listed ascending in `merged_from`.
+///
+/// Relation pass: every kept-entity pair is classified by the same frozen
+/// rule on the anchor fields in (first_entity, second_entity) index order.
+/// kDuplicate cannot occur there (any region duplicate with an anchor was
+/// already absorbed; the pass replays exactly the phase-1 decisions).
+/// kPartOf edges run child (smaller area) -> parent (larger area); overlap
+/// and conflict keep both sides independent with their evidence preserved.
+/// Every record carries the decision iou/containment (DEC-026 trace).
+///
+/// `coverage` stays kIncomplete: the pure builder never claims complete
+/// coverage — the coordination layer (M9-04) owns coverage proofs (DEC-026
+/// sections 2/3).
+///
+/// Errors: kInvalidArgument for a non-finite or out-of-[0,1]
+/// `min_merge_confidence`, a set `expected_generation` differing from the
+/// snapshot generation, or any region with non-finite/negative-size bounds —
+/// the whole batch is rejected, never a partial view. kBudgetExceeded for
+/// caps looser than the DEC-026 reference constants, more kept entities than
+/// `max_entities`, more relations than `max_relations`, or a view owning more
+/// than `max_view_bytes` bytes. kCancelled/kTimeout from `context` (polled
+/// between scan stripes). Never throws.
+[[nodiscard]] Result<RelationView> build_relation_view(const SemanticSnapshot& snapshot,
+                                                       const RelationViewOptions& options = {},
+                                                       const ExecutionContext& context = {}) noexcept;
 
 /// Validates an attention policy (DEC-026 sections 2/7): at most
 /// `kContinuousMaxFocusConditions` conditions, every condition carrying at
@@ -600,13 +692,14 @@ struct SourceResetReport {
 ///
 /// M9-01 freezes the identity, budget and source-epoch core: creation
 /// validation, the monotonic source epoch with explicit reset, and the
-/// byte accounting of all owned coordination state. The coordination
-/// primitives — plan / accept / query / drain_events over relation views
-/// (M9-02), attention focus (M9-03), incremental coverage and binding
-/// (M9-04) and the temporal state / event surface (M9-05) — follow in
-/// their work items inside this same Experimental header, mirroring how
-/// ObjectTracker grew its pipeline in M7-03..M7-08 and PerceptionSession
-/// grew fuse() in M4.
+/// byte accounting of all owned coordination state. M9-02 adds the pure
+/// relation-view builder (`build_relation_view`, a free function — the
+/// coordinator holds no view state until the M9-04 wiring). The stateful
+/// coordination primitives — attention focus (M9-03), plan / accept
+/// coverage and binding over relation views (M9-04) and the temporal
+/// state / event surface (M9-05) — follow in their work items inside this
+/// same Experimental header, mirroring how ObjectTracker grew its pipeline
+/// in M7-03..M7-08 and PerceptionSession grew fuse() in M4.
 class ContinuousPerception {
 public:
     ContinuousPerception() noexcept = default;

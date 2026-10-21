@@ -179,6 +179,18 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M9-02 relation-view builder (DEC-026 section 4, Experimental): the fixed
+# fusion fixtures (duplicate / part-of / plain-overlap / conflict / disjoint),
+# star-shaped duplicate grouping without transitive chains, evidence and merge
+# trace preservation, the whole-batch rejection matrix (illegal geometry,
+# stale generation, tighten-only caps, byte budget), anchor-field determinism,
+# cancellation conversion and the old-fusion-default zero-change negative.
+mirador_add_test(
+    NAME mirador.fusion.relation_view
+    SOURCES relation_view_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 # M5-07 concurrency matrix (TSAN preset): published-snapshot readers and
 # parallel sessions. Threads need the system threads library on platforms
 # where std::thread does not link transitively.

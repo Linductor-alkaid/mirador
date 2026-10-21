@@ -8,8 +8,8 @@
 > 决策：[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)
 > （Accepted，M9-01 冻结；M9-07 依验证决定转正或回退）
 > 建议发布点：独立 Experimental 增量，具体 minor 版本在 M9-07 判定后确认
-> 更新日期：2026-10-21（M9-01 契约冻结交付；M8 依赖就绪状态与 Issue #41
-> 直接诉求优先排序同步；2026-10-20 纳入 Issue #41 日期化后续，诉求优先级不变）
+> 更新日期：2026-10-21（M9-02 关系视图构建器交付；M9-01 契约冻结交付；
+> 2026-10-20 纳入 Issue #41 日期化后续，诉求优先级不变）
 
 ## 目标、范围与非目标
 
@@ -32,14 +32,15 @@ token 压缩模型/权重/runtime 或模型序列协议（MiniCPM-o 仅为下游
 | 工作项 | 状态 | 可评审交付物 | 依赖 | 验收 |
 | --- | --- | --- | --- | --- |
 | M9-01 | Delivered（契约与套件已落地） | 冻结 DEC-026 与 opt-in 协调/关系/策略/事件领域契约（`continuous_perception.hpp`）：source epoch、覆盖/预算、generation、事件来源/代际/时间窗/开始-更新-结束字段与旧 API 兼容；冻结纯规则与验证套件；状态化原语按 M9-02…05 增长 | M8-02 | AC9-01、06…11 |
-| M9-02 | Proposed | 同实体去重/part_of/普通重叠关系视图，原始证据、冲突与 trace 可追溯，固定融合夹具 | M9-01 | AC9-01、02 |
+| M9-02 | Delivered（构建器与套件已落地） | 同实体去重/part_of/普通重叠关系视图，原始证据、冲突与 trace 可追溯，固定融合夹具 | M9-01 | AC9-01、02 |
 | M9-03 | Proposed | Attention/Importance 到 ROI 和候选优先级的同步规划，ID 焦点随跟踪移动、外围监测与失效 | M9-01；M8-03/04 | AC9-03、04、08 |
 | M9-04 | Proposed | 增量覆盖/缓存接线，plan/accept 绑定、延迟/乱序拒绝、调用方 latest-pending 示例与积压测试 | M9-02、03；M8-04 | AC9-03、05…07、09 |
 | M9-05 | Proposed | latest/confirmed/published 状态、有界事件 drain、去抖与过滤、切换焦点查询/初始差量；事件携带来源/代际/证据时间窗与 begin/update/end 语义，源重置显式终结旧代事件 | M9-04 | AC9-07、08、09、11 |
 | M9-06 | Proposed | 伪 Backend 确定性矩阵、真实桌面留出集、全屏基线与增量对照；校准并固定阈值 | M9-02…05；M8-06 | AC9-01…11 |
 | M9-07 | Proposed | go/no-go、工程门禁、兼容性与下游接入证据；决定继续 Experimental、转正或回退 | M9-06 | 全部退出条件 |
 
-- [ ] 契约与关系能力可单独验收。
+- [x] 契约与关系能力可单独验收（M9-01 冻结契约 + M9-02 关系视图构建器；
+  AC9-01 机制证据在案；AC9-02 真实留出集质量门槛待数据采集后补验）。
 - [ ] 注意规划、增量执行与陈旧结果防护可单独验收。
 - [ ] 状态稳定化、通知和真实收益对照可单独验收。
 
@@ -154,3 +155,36 @@ MiniCPM-o 范围澄清）；本计划同步目标/非目标、M9-01/05/06 交付
 - 限制：阈值初值（`RelationClassifyOptions` 等）为开发默认值，随 M9-06 校准；
   AC9-01…11 的最终验收证据归 M9-02…07 各自交付；真实留出集数据与人工 GT
   未采集，相关真实质量门槛保持未完成。
+
+2026-10-21：M9-02 关系视图构建器交付（分支 `feat/m9-02-relation-view`，基于
+master `7b5047d`）。交付：
+
+- 纯函数 `build_relation_view(snapshot, options, context)`（M9-01 Experimental
+  头内增长）：星形重复证据分组——锚字段决策（冻结判定规则 +
+  `entity_semantics_compatible` + `min_merge_confidence` 可靠性门控），禁止
+  经过已吸收成员的传递链，不以 stable_id 相等合并（AC9-01 禁止传递误合并）；
+  合并以冻结 kDuplicateEvidence 自指记录表达（`merged_from` 升序全保留，
+  证据 id 升序并集零丢弃，保留实体取最小非零 stable_id，锚 bounds/
+  confidence/语义决定后续全部判定）；逐对关系按锚字段重放——part_of 边
+  child（小面积）→parent（按构造无环）、普通重叠与冲突两侧独立且证据不销毁、
+  决策 iou/containment 上记录、relation_id 从 1 连续。整批拒绝：非法几何或
+  `expected_generation` 不匹配 kInvalidArgument；收紧式实体/关系/字节预算
+  kBudgetExceeded（恰等上限接受）；取消/deadline 在 64 步扫描条纹轮询并显式
+  转换。`coverage` 恒为 kIncomplete——纯构建器不做覆盖声明，覆盖证明归
+  M9-04；协调对象仍不持有视图状态（状态化接线随 M9-04 plan/accept 定型，
+  不预写冲突接口）。`RelationClassifyOptions` 补加法 `operator==`。
+- 验证：套件 `mirador.fusion.relation_view` 33 用例（固定重复/part_of/重叠/
+  冲突/不相交夹具、星形无传递链不变量、证据 100% 可追溯、整批拒绝矩阵与
+  校验顺序钉定、预算恰等边界、确定性、取消/超时转换、旧 API 隔离——快照
+  逐字节不变）由 Independent-Verification-Agent 独立编写与执行；验证轮发现
+  实现文件格式违规与认知复杂度超标（行为无缺陷），主循环重构为低复杂度
+  辅助函数后由其复验 33/33 复绿并点名复核 8 个行为钉定用例。门禁：debug/
+  ASAN/UBSAN 全量 ctest 57/57 零回归零 sanitizer 报告；clang-format/
+  clang-tidy 归零。CI 证据随 [PR #51](https://github.com/Linductor-alkaid/mirador/pull/51)
+  回填（run 39587636281，14/14 job 全绿）；合并不在本项自动授权范围内。
+- 验收状态：AC9-01 机制证据（固定夹具全预期输出、禁止传递误合并、输入证据
+  可追溯率 100%、非法几何/跨 generation 整批拒绝）在案，旧融合默认结果
+  不变；AC9-01 的跨 source epoch 绑定归 M9-04 accept 路径闭合；AC9-02
+  真实留出集质量门槛保持未完成（数据与人工 GT 未采集）。
+- 限制：阈值初值（`min_merge_confidence` 0.5 等）为开发默认值，随 M9-06
+  校准；冻结的是判定结构与发射顺序而非数字。
