@@ -19,6 +19,24 @@
 `integrations/ocr_ppocr` 与必要的公共抽象；不修改第三方 pinned 源码/权重、不增加
 Core runtime/内部并发。M9 连续感知、实体关系和事件不是本里程碑前置。
 
+### Issue #41 诉求映射（2026-10-20 维护者补充后状态）
+
+Issue 正文"期望最小能力"三条与 2026-10-20 评论"直接性能问题仍建议优先推进"的
+交付状态：
+
+- **rec 批处理**：M8-05 实验收口为有证据的能力性 no-go（pinned rec 图无样本维、
+  ncnn 执行模型无 batch 轴），维持有界逐行实现——以 no-go 证据响应，不伪装交付；
+- **top-K rec 截断**：M8-01…04 交付（K 限额、确定性选择、调用方优先级、逐框
+  完成态与 deferred 几何保留）；
+- **deadline 部分结果**：M8-01…04 交付（软预算/硬 deadline/取消三分、显式
+  kPartial 与停止原因，不静默丢弃已完成行）。
+
+真实权重 5 秒验收（AC8-01/02/05）已由 M8-06 完成；剩余 M8-07 为 Mirage 下游
+受控验收。2026-10-20 评论的关系/事件契约扩展与六条补充序列已入
+[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) §8 与
+[M9](m9-continuous-perception.md)（AC9-11），按该评论指示排在 M8-07 之后、
+不改变直接诉求优先级。
+
 ## 工作项与交付顺序
 
 | 工作项 | 状态 | 可评审交付物 | 依赖 | 验收 |
@@ -29,7 +47,7 @@ Core runtime/内部并发。M9 连续感知、实体关系和事件不是本里�
 | M8-04 | Delivered | 会话新入口、坐标恢复、source 绑定与完整缓存隔离；无新能力时显式失败 | M8-02、03 | AC8-04、07、08 |
 | M8-05 | Delivered（全 no-go，见 [实验报告](../benchmarks/ocr-rec-opt-experiment-2026-10.md)） | 单行成本/packing/动态宽度及 batching 的独立实验报告，给出采用或 no-go 与理由；采用时单独 MR 回归 | M8-01…04 | AC8-09；no-go 不阻塞 M8-06 |
 | M8-06 | Delivered（真实权重两轮实测 + 探测边界修订；见[基准报告](../benchmarks/linux-x64-ocr-budget-2026-10.md)） | 同机真实模型基准、质量对照和 5 秒配置判定，冻结参考 K/收尾预留与适用平台 | M8-01…04 | AC8-01、02、05（AC8-10 归 M8-07 下游验收） |
-| M8-07 | Planned | Mirage 连续 3 次调用验收、故障/边界/sanitizer/CI 证据，API/示例/兼容性/CHANGELOG 同步 | M8-06；M8-05 的判定报告 | AC8-06…10 与全部退出条件 |
+| M8-07 | Planned（[Issue #41 直接性能诉求](https://github.com/Linductor-alkaid/mirador/issues/41)的最后一块，按 2026-10-20 维护者指示优先于 M9-01 启动） | Mirage 连续 3 次调用验收、故障/边界/sanitizer/CI 证据，API/示例/兼容性/CHANGELOG 同步 | M8-06；M8-05 的判定报告 | AC8-06…10 与全部退出条件 |
 
 - [x] M8-01…04 交付并通过各自验收（M8-01 真实权重实测随 M8-06 于 2026-10-20/21
   补齐）。
