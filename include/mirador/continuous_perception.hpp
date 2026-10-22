@@ -8,9 +8,11 @@
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/transform.hpp>
 
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -774,6 +776,134 @@ struct SourceResetReport {
     }
 };
 
+/// Why a coverage entry or in-flight work lost validity (DEC-026 sections
+/// 3/5, M9-04). Every invalidation is recorded, never silent: the caller
+/// sees exactly what stopped being reusable and why.
+enum class WorkInvalidationReason : uint8_t {
+    /// The source epoch moved (window/device rebuild); all old-generation
+    /// cycle state ended (DEC-026 section 8).
+    kSourceReset,
+    /// The snapshot's change report classified a layout-scale (kGlobal)
+    /// change; the whole ledger is invalidated.
+    kLayoutChange,
+    /// A partial change ROI intersects the entry's region.
+    kRegionChanged,
+    /// The exact content digest of the entry's region changed against the
+    /// current frame — the single-character change a fingerprint-equal
+    /// frame may hide (DEC-026 section 3, AC9-03).
+    kContentMismatch,
+    /// The bound identity moved: the snapshot generation advanced past the
+    /// entry's generation.
+    kGenerationAdvanced,
+    /// The caller's capability-stack identity (request digest) or the
+    /// engaged policy revision changed; covered evidence does not carry
+    /// across model/parameter/policy-scope changes (DEC-026 section 3).
+    kIdentityChanged,
+};
+
+/// One issued work item of a cycle plan: the M9-03 attention work plus its
+/// binding token (DEC-026 section 5). The token commits to the exact
+/// identity of the work; executing the capability and returning the token
+/// to `accept_work` is the caller's move.
+struct PlannedWorkBinding {
+    PlannedWork work;
+    WorkToken token;
+
+    [[nodiscard]] friend bool operator==(const PlannedWorkBinding& lhs, const PlannedWorkBinding& rhs) noexcept {
+        return lhs.work == rhs.work && lhs.token == rhs.token;
+    }
+};
+
+/// One region the cycle plan reports as reusable without re-analysis
+/// (DEC-026 sections 1/3): covered by accepted evidence whose exact content
+/// digest still matches the current frame. A reuse claim is only made for
+/// the listed regions — everything else is uncovered (the plan's coverage
+/// state says so), never silently treated as unchanged.
+struct WorkReuse {
+    RectF roi{};
+    CoordinateSpaceId space = CoordinateSpaceId::kOriented;
+    uint64_t generation = 0;
+    /// Frame sequence whose accepted results back this reuse (AC9-03: the
+    /// validating frame is queryable, not just a cache hit).
+    uint64_t validated_frame = 0;
+
+    [[nodiscard]] friend bool operator==(const WorkReuse& lhs, const WorkReuse& rhs) noexcept {
+        return lhs.roi == rhs.roi && lhs.space == rhs.space && lhs.generation == rhs.generation &&
+               lhs.validated_frame == rhs.validated_frame;
+    }
+};
+
+/// One structural invalidation record (AC9-09): coverage that stopped being
+/// valid at this cycle, with its reason. Peripheral popup/layout changes
+/// surface here on the next processed frame — recording is synchronous;
+/// notification policy belongs to the M9-05 event surface.
+struct WorkInvalidation {
+    RectF roi{};
+    CoordinateSpaceId space = CoordinateSpaceId::kOriented;
+    WorkInvalidationReason reason = WorkInvalidationReason::kContentMismatch;
+    /// True when the record covers the whole frame (layout-scale change or
+    /// source reset).
+    bool global = false;
+
+    [[nodiscard]] friend bool operator==(const WorkInvalidation& lhs, const WorkInvalidation& rhs) noexcept {
+        return lhs.roi == rhs.roi && lhs.space == rhs.space && lhs.reason == rhs.reason && lhs.global == rhs.global;
+    }
+};
+
+/// The tokenized cycle plan (DEC-026 sections 1/3/5, M9-04): the M9-03
+/// attention plan, the issued work bindings, the reuse and invalidation
+/// ledgers, and the in-flight bookkeeping. `attention` is the unchanged
+/// M9-03 view of every policy candidate; `work` is the issued subset —
+/// candidates whose ROI is already covered by accepted evidence with a
+/// matching exact content digest are suppressed into `reuse` instead of
+/// re-issued (the near-zero-cost reuse path; AC9-03).
+struct WorkPlan {
+    AttentionPlan attention;
+    /// Issued work with binding tokens, in the attention plan's work order.
+    std::vector<PlannedWorkBinding> work;
+    /// Covered-and-verified regions (snapshot regions inside a valid
+    /// coverage entry, plus suppressed focus candidates).
+    std::vector<WorkReuse> reuse;
+    /// Coverage invalidated at this cycle, in evaluation order.
+    std::vector<WorkInvalidation> invalidations;
+    /// In-flight descriptors of the previous cycle that were replaced
+    /// without adoption (the caller skipped or replaced the work).
+    uint64_t replaced_inflight = 0;
+    /// True when the coverage ledger was emptied wholesale since the last
+    /// reported cycle — a layout-scale change or a source reset — and the
+    /// frame must be re-filled before any reuse claim can be made again
+    /// (AC9-09). Reported once, then cleared.
+    bool resync_required = false;
+    /// kComplete iff every snapshot region lies inside a valid coverage
+    /// entry at this cycle; otherwise parts of the frame are unanalyzed and
+    /// no "unchanged" claim is made for them (DEC-026 sections 2/3).
+    CoverageState coverage = CoverageState::kIncomplete;
+
+    [[nodiscard]] friend bool operator==(const WorkPlan& lhs, const WorkPlan& rhs) noexcept {
+        return lhs.attention == rhs.attention && lhs.work == rhs.work && lhs.reuse == rhs.reuse &&
+               lhs.invalidations == rhs.invalidations && lhs.replaced_inflight == rhs.replaced_inflight &&
+               lhs.resync_required == rhs.resync_required && lhs.coverage == rhs.coverage;
+    }
+};
+
+/// Outcome of one `accept_work` batch (DEC-026 section 5, DEC-021 trust
+/// boundary): the whole batch is validated first — geometry, binding and
+/// exact ROI content — and commits atomically. Any invalid item rejects the
+/// whole batch (nothing is adopted, the coverage ledger is untouched) while
+/// every item's rejection reason stays queryable.
+struct WorkAcceptReport {
+    bool committed = false;
+    /// Per input token; nullopt for a valid item (adopted iff committed).
+    std::vector<std::optional<WorkRejectionReason>> item_rejections;
+    /// Adopted items; valid iff committed.
+    uint64_t adopted_count = 0;
+
+    [[nodiscard]] friend bool operator==(const WorkAcceptReport& lhs, const WorkAcceptReport& rhs) noexcept {
+        return lhs.committed == rhs.committed && lhs.item_rejections == rhs.item_rejections &&
+               lhs.adopted_count == rhs.adopted_count;
+    }
+};
+
 /// Synchronous continuous-perception coordinator (DEC-026 section 1,
 /// Experimental, name frozen at M9-01): composes the existing session,
 /// tracking and cache primitives for one image source; it never re-implements
@@ -792,9 +922,14 @@ struct SourceResetReport {
 /// localization is explicit), and the synchronous attention plan
 /// (`plan_attention` — work ROIs with caller priorities, explicit
 /// unresolved foci, peripheral reconsideration records; no coverage or
-/// reuse claims). Plan / accept coverage and binding over relation views
-/// (M9-04) and the temporal state / event surface (M9-05) follow in their
-/// work items inside this same Experimental header, mirroring how
+/// reuse claims). M9-04 adds the tokenized cycle binding over that
+/// surface: `plan_cycle` re-verifies the incremental coverage ledger
+/// against the frame's exact ROI content digests, issues `WorkToken`s for
+/// the unsuppressed work and replaces the single in-flight descriptor set;
+/// `accept_work` validates a whole result batch (structure, binding order,
+/// duplicate submission, exact content) and commits it atomically into the
+/// coverage ledger. The temporal state / event surface (M9-05) follows in
+/// its work item inside this same Experimental header, mirroring how
 /// ObjectTracker grew its pipeline in M7-03..M7-08 and PerceptionSession
 /// grew fuse() in M4.
 class ContinuousPerception {
@@ -821,7 +956,12 @@ public:
     /// sections 1/8): bumps the epoch. Work planned under the previous
     /// epoch becomes permanently rejectable with kStaleSourceEpoch; the
     /// old generation's unclosed events are terminated with kSourceReset
-    /// end events by the M9-05 event surface. Never throws.
+    /// end events by the M9-05 event surface. Since M9-04 the reset also
+    /// ends the cycle state: the in-flight descriptor set is dropped and
+    /// every coverage entry is invalidated (the ledger is empty until the
+    /// next fill; DEC-026 section 8 — old-generation evidence never
+    /// re-validates under the new epoch). The next plan_cycle reports
+    /// resync_required once. Never throws.
     [[nodiscard]] SourceResetReport notify_source_reset() noexcept;
 
     /// Engages the attention policy (DEC-026 section 2, M9-03): validates it
@@ -916,16 +1056,117 @@ public:
                                                        const ImportancePolicy& importance = {},
                                                        const ExecutionContext& context = {}) const noexcept;
 
+    /// Runs one tokenized perception cycle (DEC-026 sections 1/3/5, M9-04):
+    /// the M9-03 attention plan, the incremental coverage ledger, and the
+    /// work-token binding in one synchronous step.
+    ///
+    /// Coverage re-verification comes first: every coverage entry is
+    /// checked against the current cycle — its generation, the caller's
+    /// `request_digest` (capability stack identity) and the engaged policy
+    /// revision must all still match, a partial change ROI intersecting it
+    /// invalidates it, a kGlobal change empties the whole ledger (one
+    /// global invalidation record, resync_required), and its region's
+    /// exact content digest is recomputed against `frame`'s pixels — a
+    /// mismatch invalidates the entry (the single-character change a
+    /// fingerprint-equal frame may hide, DEC-026 section 3). Every drop is
+    /// recorded in `invalidations`.
+    ///
+    /// Reuse: every snapshot region inside a surviving entry is reported in
+    /// `reuse` with its validating frame; focus work candidates whose ROI
+    /// is likewise covered-and-verified are suppressed into `reuse` instead
+    /// of being re-issued (the near-zero-cost path). The remaining
+    /// attention work is issued: each binding's `WorkToken` carries
+    /// source id, current epoch, `frame.sequence`, the snapshot generation,
+    /// the policy revision, the caller's `request_digest`, the work ROI
+    /// (in the snapshot's space) and the exact content digest of that ROI's
+    /// frame pixels.
+    ///
+    /// The previous in-flight descriptor set is replaced — descriptors not
+    /// adopted are counted in `replaced_inflight` (the caller's one-in-
+    /// flight + one-latest-pending policy keeps this bounded; skipped work
+    /// is never silently carried over). Nothing is adopted at plan time:
+    /// coverage entries are created only by `accept_work`.
+    ///
+    /// `frame` must be the frame the snapshot was fused from; unlike
+    /// `plan_attention` this entry reads the frame's primary-plane pixels
+    /// (exact ROI digests): the view must be valid, single-plane, and the
+    /// data pointer non-null. All work ROIs must land inside the frame —
+    /// anything else rejects the whole cycle (kInvalidArgument, DEC-021).
+    ///
+    /// Errors: kInvalidArgument for a snapshot in kDisplay space, an
+    /// invalid/empty-pixel or multi-plane frame, a non-finite importance
+    /// priority, a coordinator created without a source id (tokens bind
+    /// it), or a work ROI outside the frame; kBudgetExceeded when the
+    /// issued cycle would overflow `max_coordination_bytes`;
+    /// kCancelled/kTimeout from `context`. Never throws.
+    [[nodiscard]] Result<WorkPlan> plan_cycle(const SemanticSnapshot& snapshot, const Frame& frame,
+                                              const ImportancePolicy& importance = {}, uint64_t request_digest = 0,
+                                              const ExecutionContext& context = {}) noexcept;
+
+    /// Adopts a whole batch of executed work (DEC-026 section 5, M9-04).
+    /// Validation runs over the entire batch before anything commits:
+    /// structural token validity (kInvalidArgument aborts the call, DEC-021),
+    /// the frozen staleness order (`work_token_stale_reason` against the
+    /// planned cycle's binding context), the token being part of the
+    /// current in-flight set and not yet adopted (else kDuplicateSubmission),
+    /// and the exact content re-digest of the token's ROI against `frame`
+    /// (kContentMismatch — the same frame the work was planned against must
+    /// still be alive at the caller). Any invalid item rejects the whole
+    /// batch: nothing is adopted, the ledger is untouched, and every item's
+    /// reason stays queryable in the report. A committed batch marks the
+    /// tokens adopted (a resubmission is a kDuplicateSubmission) and
+    /// records one coverage entry per token — the executed ROI, its
+    /// content digest, the generation, frame sequence, policy revision and
+    /// request digest it was validated against.
+    ///
+    /// The same frame the cycle was planned against must be passed (pixel
+    /// digests are recomputed); invalid or multi-plane views abort with
+    /// kInvalidArgument. Rejections increment the per-reason counters
+    /// (`rejection_count`). An empty batch commits trivially with zero
+    /// adoptions.
+    ///
+    /// Errors: kInvalidArgument for a structurally invalid token, an
+    /// invalid/empty-pixel or multi-plane frame, or a token ROI outside
+    /// the frame; kCancelled/kTimeout from `context`. Never throws.
+    [[nodiscard]] Result<WorkAcceptReport> accept_work(std::span<const WorkToken> tokens, const Frame& frame,
+                                                       const ExecutionContext& context = {}) noexcept;
+
+    /// Cumulative count of `WorkAcceptReport` rejections by reason (DEC-026
+    /// section 5: rejections are visible with reason and count). Monotonic
+    /// for the coordinator's lifetime. Never throws.
+    [[nodiscard]] uint64_t rejection_count(WorkRejectionReason reason) const noexcept;
+
     /// Bytes owned by all coordination state — the engaged attention
-    /// policy's buffers (conditions and matcher text) since M9-03, later the
-    /// M9-04 tokens/entities and the M9-05 event queue — the accounting
-    /// enforced against `max_coordination_bytes` (DEC-026 section 7). An
-    /// unset policy owns nothing. Deterministic for a given standard
-    /// library.
+    /// policy's buffers (conditions and matcher text) since M9-03, the
+    /// in-flight descriptor set and coverage ledger with their strings
+    /// since M9-04, later the M9-05 event queue — the accounting enforced
+    /// against `max_coordination_bytes` (DEC-026 section 7). An unset
+    /// policy and empty cycle state own nothing. Deterministic for a given
+    /// standard library.
     [[nodiscard]] int64_t coordination_owned_bytes() const noexcept;
 
 private:
     explicit ContinuousPerception(ContinuousPerceptionOptions options) noexcept : options_(std::move(options)) {}
+
+    /// One descriptor of the single in-flight work set (DEC-026 section 5).
+    struct InFlightWork {
+        WorkToken token;
+        bool adopted = false;
+    };
+
+    /// One accepted-coverage entry of the incremental ledger (DEC-026
+    /// section 3): the executed ROI with everything its evidence was
+    /// validated against; any component moving invalidates it at the next
+    /// plan_cycle.
+    struct CoverageEntry {
+        RectF roi{};
+        CoordinateSpaceId space = CoordinateSpaceId::kOriented;
+        uint64_t generation = 0;
+        uint64_t frame_sequence = 0;
+        uint64_t policy_revision = 0;
+        uint64_t request_digest = 0;
+        uint64_t content_digest = 0;
+    };
 
     ContinuousPerceptionOptions options_;
     uint64_t epoch_ = 1;
@@ -936,6 +1177,19 @@ private:
     std::optional<AttentionPolicy> policy_;
     uint64_t policy_revision_ = 0;
     const ObjectTracker* tracker_ = nullptr;
+    /// M9-04 coordination state: the single in-flight descriptor set with
+    /// its binding context, the coverage ledger, and the cumulative
+    /// rejection counters (indexed by WorkRejectionReason). All of it
+    /// counts against `max_coordination_bytes`; the ledger is emptied by a
+    /// source reset and invalidated per DEC-026 section 3 at every cycle.
+    std::vector<InFlightWork> inflight_;
+    std::vector<CoverageEntry> coverage_;
+    std::array<uint64_t, 7> rejection_counts_{};
+    uint64_t planned_frame_sequence_ = 0;
+    uint64_t planned_generation_ = 0;
+    /// Set when coverage was emptied wholesale (source reset, layout-scale
+    /// change); reported once by the next plan_cycle as resync_required.
+    bool resync_pending_ = false;
 };
 
 }  // namespace mirador

@@ -5,6 +5,32 @@
 
 ## [Unreleased]
 
+### M9-04 循环绑定与增量覆盖账本（DEC-026 第 3/5 节，Experimental）
+
+- `ContinuousPerception` 新增令牌化 plan/accept 协议与增量覆盖账本：
+  `plan_cycle`（覆盖账本按 generation/request_digest/policy revision/快照空间
+  逐条重验，kGlobal 清空账本并一次性置 resync_required，partial 变化 ROI 相交
+  失效，逐区域**精确像素内容摘要**复核——单字变化不被相同指纹隐藏（DEC-026
+  §3、AC9-03 机制）；区域与已验证焦点候选进入 `WorkReuse`（带验证帧号），
+  其余候选签发 `WorkToken`（source/epoch/帧/generation/策略修订/请求身份/ROI/
+  内容摘要九字段绑定）；被替换的在途集合计数 `replaced_inflight`，配合调用方
+  一在途+一最新待处理策略）；`accept_work`（先整批后原子：Pass 0 结构与几何
+  kInvalidArgument 中止（DEC-021），Pass 1 冻结 stale 序 + 在途查找 + 重复提交 +
+  内容重摘要逐项拒绝且计数可查，Pass 2 提交覆盖条目——同区重接受刷新去重）；
+  `rejection_count` 累计计数；`notify_source_reset` 现同时终结在途与账本并置
+  一次性 resync。覆盖条目上限 1024、字节全量计入 `coordination_owned_bytes`
+  （全新协调对象零点不变；固定宽度拒绝计数器不计）。
+- 新示例 `examples/continuous_perception_tour.cpp`：合成 RGBA 帧上的
+  latest-pending 循环——填充/静态零工作复用/内容漂移失效/重复拒绝/source
+  reset 终结。
+- 独立验证套件 `mirador.fusion.cycle_binding`（58 用例，
+  Independent-Verification-Agent 编写执行）：覆盖账本失效矩阵、令牌九字段
+  行为钉定、冻结拒绝序与整批原子性（AC9-06）、replaced 记账、字节预算门无
+  副作用、k0/90/180/270 摘要往返（含 stride 填充与越界拒绝）、600 周期
+  60fps/5fps 积压模拟（AC9-07，状态有界、发布=采纳+替换守恒）；验证轮发现
+  空 source_id 协调对象可 plan 出不可接受令牌的缺口，修复（plan 侧拒绝）并
+  补用例复验 58/58；debug/ASAN/UBSAN 全量 ctest 59/59。
+
 ### M9-03 注意规划：策略状态、跟踪焦点与同步计划（DEC-026 第 2 节，Experimental）
 
 - `ContinuousPerception` 引入首个协调状态与同步规划面：`set_attention_policy`
