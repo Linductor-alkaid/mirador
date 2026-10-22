@@ -5,6 +5,39 @@
 
 ## [Unreleased]
 
+### M9-05 时间状态与事件面：去抖确认、有界 drain、焦点切换查询（DEC-026 第 6/8 节，Experimental）
+
+- `ContinuousPerception` 在接受循环之上引入逐实体时间状态机：`plan_cycle` 将
+  快照分类为逐实体观测（存活覆盖条目内=当次有效，签发工作 ROI 内=采纳后有效，
+  其余 unanalyzed），`accept_work` 以实际采纳的令牌推进 token-backed 观测——
+  只有真实覆盖并被接受的证据才能推进确认状态（取消/过期/拒绝结果不推进
+  confirmed/published，DEC-026 §5/6）。同一帧重复 plan 不计第二次观测。
+- 去抖确认（`kContinuousConfirmationWindow=2` 次连续有效独立观测，默认值随
+  M9-06 校准）：出现（begin/kAppeared，重现实体递增 instance generation）、
+  文字/标签/part-of 层级变化（update/kTextChanged、kAppearanceChanged、
+  kRelationChanged——层级来自逐周期确定性关系视图的 kPartOf 边）、遮挡关系
+  变化（有遮挡物或活动跟踪时确认）、消失（end/kDisappeared——仅当实体区域
+  被有效覆盖且目标缺失；遮挡物/活动跟踪/kLost/未覆盖区域分别为 kOccluded、
+  kTrackingLost、kUnanalyzed 可查询中间态，不推进消失，AC9-08/11）。
+- 有界事件面：`drain_events`（同步 pull，队列受 max_events 与协调字节预算
+  双重封顶，溢出逐出最旧事件并累计 `dropped_events`、一次性置
+  resync_required，丢失可观测不谎称完整序列，AC9-09）；`notify_enabled`
+  过滤只挡发布，内部确认状态照常演进；source reset 显式终结旧代未闭合生命
+  周期（kSourceReset end、零边界、携带旧 epoch、不受过滤拦截，AC9-11）。
+- 查询面：`query_temporal_state`（逐实体 latest 观测层 + 队列/丢弃/淘汰
+  计数器；查询不推进状态机、不计观测）；`query_focus_states`（焦点切换
+  立即查询——confirmed 层精确匹配，未命中显式 unknown/待刷新，显式
+  freshness，AC9-08/09）。
+- 计划侧硬化：`plan_attention`/`plan_cycle` 现对快照区域做整批几何校验
+  （非有限或**非正尺寸** bounds → kInvalidArgument，DEC-021——时间状态机的
+  生命周期事件必须携带严格正 bounds，零尺寸批拒绝处理）；字节核算扩展至实体表
+  与事件队列（队列按 size 计——逐出最旧事件必须释放真实预算；全新协调对象
+  零点不变；固定宽度计数器不计）。
+- 示例 `examples/continuous_perception_tour.cpp` 扩展：确认后状态查询与
+  reset 后 begin+kSourceReset 事件 drain 演示。
+- 独立验证套件 `mirador.fusion.temporal_state`（Independent-Verification-
+  Agent 编写执行）。
+
 ### M9-04 循环绑定与增量覆盖账本（DEC-026 第 3/5 节，Experimental）
 
 - `ContinuousPerception` 新增令牌化 plan/accept 协议与增量覆盖账本：

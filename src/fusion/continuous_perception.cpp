@@ -15,6 +15,7 @@
 #include "rect_math.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -393,8 +394,35 @@ template <typename InFlightEntries>
     return WorkRejectionReason::kStaleFrameSequence;
 }
 
-/// Input validation of one attention plan: snapshot space, frame geometry
-/// and the caller's priority (DEC-026 sections 1/2).
+/// Pass 1 of the accept validation: per-item binding and content
+/// classification with reason recording and counter increments (DEC-021).
+template <typename InFlightEntries>
+[[nodiscard]] Status classify_accept_batch(std::span<const WorkToken> tokens, const InFlightEntries& inflight,
+                                           const WorkBindingContext& binding, const Frame& frame,
+                                           std::vector<std::optional<WorkRejectionReason>>* item_rejections,
+                                           std::array<uint64_t, 7>* rejection_counts, bool* rejected,
+                                           const ExecutionContext& context) noexcept {
+    for (size_t index = 0; index < tokens.size(); ++index) {
+        if ((index & 63) == 0) {
+            if (const Status stage = context_status(context); !stage.ok()) {
+                return stage;
+            }
+        }
+        const std::optional<WorkRejectionReason> reason = classify_accept_item(tokens[index], inflight, binding, frame);
+        if (!reason.has_value()) {
+            continue;
+        }
+        (*item_rejections)[index] = reason;
+        ++(*rejection_counts)[static_cast<size_t>(*reason)];
+        *rejected = true;
+    }
+    return {};
+}
+
+/// Input validation of one attention plan: snapshot space, frame geometry,
+/// the caller's priority and the whole snapshot's region geometry (DEC-021:
+/// a single illegal region rejects the batch, matching the relation-view
+/// builder) — the temporal state machine keys records on these bounds.
 [[nodiscard]] Status validate_plan_input(const SemanticSnapshot& snapshot, const Frame& frame,
                                          const ImportancePolicy& importance) noexcept {
     if (snapshot.coordinate_space != CoordinateSpaceId::kFrame &&
@@ -407,6 +435,99 @@ template <typename InFlightEntries>
     if (!std::isfinite(importance.priority)) {
         return {ErrorCode::kInvalidArgument, "importance priority must be finite"};
     }
+    for (const VisualRegion& region : snapshot.regions) {
+        if (!usable_rect(region.bounds) || region.bounds.width <= 0.0F || region.bounds.height <= 0.0F) {
+            return {ErrorCode::kInvalidArgument, "non-finite or non-positive-size region bounds"};
+        }
+    }
+    return {};
+}
+
+/// Part-of parent stable ids of one child (edges sorted ascending by
+/// child,then parent; acyclic by construction — M9-02 rule).
+[[nodiscard]] std::vector<uint64_t> part_of_parents_of(const std::vector<std::pair<uint64_t, uint64_t>>& edges,
+                                                       uint64_t stable_id) noexcept {
+    std::vector<uint64_t> parents;
+    for (const auto& [child, parent] : edges) {
+        if (child == stable_id) {
+            parents.push_back(parent);
+        }
+    }
+    return parents;
+}
+
+/// Index of the issued work ROI containing `bounds`, if any.
+[[nodiscard]] std::optional<size_t> covering_work_index(const std::vector<RectF>& work_rois,
+                                                        const RectF& bounds) noexcept {
+    for (size_t index = 0; index < work_rois.size(); ++index) {
+        if (rect_contains(work_rois[index], bounds)) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+/// Absence classification of one tracked entity (DEC-026 section 8): an
+/// occluder or an actively-tracked identity means occlusion (the identity
+/// is retained, the relation channel advances); a lost track is its own
+/// queryable state; a bare covered-missing advances the disappearance
+/// channel. Duck-typed on the private ObservationItem.
+template <typename Item>
+void classify_absence_observation(const SemanticSnapshot& snapshot, const ObjectTracker* tracker, const RectF& bounds,
+                                  Item* item) noexcept {
+    bool occluder = false;
+    for (const VisualRegion& region : snapshot.regions) {
+        if (fusion_internal::intersection_area(region.bounds, bounds) > 0.0) {
+            occluder = true;
+            break;
+        }
+    }
+    bool track_active = false;
+    if (tracker != nullptr) {
+        const TargetTrack* track = tracker->find_track(item->stable_id);
+        if (track != nullptr) {
+            if (track->state == TrackState::kLost) {
+                item->tracking_lost = true;
+                return;
+            }
+            track_active = track->state == TrackState::kTracking || track->state == TrackState::kUncertain;
+            // kTerminated (or absent): no claim — the disappearance channel
+            // decides.
+        }
+    }
+    if (occluder || track_active) {
+        item->occluded = true;
+    } else {
+        item->occluded = true;
+        item->absence_advances = true;
+    }
+}
+
+/// Part-of edges (child stable id, parent stable id) of the snapshot's
+/// deterministic relation view; hierarchy tracking degrades gracefully on a
+/// budget-limited view (presence/text/label still advance) while
+/// cancellation propagates (M9-05).
+[[nodiscard]] Status collect_part_of_edges(const SemanticSnapshot& snapshot, const ExecutionContext& context,
+                                           std::vector<std::pair<uint64_t, uint64_t>>* edges) noexcept {
+    const Result<RelationView> view = build_relation_view(snapshot, RelationViewOptions{}, context);
+    if (!view.ok() && (view.status().code() == ErrorCode::kCancelled || view.status().code() == ErrorCode::kTimeout)) {
+        return view.status();
+    }
+    if (!view.ok()) {
+        return {};
+    }
+    for (const RelationRecord& relation : view.value().relations) {
+        if (relation.kind != RelationKind::kPartOf) {
+            continue;
+        }
+        const uint64_t child = view.value().entities[relation.first_entity].stable_id;
+        const uint64_t parent = view.value().entities[relation.second_entity].stable_id;
+        if (child != 0 && parent != 0) {
+            edges->emplace_back(child, parent);
+        }
+    }
+    std::sort(edges->begin(), edges->end());
+    edges->erase(std::unique(edges->begin(), edges->end()), edges->end());
     return {};
 }
 
@@ -1071,16 +1192,408 @@ Result<ContinuousPerception> ContinuousPerception::create(ContinuousPerceptionOp
     return Result<ContinuousPerception>{ContinuousPerception{std::move(options)}};
 }
 
+auto ContinuousPerception::find_entity(uint64_t stable_id) noexcept -> std::vector<TemporalEntity>::iterator {
+    const auto position =
+        std::lower_bound(entities_.begin(), entities_.end(), stable_id,
+                         [](const TemporalEntity& entity, uint64_t id) { return entity.stable_id < id; });
+    if (position != entities_.end() && position->stable_id == stable_id) {
+        return position;
+    }
+    return entities_.end();
+}
+
+auto ContinuousPerception::find_entity(uint64_t stable_id) const noexcept
+    -> std::vector<TemporalEntity>::const_iterator {
+    const auto position =
+        std::lower_bound(entities_.begin(), entities_.end(), stable_id,
+                         [](const TemporalEntity& entity, uint64_t id) { return entity.stable_id < id; });
+    if (position != entities_.end() && position->stable_id == stable_id) {
+        return position;
+    }
+    return entities_.end();
+}
+
+auto ContinuousPerception::ensure_entity(uint64_t stable_id) noexcept -> std::vector<TemporalEntity>::iterator {
+    if (auto existing = find_entity(stable_id); existing != entities_.end()) {
+        return existing;
+    }
+    // Entity cap (DEC-026 section 7): closed lifecycles are evicted first
+    // (lowest stable id among them); refusal of a live identity is counted,
+    // never silent.
+    if (static_cast<int32_t>(entities_.size()) >= options_.max_entities) {
+        const auto closed = std::find_if(entities_.begin(), entities_.end(),
+                                         [](const TemporalEntity& entity) { return !entity.lifecycle_open; });
+        if (closed == entities_.end()) {
+            ++untracked_entities_;
+            return entities_.end();
+        }
+        entities_.erase(closed);
+        ++untracked_entities_;
+    }
+    const auto position =
+        std::upper_bound(entities_.begin(), entities_.end(), stable_id,
+                         [](uint64_t id, const TemporalEntity& entity) { return id < entity.stable_id; });
+    auto inserted = entities_.insert(position, TemporalEntity{});
+    inserted->stable_id = stable_id;
+    return inserted;
+}
+
+void ContinuousPerception::emit_semantic_event(EventSemantic semantic, SemanticChangeKind kind,
+                                               const TemporalEntity& entity, uint64_t observed_frame,
+                                               uint64_t confirmed_frame) noexcept {
+    SemanticEvent event;
+    event.event_sequence = ++event_sequence_;
+    event.semantic = semantic;
+    event.change_kind = kind;
+    event.stable_id = entity.stable_id;
+    event.instance_generation = entity.instance_generation;
+    event.window.source_id = options_.source_id;
+    event.window.source_epoch = epoch_;
+    event.window.observed_frame = observed_frame;
+    event.window.confirmed_frame = confirmed_frame;
+    // The old epoch's geometry is meaningless after a reset: reset ends
+    // carry zero bounds (frozen structural pairing).
+    event.bounds = kind == SemanticChangeKind::kSourceReset ? RectF{} : entity.bounds;
+    event.space = entity.space;
+
+    // Queue budget (DEC-026 sections 6/7): the count cap plus the
+    // coordination byte budget. Overflow drops the OLDEST queued events
+    // first and is never silent — every drop is counted and flags the next
+    // plan_cycle's resync_required (AC9-09).
+    int64_t projected =
+        coordination_owned_bytes() + semantic_event_owned_bytes(event) + static_cast<int64_t>(sizeof(SemanticEvent));
+    const auto drop_oldest = [&]() {
+        projected -= static_cast<int64_t>(sizeof(SemanticEvent)) + semantic_event_owned_bytes(events_.front());
+        events_.erase(events_.begin());
+        ++dropped_events_;
+        resync_pending_ = true;
+    };
+    while ((!events_.empty() && static_cast<int32_t>(events_.size()) >= options_.max_events) ||
+           (!events_.empty() && projected > options_.max_coordination_bytes)) {
+        drop_oldest();
+    }
+    if (static_cast<int32_t>(events_.size()) >= options_.max_events || projected > options_.max_coordination_bytes) {
+        ++dropped_events_;
+        resync_pending_ = true;
+        return;
+    }
+    events_.push_back(std::move(event));
+    last_published_frame_ = std::max(last_published_frame_, confirmed_frame);
+}
+
+void ContinuousPerception::emit_notifiable(EventSemantic semantic, SemanticChangeKind kind,
+                                           const TemporalEntity& entity, uint64_t observed_frame,
+                                           uint64_t confirmed_frame) noexcept {
+    if (!notify_enabled_) {
+        return;
+    }
+    emit_semantic_event(semantic, kind, entity, observed_frame, confirmed_frame);
+}
+
+void ContinuousPerception::apply_present_observation(TemporalEntity& entity, const ObservationItem& item,
+                                                     uint64_t frame_sequence) noexcept {
+    entity.observation = ObservationState::kObserved;
+    entity.generation = item.generation;
+    entity.bounds = item.bounds;
+    entity.space = item.space;
+    entity.freshness = item.freshness;
+    entity.observed_frame = frame_sequence;
+    last_observed_frame_ = std::max(last_observed_frame_, frame_sequence);
+    if (entity.presence_count == 0) {
+        entity.presence_since_frame = frame_sequence;
+        entity.presence_count = 1;
+    } else {
+        ++entity.presence_count;
+    }
+    entity.absence_count = 0;
+    entity.occluded_count = 0;
+
+    // Appearance confirmation (AC9-08: 2 valid observations, 1 event; the
+    // re-appearing identity opens a new instance generation).
+    if (!entity.lifecycle_open) {
+        if (entity.presence_count < kContinuousConfirmationWindow) {
+            return;
+        }
+        entity.lifecycle_open = true;
+        entity.instance_generation = entity.confirmed_frame == 0 ? 1 : entity.instance_generation + 1;
+        entity.confirmed_text = item.text;
+        entity.confirmed_label = item.label;
+        entity.confirmed_parents = item.parents;
+        entity.confirmed_frame = frame_sequence;
+        last_confirmed_frame_ = std::max(last_confirmed_frame_, frame_sequence);
+        entity.pending_active = false;
+        emit_notifiable(EventSemantic::kBegin, SemanticChangeKind::kAppeared, entity, entity.presence_since_frame,
+                        frame_sequence);
+        return;
+    }
+
+    // Confirmed occlusion ends after the window of re-observations (the
+    // occlusion relation change eventized, AC9-11).
+    if (entity.confirmed_occluded && entity.presence_count >= kContinuousConfirmationWindow) {
+        entity.confirmed_occluded = false;
+        entity.confirmed_frame = frame_sequence;
+        last_confirmed_frame_ = std::max(last_confirmed_frame_, frame_sequence);
+        emit_notifiable(EventSemantic::kUpdate, SemanticChangeKind::kRelationChanged, entity,
+                        entity.presence_since_frame, frame_sequence);
+    }
+
+    // Text/label/parents change candidate: debounce the event-bearing
+    // axes; geometry tracks the latest observation without events (its
+    // staleness is the generation's job, RULE-09).
+    const bool text_changed = item.text != entity.confirmed_text;
+    const bool label_changed = item.label != entity.confirmed_label;
+    const bool parents_changed = item.parents != entity.confirmed_parents;
+    if (!text_changed && !label_changed && !parents_changed) {
+        entity.pending_active = false;
+        return;
+    }
+    const bool candidate_matches = entity.pending_active && entity.pending_text == item.text &&
+                                   entity.pending_label == item.label && entity.pending_parents == item.parents;
+    if (!candidate_matches) {
+        entity.pending_active = true;
+        entity.pending_count = 1;
+        entity.pending_since_frame = frame_sequence;
+        entity.pending_text = item.text;
+        entity.pending_label = item.label;
+        entity.pending_parents = item.parents;
+        return;
+    }
+    ++entity.pending_count;
+    if (entity.pending_count < kContinuousConfirmationWindow) {
+        return;
+    }
+    if (text_changed) {
+        emit_notifiable(EventSemantic::kUpdate, SemanticChangeKind::kTextChanged, entity, entity.pending_since_frame,
+                        frame_sequence);
+    }
+    if (label_changed) {
+        emit_notifiable(EventSemantic::kUpdate, SemanticChangeKind::kAppearanceChanged, entity,
+                        entity.pending_since_frame, frame_sequence);
+    }
+    if (parents_changed) {
+        emit_notifiable(EventSemantic::kUpdate, SemanticChangeKind::kRelationChanged, entity,
+                        entity.pending_since_frame, frame_sequence);
+    }
+    entity.confirmed_text = entity.pending_text;
+    entity.confirmed_label = entity.pending_label;
+    entity.confirmed_parents = entity.pending_parents;
+    entity.confirmed_frame = frame_sequence;
+    last_confirmed_frame_ = std::max(last_confirmed_frame_, frame_sequence);
+    entity.pending_active = false;
+}
+
+void ContinuousPerception::apply_absent_observation(TemporalEntity& entity, const ObservationItem& item,
+                                                    uint64_t frame_sequence) noexcept {
+    last_observed_frame_ = std::max(last_observed_frame_, frame_sequence);
+    // Leaving the present channel breaks the presence streak: the window
+    // counts consecutive valid observations of one kind, so a
+    // re-observation after occlusion, bare missing or tracker loss needs a
+    // fresh streak.
+    entity.presence_count = 0;
+    // Tracker loss is its own queryable state, never a disappearance step
+    // (DEC-026 section 8); it breaks every streak.
+    if (item.tracking_lost) {
+        entity.observation = ObservationState::kTrackingLost;
+        entity.freshness = Freshness::kUnvalidated;
+        entity.absence_count = 0;
+        entity.occluded_count = 0;
+        entity.pending_active = false;
+        return;
+    }
+    entity.observation = ObservationState::kOccluded;
+    entity.freshness = Freshness::kUnvalidated;
+    if (!item.absence_advances) {
+        // Occlusion backed by an actual occluder or an active track: the
+        // identity is retained, the relation change is eventized after the
+        // window, and disappearance does not advance.
+        if (entity.occluded_count == 0) {
+            entity.occluded_since_frame = frame_sequence;
+            entity.occluded_count = 1;
+        } else {
+            ++entity.occluded_count;
+        }
+        entity.absence_count = 0;
+        entity.pending_active = false;
+        if (entity.lifecycle_open && !entity.confirmed_occluded &&
+            entity.occluded_count >= kContinuousConfirmationWindow) {
+            entity.confirmed_occluded = true;
+            entity.confirmed_frame = frame_sequence;
+            last_confirmed_frame_ = std::max(last_confirmed_frame_, frame_sequence);
+            emit_notifiable(EventSemantic::kUpdate, SemanticChangeKind::kRelationChanged, entity,
+                            entity.occluded_since_frame, frame_sequence);
+        }
+        return;
+    }
+    // Bare covered-missing: the disappearance channel advances (AC9-08 —
+    // only validly covered areas can confirm a disappearance).
+    if (entity.absence_count == 0) {
+        entity.absence_since_frame = frame_sequence;
+        entity.absence_count = 1;
+    } else {
+        ++entity.absence_count;
+    }
+    entity.occluded_count = 0;
+    entity.pending_active = false;
+    if (entity.absence_count < kContinuousConfirmationWindow) {
+        return;
+    }
+    if (entity.lifecycle_open) {
+        entity.lifecycle_open = false;
+        entity.confirmed_occluded = false;
+        entity.observation = ObservationState::kUnanalyzed;
+        emit_notifiable(EventSemantic::kEnd, SemanticChangeKind::kDisappeared, entity, entity.absence_since_frame,
+                        frame_sequence);
+    }
+}
+
+void ContinuousPerception::apply_uncovered_observation(TemporalEntity& entity) noexcept {
+    // Unknown gaps break every streak: continuity is only claimed through
+    // covered-and-validated frames, and unknown is never reported as
+    // unchanged (DEC-026 sections 3/6).
+    entity.observation = ObservationState::kUnanalyzed;
+    entity.freshness = Freshness::kUnvalidated;
+    entity.presence_count = 0;
+    entity.absence_count = 0;
+    entity.occluded_count = 0;
+    entity.pending_active = false;
+}
+
+void ContinuousPerception::advance_observation_item(ObservationItem& item, uint64_t frame_sequence) noexcept {
+    auto entity = find_entity(item.stable_id);
+    if (entity == entities_.end()) {
+        return;
+    }
+    if (item.present) {
+        apply_present_observation(*entity, item, frame_sequence);
+    } else if (item.covered_now || item.token_backed) {
+        apply_absent_observation(*entity, item, frame_sequence);
+    } else {
+        apply_uncovered_observation(*entity);
+    }
+}
+
+void ContinuousPerception::record_cycle_observation(const SemanticSnapshot& snapshot,
+                                                    const std::vector<std::pair<uint64_t, uint64_t>>& part_of_edges,
+                                                    const std::vector<RectF>& work_rois,
+                                                    uint64_t frame_sequence) noexcept {
+    // Fence: re-planning the same frame never counts as a new observation
+    // (DEC-026 section 6 — repeated looks at one frame are not independent).
+    const bool advance_now = frame_sequence > plan_advanced_frame_;
+    plan_advanced_frame_ = std::max(plan_advanced_frame_, frame_sequence);
+    pending_.frame_sequence = frame_sequence;
+    pending_.items.clear();
+    std::vector<uint64_t> seen_ids;
+    record_present_items(snapshot, part_of_edges, work_rois, frame_sequence, advance_now, &seen_ids);
+    record_absent_items(snapshot, work_rois, frame_sequence, advance_now, seen_ids);
+}
+
+void ContinuousPerception::record_present_items(const SemanticSnapshot& snapshot,
+                                                const std::vector<std::pair<uint64_t, uint64_t>>& part_of_edges,
+                                                const std::vector<RectF>& work_rois, uint64_t frame_sequence,
+                                                bool advance_now, std::vector<uint64_t>* seen_ids) noexcept {
+    const CoordinateSpaceId space = snapshot.coordinate_space;
+    for (const VisualRegion& region : snapshot.regions) {
+        if (region.stable_id == 0) {
+            continue;
+        }
+        const auto entity = ensure_entity(region.stable_id);
+        if (entity == entities_.end()) {
+            continue;
+        }
+        seen_ids->push_back(region.stable_id);
+        ObservationItem item;
+        item.stable_id = region.stable_id;
+        item.present = true;
+        item.space = space;
+        item.generation = snapshot.generation;
+        item.bounds = region.bounds;
+        item.text = region.text;
+        item.label = region.label;
+        item.parents = part_of_parents_of(part_of_edges, region.stable_id);
+        const std::optional<size_t> covering = find_covering_entry(coverage_, region.bounds);
+        if (covering.has_value()) {
+            item.covered_now = true;
+            item.freshness = Freshness::kValidatedReuse;
+        } else if (const std::optional<size_t> work = covering_work_index(work_rois, region.bounds); work.has_value()) {
+            item.token_backed = true;
+            item.work_index = *work;
+            item.freshness = Freshness::kFresh;
+        }
+        if (advance_now) {
+            if (item.covered_now) {
+                apply_present_observation(*entity, item, frame_sequence);
+            } else if (!item.token_backed) {
+                // Present but uncovered: the cycle did not analyze this
+                // entity's area — unknown, never a stale observed claim
+                // (DEC-026 sections 3/6).
+                apply_uncovered_observation(*entity);
+            }
+        }
+        pending_.items.push_back(std::move(item));
+    }
+}
+
+void ContinuousPerception::record_absent_items(const SemanticSnapshot& snapshot, const std::vector<RectF>& work_rois,
+                                               uint64_t frame_sequence, bool advance_now,
+                                               const std::vector<uint64_t>& seen_ids) noexcept {
+    for (TemporalEntity& entity : entities_) {
+        if (std::find(seen_ids.begin(), seen_ids.end(), entity.stable_id) != seen_ids.end()) {
+            continue;
+        }
+        ObservationItem item;
+        item.stable_id = entity.stable_id;
+        item.space = entity.space;
+        if (find_covering_entry(coverage_, entity.bounds).has_value()) {
+            item.covered_now = true;
+        } else if (const std::optional<size_t> work = covering_work_index(work_rois, entity.bounds); work.has_value()) {
+            item.token_backed = true;
+            item.work_index = *work;
+        }
+        if (!item.covered_now && !item.token_backed) {
+            // Uncovered absence: unknown — advances nothing, but breaks
+            // every streak.
+            if (advance_now) {
+                apply_uncovered_observation(entity);
+            }
+            continue;
+        }
+        classify_absence_observation(snapshot, tracker_, entity.bounds, &item);
+        if (advance_now && item.covered_now) {
+            apply_absent_observation(entity, item, frame_sequence);
+        }
+        pending_.items.push_back(std::move(item));
+    }
+}
+
 SourceResetReport ContinuousPerception::notify_source_reset() noexcept {
+    // M9-05 (DEC-026 section 8): the reset explicitly terminates the old
+    // generation — every open lifecycle is closed with a kSourceReset end
+    // event (zero bounds, zero window frames, carrying the OLD epoch),
+    // never a disappearance. The termination bypasses the notification
+    // filter (epoch closure is a lifecycle fact, not a notification) and
+    // the queue survives so it stays drainable.
+    for (const TemporalEntity& entity : entities_) {
+        if (entity.lifecycle_open) {
+            emit_semantic_event(EventSemantic::kEnd, SemanticChangeKind::kSourceReset, entity, 0, 0);
+        }
+    }
     SourceResetReport report;
     report.previous_epoch = epoch_;
     ++epoch_;
     report.new_epoch = epoch_;
     // The rebuild ends the old generation's cycle state (DEC-026 section
     // 8): in-flight descriptors and coverage never re-validate under the
-    // new epoch.
+    // new epoch, and the temporal layer restarts (frame fences included —
+    // a new window's frame sequences restart from zero).
     inflight_.clear();
     coverage_.clear();
+    entities_.clear();
+    pending_ = PendingObservation{};
+    plan_advanced_frame_ = 0;
+    accept_advanced_frame_ = 0;
+    last_observed_frame_ = 0;
+    last_confirmed_frame_ = 0;
+    last_published_frame_ = 0;
     resync_pending_ = true;
     return report;
 }
@@ -1154,6 +1667,24 @@ Result<WorkPlan> ContinuousPerception::plan_cycle(const SemanticSnapshot& snapsh
     }
     planned_frame_sequence_ = frame.sequence;
     planned_generation_ = snapshot.generation;
+
+    // M9-05 temporal advance — after every fallible step, so a rejected
+    // cycle never half-mutates state.
+    std::vector<std::pair<uint64_t, uint64_t>> part_of_edges;
+    if (const Status edges = collect_part_of_edges(snapshot, context, &part_of_edges); !edges.ok()) {
+        return Result<WorkPlan>{edges};
+    }
+    std::vector<RectF> work_rois;
+    work_rois.reserve(plan.work.size());
+    for (const PlannedWorkBinding& binding : plan.work) {
+        work_rois.push_back(binding.work.roi);
+    }
+    // The cycle's notification filter governs this cycle's publications
+    // (plan-side confirmations here, accept-side ones in accept_work); the
+    // filter gates events only — confirmed state evolves either way.
+    notify_enabled_ = importance.notify_enabled;
+    record_cycle_observation(snapshot, part_of_edges, work_rois, frame.sequence);
+
     plan.resync_required = resync_pending_;
     resync_pending_ = false;
     plan.coverage = CoverageState::kIncomplete;
@@ -1189,20 +1720,10 @@ Result<WorkAcceptReport> ContinuousPerception::accept_work(std::span<const WorkT
 
     // Pass 1 — per-item binding and content validation.
     bool rejected = false;
-    for (size_t index = 0; index < tokens.size(); ++index) {
-        if ((index & 63) == 0) {
-            if (const Status stage = context_status(context); !stage.ok()) {
-                return Result<WorkAcceptReport>{stage};
-            }
-        }
-        const std::optional<WorkRejectionReason> reason =
-            classify_accept_item(tokens[index], inflight_, binding, frame);
-        if (!reason.has_value()) {
-            continue;
-        }
-        report.item_rejections[index] = reason;
-        ++rejection_counts_[static_cast<size_t>(*reason)];
-        rejected = true;
+    if (const Status classified = classify_accept_batch(tokens, inflight_, binding, frame, &report.item_rejections,
+                                                        &rejection_counts_, &rejected, context);
+        !classified.ok()) {
+        return Result<WorkAcceptReport>{classified};
     }
     if (rejected) {
         return Result<WorkAcceptReport>{report};
@@ -1239,6 +1760,12 @@ Result<WorkAcceptReport> ContinuousPerception::accept_work(std::span<const WorkT
     }
     report.committed = true;
     report.adopted_count = static_cast<uint64_t>(tokens.size());
+
+    // M9-05: only accepted evidence validates an observation — the planned
+    // cycle's token-backed items advance now, for the tokens this batch
+    // actually adopted (DEC-026 sections 5/6: cancelled, stale or rejected
+    // results never advance confirmed state).
+    advance_accepted_observations();
     return Result<WorkAcceptReport>{report};
 }
 
@@ -1248,6 +1775,134 @@ uint64_t ContinuousPerception::rejection_count(WorkRejectionReason reason) const
         return 0;
     }
     return rejection_counts_[index];
+}
+
+void ContinuousPerception::advance_accepted_observations() noexcept {
+    if (pending_.frame_sequence != planned_frame_sequence_ || accept_advanced_frame_ >= pending_.frame_sequence) {
+        return;
+    }
+    for (ObservationItem& item : pending_.items) {
+        if (!item.token_backed) {
+            continue;
+        }
+        if (item.work_index >= inflight_.size() || !inflight_[item.work_index].adopted) {
+            continue;
+        }
+        advance_observation_item(item, pending_.frame_sequence);
+    }
+    accept_advanced_frame_ = pending_.frame_sequence;
+}
+
+TemporalSemanticState ContinuousPerception::query_temporal_state() const noexcept {
+    TemporalSemanticState state;
+    state.entities.reserve(entities_.size());
+    for (const TemporalEntity& entity : entities_) {
+        TemporalEntityState entry;
+        entry.stable_id = entity.stable_id;
+        entry.generation = entity.generation;
+        entry.instance_generation = entity.instance_generation;
+        entry.freshness = entity.freshness;
+        entry.observation = entity.observation;
+        entry.bounds = entity.bounds;
+        entry.space = entity.space;
+        entry.observed_frame = entity.observed_frame;
+        entry.confirmed_frame = entity.confirmed_frame;
+        state.entities.push_back(entry);
+    }
+    state.latest_observed_frame = last_observed_frame_;
+    state.confirmed_frame = last_confirmed_frame_;
+    state.published_frame = last_published_frame_;
+    state.pending_events = static_cast<uint64_t>(events_.size());
+    state.dropped_events = dropped_events_;
+    state.untracked_entities = untracked_entities_;
+    return state;
+}
+
+template <typename Entities>
+void resolve_id_state_condition(const Entities& entities, const AttentionCondition& condition,
+                                FocusStateResolution* resolution) noexcept {
+    const auto entity = std::lower_bound(entities.begin(), entities.end(), condition.stable_id,
+                                         [](const auto& record, uint64_t id) { return record.stable_id < id; });
+    if (entity == entities.end() || entity->stable_id != condition.stable_id) {
+        resolution->reason = FocusUnresolvedReason::kUnknownStableId;
+        return;
+    }
+    if (entity->generation != condition.generation) {
+        resolution->reason = FocusUnresolvedReason::kStaleGeneration;
+        return;
+    }
+    resolution->resolved = true;
+    resolution->stable_ids.push_back(entity->stable_id);
+}
+
+template <typename Entities>
+void resolve_semantics_state_condition(const Entities& entities, const AttentionCondition& condition,
+                                       FocusStateResolution* resolution) noexcept {
+    const bool has_text = !condition.text_equals.empty();
+    const bool has_label = !condition.label_equals.empty();
+    for (const auto& entity : entities) {
+        // Confirmed layer only: unconfirmed text is not trusted (AC9-08).
+        if (!entity.lifecycle_open) {
+            continue;
+        }
+        if (has_text && entity.confirmed_text != condition.text_equals) {
+            continue;
+        }
+        if (has_label && entity.confirmed_label != condition.label_equals) {
+            continue;
+        }
+        resolution->stable_ids.push_back(entity.stable_id);
+    }
+    resolution->resolved = !resolution->stable_ids.empty();
+}
+
+template <typename Entities>
+void resolve_roi_state_condition(const Entities& entities, const AttentionCondition& condition,
+                                 FocusStateResolution* resolution) noexcept {
+    for (const auto& entity : entities) {
+        // The query is frame-free: cross-space matching is not attempted.
+        if (!entity.lifecycle_open || entity.space != condition.roi_space) {
+            continue;
+        }
+        if (fusion_internal::intersection_area(entity.bounds, condition.roi) > 0.0) {
+            resolution->stable_ids.push_back(entity.stable_id);
+        }
+    }
+    resolution->resolved = !resolution->stable_ids.empty();
+}
+
+std::vector<FocusStateResolution> ContinuousPerception::query_focus_states() const noexcept {
+    std::vector<FocusStateResolution> resolutions;
+    if (!policy_.has_value()) {
+        return resolutions;
+    }
+    const std::vector<AttentionCondition>& conditions = policy_->conditions;
+    resolutions.resize(conditions.size());
+    for (size_t index = 0; index < conditions.size(); ++index) {
+        const AttentionCondition& condition = conditions[index];
+        FocusStateResolution& resolution = resolutions[index];
+        resolution.condition_index = index;
+        // Fixed criterion priority, mirroring the frozen focus rule.
+        if (condition.bind_stable_id) {
+            resolve_id_state_condition(entities_, condition, &resolution);
+        } else if (!condition.text_equals.empty() || !condition.label_equals.empty()) {
+            resolve_semantics_state_condition(entities_, condition, &resolution);
+        } else {
+            resolve_roi_state_condition(entities_, condition, &resolution);
+        }
+    }
+    return resolutions;
+}
+
+Result<EventDrain> ContinuousPerception::drain_events(const ExecutionContext& context) noexcept {
+    if (const Status stage = context_status(context); !stage.ok()) {
+        return Result<EventDrain>{stage};
+    }
+    EventDrain drain;
+    drain.dropped_total = dropped_events_;
+    drain.events = std::move(events_);
+    events_.clear();
+    return Result<EventDrain>{std::move(drain)};
 }
 
 Result<void> ContinuousPerception::set_attention_policy(const AttentionPolicy& policy) noexcept {
@@ -1344,12 +1999,15 @@ Result<AttentionPlan> ContinuousPerception::plan_attention(const SemanticSnapsho
 int64_t ContinuousPerception::coordination_owned_bytes() const noexcept {
     // M9-03 owns the engaged attention policy (conditions and matcher
     // text); M9-04 owns the in-flight descriptor set (with each token's
-    // source-id string) and the coverage ledger; the rejection counters are
-    // fixed-width. The tracker is injected and caller-owned — the pointer
-    // is not accounted. An unset policy and empty cycle state own nothing.
-    // Events land with the M9-05 queue; the formula grows with each
-    // surface; configuration itself is caller-owned and never counted
-    // (DEC-026 section 7).
+    // source-id string) and the coverage ledger; M9-05 owns the temporal
+    // entity map (with each record's confirmed/pending text, label and
+    // parent lists) and the event queue. The rejection/sequence/drop
+    // counters are fixed-width. The tracker is injected and caller-owned —
+    // the pointer is not accounted. An unset policy and empty cycle state
+    // own nothing. Configuration itself is caller-owned and never counted
+    // (DEC-026 section 7). The queue is accounted by size, not capacity:
+    // dropping the oldest event must free real budget, or overflow would
+    // drain the whole queue instead of making room.
     int64_t bytes = 0;
     if (policy_.has_value()) {
         bytes += attention_policy_owned_bytes(*policy_);
@@ -1359,6 +2017,19 @@ int64_t ContinuousPerception::coordination_owned_bytes() const noexcept {
         bytes += static_cast<int64_t>(flight.token.source_id.capacity());
     }
     bytes += static_cast<int64_t>(coverage_.capacity() * sizeof(CoverageEntry));
+    bytes += static_cast<int64_t>(entities_.capacity() * sizeof(TemporalEntity));
+    for (const TemporalEntity& entity : entities_) {
+        bytes += static_cast<int64_t>(entity.confirmed_text.capacity());
+        bytes += static_cast<int64_t>(entity.confirmed_label.capacity());
+        bytes += static_cast<int64_t>(entity.pending_text.capacity());
+        bytes += static_cast<int64_t>(entity.pending_label.capacity());
+        bytes += static_cast<int64_t>((entity.confirmed_parents.capacity() + entity.pending_parents.capacity()) *
+                                      sizeof(uint64_t));
+    }
+    bytes += static_cast<int64_t>(events_.size() * sizeof(SemanticEvent));
+    for (const SemanticEvent& event : events_) {
+        bytes += static_cast<int64_t>(event.window.source_id.capacity());
+    }
     // The rejection counters are fixed-width and cannot grow: like the
     // injected tracker pointer they carry no budget-relevant capacity and
     // are not accounted (DEC-026 section 7).

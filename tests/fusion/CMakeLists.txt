@@ -220,6 +220,21 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M9-05 temporal state and events (DEC-026 sections 6/8, Experimental): the
+# per-entity state machine over accepted cycles — confirmation-window
+# debouncing (appearance/text/label/relation changes), disappearance under
+# the covered-area rule with occlusion/tracker-loss/unanalyzed intermediate
+# states, part-of hierarchy events, notification filtering that keeps
+# internal state evolving, the bounded event drain with visible overflow
+# drops, the focus-switch query with explicit freshness, source-reset
+# termination of old-generation lifecycles, and byte-accounted coordination
+# state.
+mirador_add_test(
+    NAME mirador.fusion.temporal_state
+    SOURCES temporal_state_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 # M5-07 concurrency matrix (TSAN preset): published-snapshot readers and
 # parallel sessions. Threads need the system threads library on platforms
 # where std::thread does not link transitively.

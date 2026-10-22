@@ -9,11 +9,22 @@
 （DP-01…05，In Progress），对应 issue #36；同步无内部并发、预算与隐私边界不变。
 
 > 状态：Active
-> 版本：1.38
+> 版本：1.39
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-10-22
+>
+> 1.39 修订（2026-10-22）：M9-05 时间状态与事件面交付——逐实体状态机
+> （观测有效性=覆盖且被采纳、帧围栏防重复计数）、`kContinuousConfirmationWindow`
+> 去抖确认（出现/文字/标签/层级/遮挡/消失六轴 begin/update/end）、有界
+> `drain_events`（双封顶+溢出计数+一次性 resync）、通知过滤只挡发布、
+> `query_temporal_state`/`query_focus_states` 焦点切换即时查询、source
+> reset 显式终结旧代生命周期；独立验证套件 `mirador.fusion.temporal_state`
+> 38 用例全绿（验证轮修复 presence streak/陈旧状态/零尺寸批 4 缺陷后
+> 复验），debug/ASAN/UBSAN 全量 ctest 60/60，CI run 39733338859 14/14；
+> 证据随 [PR #54](https://github.com/Linductor-alkaid/mirador/pull/54)
+> 提交评审，待负责人授权合并。1.38 修订内容不变。
 >
 > 1.38 修订（2026-10-22）：M9-04 循环绑定交付——令牌化 plan/accept 协议
 > 与增量覆盖账本（精确内容摘要复核的零工作复用路径、九字段 WorkToken、

@@ -63,6 +63,7 @@ using mirador::ContinuousPerceptionOptions;
 using mirador::CoordinateSpaceId;
 using mirador::CoverageState;
 using mirador::ErrorCode;
+using mirador::EventDrain;
 using mirador::ExecutionContext;
 using mirador::Frame;
 using mirador::ImportancePolicy;
@@ -1438,13 +1439,19 @@ TEST(CycleByteAccountingTest, RepeatedStaticCyclesAreDeterministic) {
     const SemanticSnapshot snapshot = make_snapshot({make_region(900U, kFocusA)});
     fill_and_accept(&coordinator, snapshot, &rig, 1U);
 
-    // The first static cycle drains the in-flight set (its token was adopted by
-    // the fill); from there the account and the plans are reproducible.
-    const WorkPlan first = expect_cycle_planned(coordinator.plan_cycle(snapshot, rig_frame(rig, 2U)));
+    // The fill adopt counted as the first valid observation (M9-05); the first
+    // static cycle is the second one and queues the single confirmation event.
+    // From there the temporal face is settled: the account and the plans are
+    // reproducible and the queue stops growing.
+    static_cast<void>(expect_cycle_planned(coordinator.plan_cycle(snapshot, rig_frame(rig, 2U))));
+    const WorkPlan settled = expect_cycle_planned(coordinator.plan_cycle(snapshot, rig_frame(rig, 3U)));
     const int64_t bytes = coordinator.coordination_owned_bytes();
-    const WorkPlan second = expect_cycle_planned(coordinator.plan_cycle(snapshot, rig_frame(rig, 3U)));
+    const WorkPlan first = expect_cycle_planned(coordinator.plan_cycle(snapshot, rig_frame(rig, 4U)));
+    const WorkPlan second = expect_cycle_planned(coordinator.plan_cycle(snapshot, rig_frame(rig, 5U)));
     EXPECT_EQ(first, second);
+    EXPECT_EQ(first, settled);
     EXPECT_EQ(coordinator.coordination_owned_bytes(), bytes);
+    EXPECT_EQ(coordinator.query_temporal_state().pending_events, 1U);
 }
 
 TEST(CycleContextTest, CancelledCyclePlanConvertsToKCancelled) {
@@ -1681,12 +1688,15 @@ struct BacklogAccounting {
     uint64_t issued_total = 0;
     uint64_t adopted_total = 0;
     uint64_t replaced_total = 0;
-    int64_t filled_bytes = -1;   // account with one in-flight descriptor
-    int64_t drained_bytes = -1;  // account after a static cycle emptied the set
+    int64_t filled_bytes = -1;    // account with one in-flight descriptor (first adoption)
+    int64_t drained_bytes = -1;   // account after a static cycle emptied the set
+    uint64_t drained_events = 0;  // events pulled by the periodic drains
 };
 
 /// Asserts the coordination account stays inside the fixed filled/drained
-/// pair established by the first adoption and the first static cycle.
+/// pair established by the first adoption and the first static cycle. The
+/// measurement happens right after a drain, so the settled pair carries the
+/// cycle state itself — the M9-05 event queue never accumulates across it.
 void expect_settled_bytes(BacklogAccounting* accounting, int64_t now) {
     if (accounting->filled_bytes < 0) {
         accounting->filled_bytes = now;
@@ -1698,6 +1708,22 @@ void expect_settled_bytes(BacklogAccounting* accounting, int64_t now) {
     }
     EXPECT_TRUE(now == accounting->filled_bytes || now == accounting->drained_bytes);
     EXPECT_LE(now, accounting->filled_bytes);
+}
+
+/// The caller's pressure valve (AC9-09): every 8th cycle drains the M9-05
+/// event queue — keeping it bounded no matter how long the simulation runs —
+/// and measures the account right after the drain, so the settled pair stays
+/// the filled/drained shape of the cycle state itself.
+void drain_and_measure(ContinuousPerception* coordinator, BacklogAccounting* accounting, int cycle) {
+    if (cycle % 8 != 7 || accounting->adopted_total == 0U) {
+        return;
+    }
+    const Result<EventDrain> drained = coordinator->drain_events();
+    EXPECT_TRUE(drained.ok()) << (drained.ok() ? "" : drained.status().message());
+    if (drained.ok()) {
+        accounting->drained_events += drained.value().events.size();
+    }
+    expect_settled_bytes(accounting, coordinator->coordination_owned_bytes());
 }
 
 /// Runs one processed cycle of the latest-pending policy: plan the newest
@@ -1728,19 +1754,20 @@ void run_backlog_cycle(ContinuousPerception* coordinator, const SemanticSnapshot
     } else {
         accounting->pending = 0U;
     }
-    if (accounting->adopted_total > 0U) {
-        expect_settled_bytes(accounting, coordinator->coordination_owned_bytes());
-    }
+    drain_and_measure(coordinator, accounting, cycle);
 }
 
 /// Final invariants: every issued descriptor was adopted or replaced exactly
-/// once, and both settled account values are positive (nothing grew).
+/// once, both settled account values are positive (nothing grew), and the
+/// temporal face produced exactly its one-time confirmation event — the queue
+/// never grew with duration.
 void expect_backlog_totals(const BacklogAccounting& accounting) {
     EXPECT_EQ(accounting.issued_total, accounting.adopted_total + accounting.replaced_total);
     EXPECT_GT(accounting.adopted_total, 0U);
     EXPECT_GT(accounting.replaced_total, 0U);
     EXPECT_GT(accounting.filled_bytes, 0);
     EXPECT_GT(accounting.drained_bytes, 0);
+    EXPECT_EQ(accounting.drained_events, 1U);
 }
 
 TEST(BacklogSimulationTest, LatestPendingAtFiveFpsOverTenMinutesStaysBounded) {
