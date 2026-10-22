@@ -36,7 +36,7 @@ token 压缩模型/权重/runtime 或模型序列协议（MiniCPM-o 仅为下游
 | M9-02 | Delivered（构建器与套件已落地） | 同实体去重/part_of/普通重叠关系视图，原始证据、冲突与 trace 可追溯，固定融合夹具 | M9-01 | AC9-01、02 |
 | M9-03 | Delivered（规划面与套件已落地） | Attention/Importance 到 ROI 和候选优先级的同步规划，ID 焦点随跟踪移动、外围监测与失效 | M9-01；M8-03/04 | AC9-03、04、08 |
 | M9-04 | Delivered（循环绑定与套件已落地） | 增量覆盖/缓存接线，plan/accept 绑定、延迟/乱序拒绝、调用方 latest-pending 示例与积压测试 | M9-02、03；M8-04 | AC9-03、05…07、09 |
-| M9-05 | Proposed | latest/confirmed/published 状态、有界事件 drain、去抖与过滤、切换焦点查询/初始差量；事件携带来源/代际/证据时间窗与 begin/update/end 语义，源重置显式终结旧代事件 | M9-04 | AC9-07、08、09、11 |
+| M9-05 | Delivered | latest/confirmed/published 状态、有界事件 drain、去抖与过滤、切换焦点查询/初始差量；事件携带来源/代际/证据时间窗与 begin/update/end 语义，源重置显式终结旧代事件 | M9-04 | AC9-07、08、09、11 |
 | M9-06 | Proposed | 伪 Backend 确定性矩阵、真实桌面留出集、全屏基线与增量对照；校准并固定阈值 | M9-02…05；M8-06 | AC9-01…11 |
 | M9-07 | Proposed | go/no-go、工程门禁、兼容性与下游接入证据；决定继续 Experimental、转正或回退 | M9-06 | 全部退出条件 |
 
@@ -45,7 +45,10 @@ token 压缩模型/权重/runtime 或模型序列协议（MiniCPM-o 仅为下游
 - [x] 注意规划、增量执行与陈旧结果防护可单独验收（M9-03 注意规划 +
   M9-04 循环绑定；AC9-03/06 机制证据在案，AC9-04 收益量化归 M9-06 基准，
   AC9-05 的 ID 延续率与 AC9-07 真实耗时集成项保持未完成）。
-- [ ] 状态稳定化、通知和真实收益对照可单独验收。
+- [x] 状态稳定化、通知和真实收益对照可单独验收（状态稳定化与通知的机制面
+  由 M9-05 交付：确认窗口/过滤/drain/焦点切换查询在案；AC9-07 队列不随时长
+  增长经 600 周期模拟复验；真实收益对照（AC9-04 等）与真实留出集质量门槛
+  归 M9-06 对照基准，保持未完成）。
 
 预期三个交付阶段为“实体关系 → 注意与增量闭环 → 语义稳定化与通知”。每阶段单独
 MR，不要求一次引入所有候选接口。M9 已转 In Progress；不得改动既有 M7 测试门槛
@@ -272,3 +275,52 @@ master `23f7ed2`，即 M9-03 合并提交）。交付：
 - 限制：kDisplay 快照/条件 ROI 空间沿用 M9-03 的显式拒绝；1024 条目
   上限路径经公开 API 难达（条件上限 64），以字节预算门为主守门；阈值
   （失效显著性与摘要策略）随 M9-06 校准。
+
+2026-10-22：M9-05 时间状态与事件面交付（分支 `feat/m9-05-temporal-events`，
+基于 master `1e3e830`，即 M9-04 合并提交）。交付：
+
+- `ContinuousPerception` 逐实体时间状态机（M9-01 Experimental 头内增长）：
+  `plan_cycle` 把快照分类为观测（存活覆盖条目内=当次有效、签发工作 ROI 内=
+  采纳后有效、其余 unanalyzed），`accept_work` 以实际采纳令牌推进
+  token-backed 观测——只有真实覆盖并被接受的证据推进确认状态（取消/过期/
+  拒绝不推进 confirmed/published，DEC-026 §5/6）；同帧重复 plan/accept 以
+  帧围栏防重复计数。去抖确认（`kContinuousConfirmationWindow=2`，数值随
+  M9-06 校准）：出现（begin，重现实体递增 instance generation）、文字/标签/
+  part-of 层级（update，层级来自逐周期确定性关系视图）、遮挡关系变化
+  （update/kRelationChanged）、消失（end，仅有效覆盖下目标缺失；遮挡物/
+  活动跟踪/kLost/未覆盖分别为 kOccluded/kTrackingLost/kUnanalyzed 可查询
+  中间态）。
+- 事件面：`drain_events` 同步 pull（`max_events`+协调字节预算双封顶，溢出
+  逐出最旧并累计 `dropped_events`、一次性置 resync_required，AC9-09）；
+  `notify_enabled` 只挡发布、确认状态照常演进；source reset 显式终结旧代
+  未闭合生命周期（kSourceReset end、零边界、携带旧 epoch、不受过滤拦截，
+  AC9-11），队列保留可 drain。
+- 查询面：`query_temporal_state`（升序实体 + latest 观测层 + 计数器；查询
+  不计观测）；`query_focus_states`（焦点切换立即查询 confirmed 层，未命中
+  显式 unknown/待刷新，AC9-08）。
+- 计划侧硬化：`plan_attention`/`plan_cycle` 整批拒绝非有限/非正尺寸区域
+  bounds（DEC-021——生命周期事件必须携带严格正 bounds）；字节核算扩展至
+  实体表与事件队列（队列按 size 计），全新协调对象零点不变。
+- 示例 `continuous_perception_tour` 扩展确认后查询与 reset 后 begin+
+  kSourceReset drain 段。
+- 独立验证套件 `mirador.fusion.temporal_state`（38 用例，覆盖观测有效性/
+  确认窗口/变化轴/消失遮挡/过滤/reset 终结/事件溢出/焦点查询/整批几何
+  拒绝/字节核算/确定性）与 `mirador.fusion.cycle_binding` 两个 M9-04 字节
+  钉定更新（600 周期积压模拟按新核算复验有界，AC9-07）均由
+  Independent-Verification-Agent 独立编写与执行；验证轮发现 4 个实现缺陷
+  并由主循环修复后独立复验：presence streak 穿越缺席未重置（重现/翻回
+  1 次即确认且携带陈旧窗口）、present-but-uncovered 报陈旧 observed 状态、
+  零尺寸区域产生结构不一致事件（决议：整批拒绝）。门禁：debug/ASAN/UBSAN
+  全量 ctest 60/60 零回归零 sanitizer 报告；clang-format/clang-tidy 归零。
+  CI 证据随 [PR #54](https://github.com/Linductor-alkaid/mirador/pull/54)
+  回填；合并不在本项自动授权范围内。
+- 验收状态：AC9-07（队列不随时长增长+替换/拒绝计数）、AC9-08（单次噪声
+  零事件、2 次确认 1 事件、消失覆盖规则、中间观测态、过滤后内部状态推进、
+  焦点切换即时查询显式 freshness）、AC9-09（结构失效同步可 drain、溢出
+  可观测置 resync、query 恢复确认状态）、AC9-11（源重置显式终结不以
+  disappearance 收尾、遮挡/层级关系事件化）机制证据在本项在案；AC9-08 的
+  真实事件 precision/recall、AC9-11 序列的真实数据门槛与 AC9-07 真实耗时
+  集成项归 M9-06 校准对照，保持未完成。
+- 限制：确认窗口数值为开发默认（M9-06 校准）；kDisplay 空间沿用显式拒绝；
+  关系视图预算失败的层级降级路径在默认预算下经公开 API 难达，以代码审读
+  确认；同实体重复变化合并不做（事件本身已去抖）。
