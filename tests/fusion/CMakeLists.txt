@@ -191,6 +191,21 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M9-03 attention planning (DEC-026 section 2, Experimental): the engaged
+# policy with its digest-driven monotonic revision and byte accounting, the
+# tracker-backed focus resolution matrix (snapshot win, stale-generation
+# short-circuit, tracking/uncertain resolve, lost -> missing-localization,
+# terminated/absent -> unknown), the synchronous plan (focus/bootstrap work
+# ordering, importance priority echo, per-condition resolution table) with
+# the kFrame/kOriented conversion matrix over all rotations, peripheral
+# reconsideration records (partial ROI intersection, global collapse),
+# whole-batch validation and cancellation conversion.
+mirador_add_test(
+    NAME mirador.fusion.attention_plan
+    SOURCES attention_plan_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 # M5-07 concurrency matrix (TSAN preset): published-snapshot readers and
 # parallel sessions. Threads need the system threads library on platforms
 # where std::thread does not link transitively.

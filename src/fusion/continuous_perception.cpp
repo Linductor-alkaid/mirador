@@ -1,10 +1,14 @@
 #include <mirador/continuous_perception.hpp>
 
+#include <mirador/change_detection.hpp>
 #include <mirador/execution_context.hpp>
+#include <mirador/frame.hpp>
 #include <mirador/geometry.hpp>
+#include <mirador/object_tracker.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/status.hpp>
+#include <mirador/transform.hpp>
 
 #include "rect_math.h"
 
@@ -58,13 +62,179 @@ namespace {
     return digest_bytes(hash, text.data(), text.size());
 }
 
-/// Stage-boundary cancellation/deadline check (same contract as fuse_evidence).
+/// Stage-boundary cancellation/deadline check shared by the continuous-
+/// perception entry points (same contract as fuse_evidence).
 [[nodiscard]] Status context_status(const ExecutionContext& context) noexcept {
     if (is_cancelled(context)) {
-        return {ErrorCode::kCancelled, "build_relation_view cancelled"};
+        return {ErrorCode::kCancelled, "continuous perception cancelled"};
     }
     if (deadline_reached(context)) {
-        return {ErrorCode::kTimeout, "build_relation_view deadline exceeded"};
+        return {ErrorCode::kTimeout, "continuous perception deadline exceeded"};
+    }
+    return {};
+}
+
+/// Bytes owned by an engaged attention policy: the conditions vector and
+/// every matcher string (DEC-026 section 7 accounting).
+[[nodiscard]] int64_t attention_policy_owned_bytes(const AttentionPolicy& policy) noexcept {
+    auto bytes = static_cast<int64_t>(sizeof(AttentionPolicy));
+    bytes += static_cast<int64_t>(policy.conditions.capacity() * sizeof(AttentionCondition));
+    for (const AttentionCondition& condition : policy.conditions) {
+        bytes += static_cast<int64_t>(sizeof(AttentionCondition));
+        bytes += static_cast<int64_t>(condition.text_equals.capacity());
+        bytes += static_cast<int64_t>(condition.label_equals.capacity());
+    }
+    return bytes;
+}
+
+/// Converts a rectangle between kFrame and kOriented through the frame's
+/// rotation (DEC-016); kDisplay has no planner-side conversion in M9-03.
+/// Unreachable nullopt: rotation matrices are invertible and the engaged
+/// spaces are validated by the callers.
+[[nodiscard]] std::optional<RectF> convert_plan_rect(const RectF& rect, CoordinateSpaceId from, CoordinateSpaceId to,
+                                                     const Frame& frame) noexcept {
+    if (from == to) {
+        return rect;
+    }
+    if (from == CoordinateSpaceId::kFrame && to == CoordinateSpaceId::kOriented) {
+        return transform_rect(make_rotation(frame.image.rotation, frame.image.width, frame.image.height, from, to),
+                              rect);
+    }
+    if (from == CoordinateSpaceId::kOriented && to == CoordinateSpaceId::kFrame) {
+        const Result<Transform2D> inverse_rotation =
+            inverse(make_rotation(frame.image.rotation, frame.image.width, frame.image.height,
+                                  CoordinateSpaceId::kFrame, CoordinateSpaceId::kOriented));
+        if (!inverse_rotation.ok()) {
+            return std::nullopt;
+        }
+        return transform_rect(inverse_rotation.value(), rect);
+    }
+    return std::nullopt;
+}
+
+/// Full-frame rectangle of the frame in `space`.
+[[nodiscard]] RectF full_frame_rect(const Frame& frame, CoordinateSpaceId space) noexcept {
+    if (space == CoordinateSpaceId::kOriented) {
+        const auto [width, height] = oriented_size(frame.image.rotation, frame.image.width, frame.image.height);
+        return RectF{0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height)};
+    }
+    return RectF{0.0F, 0.0F, static_cast<float>(frame.image.width), static_cast<float>(frame.image.height)};
+}
+
+/// True when the ROI positively intersects any resolved focus work item.
+[[nodiscard]] bool intersects_any_focus(const RectF& roi, const std::vector<PlannedWork>& work) noexcept {
+    return std::ranges::any_of(work, [&roi](const PlannedWork& item) {
+        return item.kind == PlannedWorkKind::kFocus && fusion_internal::intersection_area(roi, item.roi) > 0.0;
+    });
+}
+
+/// Input validation of one attention plan: snapshot space, frame geometry
+/// and the caller's priority (DEC-026 sections 1/2).
+[[nodiscard]] Status validate_plan_input(const SemanticSnapshot& snapshot, const Frame& frame,
+                                         const ImportancePolicy& importance) noexcept {
+    if (snapshot.coordinate_space != CoordinateSpaceId::kFrame &&
+        snapshot.coordinate_space != CoordinateSpaceId::kOriented) {
+        return {ErrorCode::kInvalidArgument, "attention planning supports kFrame/kOriented snapshot spaces"};
+    }
+    if (frame.image.width <= 0 || frame.image.height <= 0) {
+        return {ErrorCode::kInvalidArgument, "attention planning requires a sized frame"};
+    }
+    if (!std::isfinite(importance.priority)) {
+        return {ErrorCode::kInvalidArgument, "importance priority must be finite"};
+    }
+    return {};
+}
+
+/// Resolves every engaged policy condition and emits the focus/bootstrap
+/// work items (DEC-026 section 2). Resolutions are recorded parallel to the
+/// conditions; nothing falls back to full-frame work on its own — bootstrap
+/// appears only under the caller's importance authorization.
+[[nodiscard]] Status append_focus_work(const std::vector<AttentionCondition>& conditions,
+                                       const SemanticSnapshot& snapshot, const Frame& frame,
+                                       const ImportancePolicy& importance, const ContinuousPerception& coordinator,
+                                       AttentionPlan* plan, const ExecutionContext& context) noexcept {
+    for (size_t index = 0; index < conditions.size(); ++index) {
+        if ((index & 63) == 0) {
+            if (const Status stage = context_status(context); !stage.ok()) {
+                return stage;
+            }
+        }
+        const Result<FocusResolution> resolved = coordinator.resolve_focus(conditions[index], snapshot);
+        if (!resolved.ok()) {
+            return resolved.status();
+        }
+        plan->resolutions.push_back(resolved.value());
+        if (resolved.value().resolved) {
+            const ResolvedFocus& focus = resolved.value().focus;
+            const std::optional<RectF> converted =
+                convert_plan_rect(focus.roi, focus.space, snapshot.coordinate_space, frame);
+            if (!converted.has_value()) {
+                return {ErrorCode::kInvalidArgument, "focus space not convertible to the snapshot space"};
+            }
+            PlannedWork work;
+            work.kind = PlannedWorkKind::kFocus;
+            work.roi = *converted;
+            work.space = snapshot.coordinate_space;
+            work.priority = importance.priority;
+            // Identity binding only for a focus that carries one (stable-id
+            // / text / label resolution); ROI-only work reports none.
+            work.stable_id = focus.stable_id;
+            work.generation = focus.stable_id != 0 ? focus.generation : 0;
+            work.condition_index = index;
+            plan->work.push_back(work);
+        } else if (resolved.value().reason == FocusUnresolvedReason::kNotObserved &&
+                   importance.allow_bootstrap_full_frame) {
+            PlannedWork work;
+            work.kind = PlannedWorkKind::kBootstrap;
+            work.roi = full_frame_rect(frame, snapshot.coordinate_space);
+            work.space = snapshot.coordinate_space;
+            work.priority = importance.priority;
+            work.condition_index = index;
+            plan->work.push_back(work);
+        }
+    }
+    return {};
+}
+
+/// Peripheral monitoring (DEC-026 section 2): the snapshot's change report
+/// yields queryable reconsideration records for changed regions outside
+/// every resolved focus. Recording is a visual fact; acting on it belongs
+/// to the caller policy and the M9-04/M9-05 wiring.
+[[nodiscard]] Status append_reconsiderations(const SemanticSnapshot& snapshot, const Frame& frame, AttentionPlan* plan,
+                                             const ExecutionContext& context) noexcept {
+    const ChangeReport& change = snapshot.change;
+    if (change.classification == ChangeClassification::kGlobal) {
+        FocusReconsideration record;
+        record.changed_region = full_frame_rect(frame, snapshot.coordinate_space);
+        record.space = snapshot.coordinate_space;
+        record.global = true;
+        plan->reconsiderations.push_back(record);
+        return {};
+    }
+    if (change.classification != ChangeClassification::kPartial) {
+        return {};
+    }
+    for (size_t index = 0; index < change.changed_regions.size(); ++index) {
+        if ((index & 63) == 0) {
+            if (const Status stage = context_status(context); !stage.ok()) {
+                return stage;
+            }
+        }
+        const RectI& region = change.changed_regions[index];
+        const RectF frame_rect{static_cast<float>(region.x), static_cast<float>(region.y),
+                               static_cast<float>(region.width), static_cast<float>(region.height)};
+        const std::optional<RectF> converted =
+            convert_plan_rect(frame_rect, CoordinateSpaceId::kFrame, snapshot.coordinate_space, frame);
+        if (!converted.has_value()) {
+            return {ErrorCode::kInvalidArgument, "change ROI space not convertible to the snapshot space"};
+        }
+        if (!intersects_any_focus(*converted, plan->work)) {
+            FocusReconsideration record;
+            record.changed_region = *converted;
+            record.space = snapshot.coordinate_space;
+            record.global = false;
+            plan->reconsiderations.push_back(record);
+        }
     }
     return {};
 }
@@ -644,15 +814,108 @@ SourceResetReport ContinuousPerception::notify_source_reset() noexcept {
     return report;
 }
 
+Result<void> ContinuousPerception::set_attention_policy(const AttentionPolicy& policy) noexcept {
+    if (Result<void> validated = validate_attention_policy(policy); !validated.ok()) {
+        return validated;
+    }
+    for (const AttentionCondition& condition : policy.conditions) {
+        const bool has_roi = condition.roi.width > 0.0F && condition.roi.height > 0.0F;
+        if (has_roi && condition.roi_space != CoordinateSpaceId::kFrame &&
+            condition.roi_space != CoordinateSpaceId::kOriented) {
+            return Result<void>{
+                Status(ErrorCode::kInvalidArgument, "attention condition ROI spaces support kFrame/kOriented only")};
+        }
+    }
+    const int64_t engaged_bytes = attention_policy_owned_bytes(policy);
+    if (engaged_bytes > options_.max_coordination_bytes) {
+        return Result<void>{Status(ErrorCode::kBudgetExceeded, "attention policy exceeds max_coordination_bytes")};
+    }
+    // Revision moves exactly on a digest change: re-setting the identical
+    // policy is idempotent, a first engagement always bumps from 0.
+    if (!policy_.has_value() || attention_policy_digest(policy) != attention_policy_digest(*policy_)) {
+        ++policy_revision_;
+    }
+    policy_ = policy;
+    return Result<void>{};
+}
+
+Result<FocusResolution> ContinuousPerception::resolve_focus(const AttentionCondition& condition,
+                                                            const SemanticSnapshot& snapshot) const noexcept {
+    Result<FocusResolution> resolution = resolve_attention_focus(condition, snapshot);
+    if (!resolution.ok() || resolution.value().resolved) {
+        return resolution;
+    }
+    // Tracker fallback (DEC-026 section 2, M9-03): only a stable-id
+    // condition the snapshot cannot see consults the tracker — a stale
+    // generation short-circuits above (frozen order) and text/label/ROI
+    // conditions are snapshot-only observations.
+    if (!condition.bind_stable_id || tracker_ == nullptr ||
+        resolution.value().reason != FocusUnresolvedReason::kUnknownStableId) {
+        return resolution;
+    }
+    const TargetTrack* track = tracker_->find_track(condition.stable_id);
+    if (track == nullptr || track->state == TrackState::kTerminated) {
+        // The identity is not tracked (anymore): kUnknownStableId stands.
+        return resolution;
+    }
+    if (track->state == TrackState::kLost) {
+        return Result<FocusResolution>{FocusResolution{false, FocusUnresolvedReason::kMissingLocalization, {}}};
+    }
+    // kTracking or kUncertain: the pool's current position is usable — the
+    // focus moves with the track, never with a memorized coordinate.
+    ResolvedFocus focus;
+    focus.stable_id = condition.stable_id;
+    focus.generation = snapshot.generation;
+    focus.roi = track->last_bounds;
+    focus.space = CoordinateSpaceId::kOriented;  // the pool's presented-view space
+    return Result<FocusResolution>{FocusResolution{true, FocusUnresolvedReason::kNotObserved, focus}};
+}
+
+Result<AttentionPlan> ContinuousPerception::plan_attention(const SemanticSnapshot& snapshot, const Frame& frame,
+                                                           const ImportancePolicy& importance,
+                                                           const ExecutionContext& context) const noexcept {
+    if (const Status validated = validate_plan_input(snapshot, frame, importance); !validated.ok()) {
+        return Result<AttentionPlan>{validated};
+    }
+
+    AttentionPlan plan;
+    plan.policy_revision = policy_revision_;
+    plan.coverage = CoverageState::kIncomplete;
+
+    const std::vector<AttentionCondition> unset_conditions;
+    const std::vector<AttentionCondition>& conditions = policy_.has_value() ? policy_->conditions : unset_conditions;
+    if (const Status planned = append_focus_work(conditions, snapshot, frame, importance, *this, &plan, context);
+        !planned.ok()) {
+        return Result<AttentionPlan>{planned};
+    }
+    std::sort(plan.work.begin(), plan.work.end(), [](const PlannedWork& lhs, const PlannedWork& rhs) {
+        if (lhs.kind != rhs.kind) {
+            return lhs.kind < rhs.kind;
+        }
+        if (lhs.priority != rhs.priority) {
+            return lhs.priority > rhs.priority;
+        }
+        return lhs.condition_index < rhs.condition_index;
+    });
+    if (const Status monitored = append_reconsiderations(snapshot, frame, &plan, context); !monitored.ok()) {
+        return Result<AttentionPlan>{monitored};
+    }
+
+    return Result<AttentionPlan>{std::move(plan)};
+}
+
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static): frozen public member of the M9-01 contract surface
 int64_t ContinuousPerception::coordination_owned_bytes() const noexcept {
-    // M9-01 stores no coordination state yet. The M9-02 relation-view builder
-    // is a pure free function and holds nothing: the stateful view lands with
-    // the M9-04 coordination wiring, tokens with the M9-04 accept, events
-    // with the M9-05 queue. The formula grows with each surface;
-    // configuration itself is caller-owned and never counted (DEC-026
-    // section 7).
-    return 0;
+    // M9-03 owns the engaged attention policy (conditions and matcher
+    // text); an unset policy owns nothing. The tracker is injected and
+    // caller-owned — the pointer is not accounted (DEC-026 section 7).
+    // Tokens land with the M9-04 accept, events with the M9-05 queue. The
+    // formula grows with each surface; configuration itself is
+    // caller-owned and never counted.
+    if (!policy_.has_value()) {
+        return 0;
+    }
+    return attention_policy_owned_bytes(*policy_);
 }
 
 }  // namespace mirador

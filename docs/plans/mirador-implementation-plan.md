@@ -9,11 +9,20 @@
 （DP-01…05，In Progress），对应 issue #36；同步无内部并发、预算与隐私边界不变。
 
 > 状态：Active
-> 版本：1.36
+> 版本：1.37
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
 > 更新日期：2026-10-21
+>
+> 1.37 修订（2026-10-21）：M9-03 注意规划交付——`ContinuousPerception` 引入
+> 首个协调状态与同步规划面（`set_attention_policy` 策略状态与单调 policy
+> revision、`attach_tracker`/`resolve_focus` ID 焦点随跟踪移动、
+> `plan_attention` 工作 ROI/解析表/外围监测记录，bootstrap 仅调用方授权）；
+> 独立验证套件 `mirador.fusion.attention_plan` 47 用例全绿（验证轮修复
+> ROI-only 身份回显缺陷后复验），debug/ASAN/UBSAN 全量 ctest 58/58，CI run
+> 39636058016 14/14；证据随 [PR #52](https://github.com/Linductor-alkaid/mirador/pull/52)
+> 提交评审，待负责人授权合并。1.36 修订内容不变。
 >
 > 1.36 修订（2026-10-21）：M9-02 关系视图构建器交付——纯函数
 > `build_relation_view`（星形重复证据分组、冻结 kDuplicateEvidence 自指记录、
@@ -511,16 +520,20 @@ Issue #41 的直接性能诉求已随 M8 全部闭环：[M8](m8-budgeted-ocr.md)
 （K=64 p50 0.86–1.52 s）；Mirage 下游受控验收（AC8-10）两轮全部门禁 PASS。
 5 秒判定限于冻结参考机与冻结场景，不构成跨机器声明；发布/tag 待单独授权。
 
-[M9](m9-continuous-perception.md) 已立项生效并交付前两个工作项：
+[M9](m9-continuous-perception.md) 已立项生效并交付前三个工作项：
 [DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md) 随
 M9-01 契约冻结转 Accepted（`continuous_perception.hpp` Experimental——领域
 词表、source epoch、参考预算、事件字段、冻结纯规则与协调对象核心；83 用例
 独立验证套件全绿），M9-01 经 PR #49 合入 master（2026-10-21，CI 14/14 绿）。
 M9-02 关系视图构建器（星形重复分组/part_of/重叠/冲突，固定融合夹具，33 用例
 独立验证全绿）经 [PR #51](https://github.com/Linductor-alkaid/mirador/pull/51)
-提交评审（CI 14/14 绿），待负责人授权合并；M9-03 起按"实体关系 → 注意与
-增量闭环 → 语义稳定化与通知"三阶段推进，AC9-01…11 最终验收证据归后续
-工作项，真实留出集质量门槛保持未完成。
+合入 master（merge `72a834f`，CI 14/14 绿）。M9-03 注意规划（策略状态与
+policy revision、ID 焦点随跟踪移动、同步 plan_attention 与外围监测，47 用例
+独立验证全绿）经 [PR #52](https://github.com/Linductor-alkaid/mirador/pull/52)
+提交评审（CI 14/14 绿），待负责人授权合并；M9-04（增量覆盖/缓存接线与
+plan/accept 绑定）就绪待启，按"实体关系 → 注意与增量闭环 → 语义稳定化与
+通知"三阶段推进，AC9-01…11 最终验收证据归后续工作项，真实留出集质量门槛
+保持未完成。
 
 M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项与退出条件通过，CI 9/9
 绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、

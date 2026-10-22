@@ -2,11 +2,13 @@
 #define MIRADOR_CONTINUOUS_PERCEPTION_HPP
 
 #include <mirador/execution_context.hpp>
+#include <mirador/frame.hpp>
 #include <mirador/geometry.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/transform.hpp>
 
+#include <cassert>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -14,6 +16,8 @@
 #include <vector>
 
 namespace mirador {
+
+class ObjectTracker;
 
 /// Experimental (M9, DEC-026): fields and signatures may change within M9
 /// until the M9-07 freeze/promotion gate (the DEC-017/DEC-018 promotion
@@ -335,6 +339,93 @@ struct FocusResolution {
 
     [[nodiscard]] friend bool operator==(const FocusResolution& lhs, const FocusResolution& rhs) noexcept {
         return lhs.resolved == rhs.resolved && lhs.reason == rhs.reason && lhs.focus == rhs.focus;
+    }
+};
+
+/// Kind of one planned work ROI (DEC-026 section 2).
+enum class PlannedWorkKind : uint8_t {
+    /// A resolved attention focus: spend expensive capability time here.
+    kFocus,
+    /// Caller-budgeted full-frame bootstrap for a text/label condition that
+    /// matched nothing among existing observations (DEC-026 section 2:
+    /// unseen text is never located by matching; the caller's importance
+    /// policy authorizes the detection).
+    kBootstrap,
+};
+
+/// One planned work ROI of the synchronous attention plan (DEC-026 sections
+/// 1/2): where to spend expensive capability time and at what caller
+/// priority. Maps directly onto caller priority entries for budgeted
+/// backends (e.g. `OcrPriorityEntry`). Coordinates live in the planned
+/// snapshot's space (conversions declared on `plan_attention`).
+struct PlannedWork {
+    PlannedWorkKind kind = PlannedWorkKind::kFocus;
+    RectF roi{};
+    CoordinateSpaceId space = CoordinateSpaceId::kOriented;
+    /// The `ImportancePolicy::priority` of the planning call; ordering never
+    /// multiplies it into anything else (DEC-026 section 2).
+    float priority = 0.0F;
+    /// Identity binding of a resolved focus carrying one (stable-id, text
+    /// or label resolution); both fields stay 0 for ROI-only conditions
+    /// and bootstrap work.
+    uint64_t stable_id = 0;
+    uint64_t generation = 0;
+    /// Index of the originating `AttentionPolicy` condition.
+    size_t condition_index = 0;
+
+    [[nodiscard]] friend bool operator==(const PlannedWork& lhs, const PlannedWork& rhs) noexcept {
+        return lhs.kind == rhs.kind && lhs.roi == rhs.roi && lhs.space == rhs.space && lhs.priority == rhs.priority &&
+               lhs.stable_id == rhs.stable_id && lhs.generation == rhs.generation &&
+               lhs.condition_index == rhs.condition_index;
+    }
+};
+
+/// Queryable peripheral structural-change record (DEC-026 section 2): a
+/// changed region outside every resolved focus — the
+/// focus-reconsideration / layout-invalidation hint. The record is a visual
+/// fact; whether to notify or refresh is the caller's policy, and acting on
+/// it (incremental coverage, notifications) is the M9-04/M9-05 wiring.
+struct FocusReconsideration {
+    RectF changed_region{};
+    CoordinateSpaceId space = CoordinateSpaceId::kOriented;
+    /// True for a whole-frame layout-scale change (the snapshot's change
+    /// report classified kGlobal); the region then covers the full frame.
+    bool global = false;
+
+    [[nodiscard]] friend bool operator==(const FocusReconsideration& lhs, const FocusReconsideration& rhs) noexcept {
+        return lhs.changed_region == rhs.changed_region && lhs.space == rhs.space && lhs.global == rhs.global;
+    }
+};
+
+/// The synchronous attention plan (DEC-026 sections 1/2): resolved focus
+/// work with caller priorities, every condition's explicit resolution
+/// outcome, and peripheral reconsideration records. Pure output — the
+/// coordinator stores none of it, makes no coverage or reuse claim
+/// (`coverage` stays kIncomplete; the M9-04 plan/accept binding owns
+/// coverage proofs and work tokens), and never falls back to a full-frame
+/// recognition on its own (bootstrap work appears only when the caller's
+/// importance policy authorizes it).
+struct AttentionPlan {
+    /// The coordinator's policy revision the plan was produced under.
+    uint64_t policy_revision = 0;
+    /// Ordered planned work: kFocus items first, then kBootstrap; within a
+    /// kind, priority descending, then condition index ascending.
+    std::vector<PlannedWork> work;
+    /// Per-condition resolution outcomes, parallel to the engaged policy's
+    /// conditions (condition i -> resolutions[i]). A resolved ROI-only
+    /// condition also yields a kFocus work item; a resolved id/text/label
+    /// condition yields one with its identity echo.
+    std::vector<FocusResolution> resolutions;
+    /// Peripheral changed regions (snapshot change report) outside every
+    /// resolved focus, in report order; kGlobal collapses to one full-frame
+    /// record.
+    std::vector<FocusReconsideration> reconsiderations;
+    CoverageState coverage = CoverageState::kIncomplete;
+
+    [[nodiscard]] friend bool operator==(const AttentionPlan& lhs, const AttentionPlan& rhs) noexcept {
+        return lhs.policy_revision == rhs.policy_revision && lhs.work == rhs.work &&
+               lhs.resolutions == rhs.resolutions && lhs.reconsiderations == rhs.reconsiderations &&
+               lhs.coverage == rhs.coverage;
     }
 };
 
@@ -694,12 +785,18 @@ struct SourceResetReport {
 /// validation, the monotonic source epoch with explicit reset, and the
 /// byte accounting of all owned coordination state. M9-02 adds the pure
 /// relation-view builder (`build_relation_view`, a free function — the
-/// coordinator holds no view state until the M9-04 wiring). The stateful
-/// coordination primitives — attention focus (M9-03), plan / accept
-/// coverage and binding over relation views (M9-04) and the temporal
-/// state / event surface (M9-05) — follow in their work items inside this
-/// same Experimental header, mirroring how ObjectTracker grew its pipeline
-/// in M7-03..M7-08 and PerceptionSession grew fuse() in M4.
+/// coordinator holds no view state until the M9-04 wiring). M9-03 engages
+/// the first coordination state: the validated attention policy with its
+/// monotonic policy revision, an injected non-owning tracker for
+/// tracker-backed focus resolution (id focus moves with the track; lost
+/// localization is explicit), and the synchronous attention plan
+/// (`plan_attention` — work ROIs with caller priorities, explicit
+/// unresolved foci, peripheral reconsideration records; no coverage or
+/// reuse claims). Plan / accept coverage and binding over relation views
+/// (M9-04) and the temporal state / event surface (M9-05) follow in their
+/// work items inside this same Experimental header, mirroring how
+/// ObjectTracker grew its pipeline in M7-03..M7-08 and PerceptionSession
+/// grew fuse() in M4.
 class ContinuousPerception {
 public:
     ContinuousPerception() noexcept = default;
@@ -727,10 +824,104 @@ public:
     /// end events by the M9-05 event surface. Never throws.
     [[nodiscard]] SourceResetReport notify_source_reset() noexcept;
 
-    /// Bytes owned by all coordination state (entities, relations, events,
-    /// tokens and their strings) — the accounting enforced against
-    /// `max_coordination_bytes` (DEC-026 section 7). Deterministic for a
-    /// given standard library.
+    /// Engages the attention policy (DEC-026 section 2, M9-03): validates it
+    /// (frozen `validate_attention_policy` errors; additionally every
+    /// condition ROI space must be kFrame or kOriented — kDisplay condition
+    /// ROIs have no planner-side conversion in M9-03), stores it and bumps
+    /// the policy revision exactly when the `attention_policy_digest`
+    /// changes; re-setting the identical policy is idempotent. The stored
+    /// policy counts against `max_coordination_bytes` (DEC-026 section 7) —
+    /// an engagement that would overflow the budget is rejected with
+    /// kBudgetExceeded and keeps the previous policy and revision. Never
+    /// throws.
+    [[nodiscard]] Result<void> set_attention_policy(const AttentionPolicy& policy) noexcept;
+
+    /// The engaged attention policy. Precondition: `has_attention_policy()`
+    /// (asserted; calling before the first `set_attention_policy` is a
+    /// contract violation). Never throws.
+    [[nodiscard]] const AttentionPolicy& attention_policy() const noexcept {
+        assert(has_attention_policy() && "attention_policy requires an engaged policy");
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): precondition asserted above
+        return *policy_;
+    }
+
+    /// True when a policy is engaged. Never throws.
+    [[nodiscard]] bool has_attention_policy() const noexcept { return policy_.has_value(); }
+
+    /// Policy revision of the frozen staleness order (DEC-026 section 5):
+    /// 0 while no policy is engaged, then monotonic +1 per engaged digest
+    /// change. Work tokens (M9-04) bind it. Never throws.
+    [[nodiscard]] uint64_t policy_revision() const noexcept { return policy_revision_; }
+
+    /// Injects the non-owning tracker backing tracker-backed focus
+    /// resolution (DEC-026 section 2: the id focus maps to the track's
+    /// current position, never a memorized coordinate). The caller owns the
+    /// tracker and must keep it alive while attached and drive the
+    /// coordinator from the same scheduling context (sync boundary);
+    /// nullptr detaches. Never throws.
+    void attach_tracker(const ObjectTracker* tracker) noexcept { tracker_ = tracker; }
+
+    /// The attached tracker, or nullptr. Never throws.
+    [[nodiscard]] const ObjectTracker* tracker() const noexcept { return tracker_; }
+
+    /// Resolves one attention condition against the snapshot with the
+    /// tracker fallback (DEC-026 section 2, M9-03). The frozen snapshot rule
+    /// (`resolve_attention_focus`) decides first, unchanged; only a
+    /// stable-id condition that found no snapshot region consults the
+    /// attached tracker: a kTracking or kUncertain track resolves to its
+    /// current pool position (`TargetTrack::last_bounds`, reported in
+    /// kOriented — the pool's presented-view space) with the snapshot
+    /// generation echo, a kLost track reports kMissingLocalization, and an
+    /// absent or kTerminated track stays kUnknownStableId. Text, label and
+    /// ROI-only conditions never consult the tracker. With no tracker
+    /// attached the outcome equals the frozen rule. Errors: the frozen
+    /// rule's kInvalidArgument cases. Never throws.
+    [[nodiscard]] Result<FocusResolution> resolve_focus(const AttentionCondition& condition,
+                                                        const SemanticSnapshot& snapshot) const noexcept;
+
+    /// Produces the synchronous attention plan for one processed frame
+    /// (DEC-026 sections 1/2, M9-03). Deterministic, pure output: for every
+    /// engaged policy condition, `resolve_focus` decides (recorded in
+    /// `resolutions`, parallel to the conditions); resolved conditions
+    /// become kFocus work at `ImportancePolicy::priority` — snapshot-backed
+    /// ROIs as-is, tracker-backed ROIs converted from kOriented into the
+    /// snapshot space, ROI-only conditions converted from their declared
+    /// space (the frame's rotation carries kFrame <-> kOriented). A
+    /// condition unresolved with kNotObserved additionally yields one
+    /// full-frame kBootstrap work item when
+    /// `ImportancePolicy::allow_bootstrap_full_frame` authorizes it.
+    /// Peripheral monitoring: the snapshot's change report drives
+    /// `reconsiderations` — a kGlobal change collapses to one full-frame
+    /// record (global), each kPartial change ROI is converted into the
+    /// snapshot space and recorded when it intersects no resolved focus
+    /// ROI (the plan never acts on them — coverage, notifications and
+    /// invalidation are the M9-04/M9-05 wiring). `coverage` stays
+    /// kIncomplete and nothing is stored: the plan makes no coverage or
+    /// reuse claim (DEC-026 sections 2/3).
+    ///
+    /// `frame` must be the frame the snapshot was fused from: its rotation
+    /// and dimensions drive every kFrame <-> kOriented conversion and the
+    /// full-frame ROIs. `frame` is read for geometry only — never for
+    /// pixels.
+    ///
+    /// Ordering: kFocus work before kBootstrap; within a kind, priority
+    /// descending, then condition index ascending.
+    ///
+    /// Errors: kInvalidArgument for a snapshot in kDisplay space (no
+    /// planner-side display conversion in M9-03), a frame with
+    /// non-positive or non-finite dimensions, or a non-finite
+    /// `ImportancePolicy::priority`; kCancelled/kTimeout from `context`.
+    /// Never throws.
+    [[nodiscard]] Result<AttentionPlan> plan_attention(const SemanticSnapshot& snapshot, const Frame& frame,
+                                                       const ImportancePolicy& importance = {},
+                                                       const ExecutionContext& context = {}) const noexcept;
+
+    /// Bytes owned by all coordination state — the engaged attention
+    /// policy's buffers (conditions and matcher text) since M9-03, later the
+    /// M9-04 tokens/entities and the M9-05 event queue — the accounting
+    /// enforced against `max_coordination_bytes` (DEC-026 section 7). An
+    /// unset policy owns nothing. Deterministic for a given standard
+    /// library.
     [[nodiscard]] int64_t coordination_owned_bytes() const noexcept;
 
 private:
@@ -738,6 +929,13 @@ private:
 
     ContinuousPerceptionOptions options_;
     uint64_t epoch_ = 1;
+    /// M9-03 coordination state: the engaged attention policy with its
+    /// monotonic revision, and the injected non-owning tracker. The policy
+    /// counts against `max_coordination_bytes` (DEC-026 section 7); an
+    /// unset policy owns nothing.
+    std::optional<AttentionPolicy> policy_;
+    uint64_t policy_revision_ = 0;
+    const ObjectTracker* tracker_ = nullptr;
 };
 
 }  // namespace mirador
