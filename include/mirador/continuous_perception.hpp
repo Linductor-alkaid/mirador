@@ -31,7 +31,7 @@ class ObjectTracker;
 /// semantics (relation classification, focus resolution, staleness checks,
 /// structural consistency and byte accounting). The deterministic relation-view
 /// builder over a snapshot landed in M9-02; the stateful coordination
-/// primitives (plan / accept / query / drain_events) follow in M9-03..M9-05
+/// primitives (plan / accept / query / drain_events) landed in M9-03..M9-05
 /// inside this same Experimental header, the way `ObjectTracker` grew its
 /// pipeline in M7-03..M7-08. Existing single-frame fusion, stable ids and
 /// the DEC-021 action-binding protocol are untouched: everything here is
@@ -49,6 +49,17 @@ inline constexpr int32_t kContinuousMaxEntities = 1024;
 inline constexpr int32_t kContinuousMaxRelations = 4096;
 inline constexpr int32_t kContinuousMaxEvents = 256;
 inline constexpr int32_t kContinuousMaxFocusConditions = 64;
+
+/// Default confirmation window of the temporal state machine (DEC-026
+/// section 6, M9-05): a trusted change — appearance, text/label/relation
+/// change, disappearance — is confirmed by this many consecutive valid
+/// independent observations. A valid observation is one processed frame in
+/// which the entity's area was actually covered by accepted evidence;
+/// re-planning or re-querying the same frame never counts twice. A single
+/// noisy observation therefore produces no confirmed event. Development
+/// default pending the M9-06 calibration; the debounce structure is the
+/// frozen part, the number is not.
+inline constexpr uint32_t kContinuousConfirmationWindow = 2;
 
 /// Semantic payload freshness of one entity (DEC-026 section 3). Every
 /// reusable result carries exactly one of these states; "not recomputed" is
@@ -532,6 +543,81 @@ struct TemporalEntityState {
     }
 };
 
+/// Aggregate queryable temporal state of one coordinator (DEC-026 sections
+/// 6/8, M9-05): the per-entity views plus the queue/visibility counters the
+/// notification contract requires. `entities` shows the latest observation
+/// layer of every tracked identity — including identities still inside the
+/// confirmation window (`confirmed_frame` 0) and closed lifecycles not yet
+/// evicted — so a focus switch can immediately query what is known and how
+/// fresh it is (AC9-08). Untracked areas are absent from `entities` and are
+/// never reported as unchanged (unknown stays unknown). Data model frozen at
+/// M9-01; the machine producing it landed in M9-05.
+struct TemporalSemanticState {
+    /// Tracked entities, ascending by stable id.
+    std::vector<TemporalEntityState> entities;
+    /// Last processed frame that advanced the state machine.
+    uint64_t latest_observed_frame = 0;
+    /// Frame of the most recent confirmation advance (0 before the first).
+    uint64_t confirmed_frame = 0;
+    /// Confirmed frame of the most recently published (enqueued) event.
+    uint64_t published_frame = 0;
+    /// Events currently queued for `drain_events`.
+    uint64_t pending_events = 0;
+    /// Cumulative events dropped by queue overflow (AC9-09: loss is
+    /// observable; the next plan_cycle also reports resync_required once).
+    uint64_t dropped_events = 0;
+    /// Cumulative entities dropped by the entity cap (evicted closed
+    /// lifecycles plus identities that could not be tracked at all).
+    uint64_t untracked_entities = 0;
+
+    [[nodiscard]] friend bool operator==(const TemporalSemanticState& lhs, const TemporalSemanticState& rhs) noexcept {
+        return lhs.entities == rhs.entities && lhs.latest_observed_frame == rhs.latest_observed_frame &&
+               lhs.confirmed_frame == rhs.confirmed_frame && lhs.published_frame == rhs.published_frame &&
+               lhs.pending_events == rhs.pending_events && lhs.dropped_events == rhs.dropped_events &&
+               lhs.untracked_entities == rhs.untracked_entities;
+    }
+};
+
+/// One attention condition's resolution against the coordinator's temporal
+/// state (DEC-026 section 6 focus-switch query, M9-05): the immediate,
+/// frame-free lookup behind the bounded initial delta of a newly engaged
+/// policy. Matching runs over the confirmed layer (trusted observations):
+/// a stable-id condition resolves to the tracked identity (its current
+/// generation must match the binding, else kStaleGeneration; unknown
+/// identities report kUnknownStableId); a text/label condition lists every
+/// confirmed entity whose stored semantics match exactly; an ROI condition
+/// lists every confirmed entity whose bounds intersect it in the same
+/// coordinate space (the query is frame-free, so cross-space matching is
+/// not attempted). Zero matches and unknown identities are explicit
+/// unresolved outcomes — the query never claims unobserved content
+/// (unknown/待刷新), never fabricates a location.
+struct FocusStateResolution {
+    size_t condition_index = 0;
+    bool resolved = false;
+    FocusUnresolvedReason reason = FocusUnresolvedReason::kNotObserved;  ///< valid iff !resolved
+    /// Matched known entities, ascending; freshness per entity comes from
+    /// the matching `TemporalSemanticState::entities` entry.
+    std::vector<uint64_t> stable_ids;
+
+    [[nodiscard]] friend bool operator==(const FocusStateResolution& lhs, const FocusStateResolution& rhs) noexcept {
+        return lhs.condition_index == rhs.condition_index && lhs.resolved == rhs.resolved && lhs.reason == rhs.reason &&
+               lhs.stable_ids == rhs.stable_ids;
+    }
+};
+
+/// Outcome of one synchronous event drain (DEC-026 sections 6/8, M9-05):
+/// the queued events in sequence order and the cumulative overflow counter.
+/// A non-zero `dropped_total` means the consumer has NOT seen the complete
+/// sequence and should rebuild its cursor from `query_temporal_state`.
+struct EventDrain {
+    std::vector<SemanticEvent> events;  ///< ascending event_sequence
+    uint64_t dropped_total = 0;         ///< cumulative overflow drops, never reset by draining
+
+    [[nodiscard]] friend bool operator==(const EventDrain& lhs, const EventDrain& rhs) noexcept {
+        return lhs.events == rhs.events && lhs.dropped_total == rhs.dropped_total;
+    }
+};
+
 /// Tunables of the frozen per-pair relation rule (DEC-026 section 4).
 /// Thresholds are inclusive development defaults pending the M9-06
 /// calibration; the rule structure is frozen, the numbers are not.
@@ -869,10 +955,12 @@ struct WorkPlan {
     /// In-flight descriptors of the previous cycle that were replaced
     /// without adoption (the caller skipped or replaced the work).
     uint64_t replaced_inflight = 0;
-    /// True when the coverage ledger was emptied wholesale since the last
-    /// reported cycle — a layout-scale change or a source reset — and the
-    /// frame must be re-filled before any reuse claim can be made again
-    /// (AC9-09). Reported once, then cleared.
+    /// True when wholesale state broke since the last reported cycle — the
+    /// coverage ledger was emptied (layout-scale change or source reset)
+    /// or the event queue overflowed — and the frame must be re-filled
+    /// before any reuse claim can be made again (AC9-09; overflow drops
+    /// are additionally counted in `TemporalSemanticState::dropped_events`).
+    /// Reported once, then cleared.
     bool resync_required = false;
     /// kComplete iff every snapshot region lies inside a valid coverage
     /// entry at this cycle; otherwise parts of the frame are unanalyzed and
@@ -928,9 +1016,18 @@ struct WorkAcceptReport {
 /// the unsuppressed work and replaces the single in-flight descriptor set;
 /// `accept_work` validates a whole result batch (structure, binding order,
 /// duplicate submission, exact content) and commits it atomically into the
-/// coverage ledger. The temporal state / event surface (M9-05) follows in
-/// its work item inside this same Experimental header, mirroring how
-/// ObjectTracker grew its pipeline in M7-03..M7-08 and PerceptionSession
+/// coverage ledger. M9-05 adds the temporal state / event surface on top of
+/// the accepted cycles: `plan_cycle` and `accept_work` advance a per-entity
+/// state machine whose observations only count when the entity's area was
+/// actually covered by surviving or accepted evidence; a
+/// `kContinuousConfirmationWindow`-of-valid-observations debounce gates
+/// every confirmed change into bounded `SemanticEvent`s (begin/update/end,
+/// source-reset ends terminate the old epoch's lifecycles);
+/// `query_temporal_state` exposes the latest/confirmed layers with explicit
+/// freshness, `query_focus_states` answers a focus switch from the
+/// confirmed layer immediately, and `drain_events` is the bounded
+/// synchronous pull. Everything mirrors how ObjectTracker grew its
+/// pipeline in M7-03..M7-08 and PerceptionSession
 /// grew fuse() in M4.
 class ContinuousPerception {
 public:
@@ -954,14 +1051,18 @@ public:
 
     /// Declares a source rebuild (window/device recreation, DEC-026
     /// sections 1/8): bumps the epoch. Work planned under the previous
-    /// epoch becomes permanently rejectable with kStaleSourceEpoch; the
-    /// old generation's unclosed events are terminated with kSourceReset
-    /// end events by the M9-05 event surface. Since M9-04 the reset also
-    /// ends the cycle state: the in-flight descriptor set is dropped and
-    /// every coverage entry is invalidated (the ledger is empty until the
-    /// next fill; DEC-026 section 8 — old-generation evidence never
-    /// re-validates under the new epoch). The next plan_cycle reports
-    /// resync_required once. Never throws.
+    /// epoch becomes permanently rejectable with kStaleSourceEpoch. Since
+    /// M9-04 the reset ends the cycle state: the in-flight descriptor set
+    /// is dropped and every coverage entry is invalidated (the ledger is
+    /// empty until the next fill; DEC-026 section 8 — old-generation
+    /// evidence never re-validates under the new epoch). The next plan_cycle
+    /// reports resync_required once. Since M9-05 the reset also explicitly
+    /// terminates the old generation: every open entity lifecycle is closed
+    /// with a kSourceReset end event (zero bounds, zero window frames,
+    /// carrying the old epoch — never a disappearance), regardless of the
+    /// notification filter (epoch termination is a lifecycle fact, not a
+    /// notification); the event queue itself survives so the termination
+    /// stays drainable. Never throws.
     [[nodiscard]] SourceResetReport notify_source_reset() noexcept;
 
     /// Engages the attention policy (DEC-026 section 2, M9-03): validates it
@@ -1047,11 +1148,14 @@ public:
     /// Ordering: kFocus work before kBootstrap; within a kind, priority
     /// descending, then condition index ascending.
     ///
-    /// Errors: kInvalidArgument for a snapshot in kDisplay space (no
-    /// planner-side display conversion in M9-03), a frame with
-    /// non-positive or non-finite dimensions, or a non-finite
-    /// `ImportancePolicy::priority`; kCancelled/kTimeout from `context`.
-    /// Never throws.
+    /// Since M9-05 the whole snapshot's regions are validated (DEC-021):
+    /// kInvalidArgument for a region with non-finite or non-positive-size
+    /// bounds — the temporal state machine keys records on these bounds and
+    /// every lifecycle event must carry them. Errors: kInvalidArgument for
+    /// a snapshot in kDisplay space (no planner-side display conversion in
+    /// M9-03), such a degenerate region batch, a frame with non-positive or
+    /// non-finite dimensions, or a non-finite `ImportancePolicy::priority`;
+    /// kCancelled/kTimeout from `context`. Never throws.
     [[nodiscard]] Result<AttentionPlan> plan_attention(const SemanticSnapshot& snapshot, const Frame& frame,
                                                        const ImportancePolicy& importance = {},
                                                        const ExecutionContext& context = {}) const noexcept;
@@ -1087,6 +1191,22 @@ public:
     /// is never silently carried over). Nothing is adopted at plan time:
     /// coverage entries are created only by `accept_work`.
     ///
+    /// Temporal advance (M9-05): after the coverage re-verification, the
+    /// cycle's snapshot is classified into per-entity observations — a
+    /// region inside a surviving entry is a valid observation now (its
+    /// content digest was re-verified this cycle), a region inside an
+    /// issued work ROI becomes valid only when that token is adopted, and
+    /// anything else is unanalyzed. Valid observations advance the
+    /// per-entity state machine immediately (appearance, text/label/relation
+    /// changes and disappearances confirm after
+    /// `kContinuousConfirmationWindow` consecutive valid frames and enqueue
+    /// events when the importance policy's `notify_enabled` allows);
+    /// token-backed observations advance in `accept_work` on a committed
+    /// batch. Re-planning the same frame never counts twice. A
+    /// layout-scale (kGlobal) change moves covered entities to kUnanalyzed
+    /// (unknown, no disappearance advance) while resync_required reports
+    /// the structural break (AC9-09).
+    ///
     /// `frame` must be the frame the snapshot was fused from; unlike
     /// `plan_attention` this entry reads the frame's primary-plane pixels
     /// (exact ROI digests): the view must be valid, single-plane, and the
@@ -1094,11 +1214,13 @@ public:
     /// anything else rejects the whole cycle (kInvalidArgument, DEC-021).
     ///
     /// Errors: kInvalidArgument for a snapshot in kDisplay space, an
-    /// invalid/empty-pixel or multi-plane frame, a non-finite importance
-    /// priority, a coordinator created without a source id (tokens bind
-    /// it), or a work ROI outside the frame; kBudgetExceeded when the
-    /// issued cycle would overflow `max_coordination_bytes`;
-    /// kCancelled/kTimeout from `context`. Never throws.
+    /// invalid/empty-pixel or multi-plane frame, a snapshot region with
+    /// non-finite or non-positive-size bounds (whole-batch, DEC-021), a
+    /// non-finite importance priority, a coordinator created without a
+    /// source id (tokens bind it), or a work ROI outside the frame;
+    /// kBudgetExceeded when the issued cycle would overflow
+    /// `max_coordination_bytes`; kCancelled/kTimeout from `context`. Never
+    /// throws.
     [[nodiscard]] Result<WorkPlan> plan_cycle(const SemanticSnapshot& snapshot, const Frame& frame,
                                               const ImportancePolicy& importance = {}, uint64_t request_digest = 0,
                                               const ExecutionContext& context = {}) noexcept;
@@ -1123,7 +1245,11 @@ public:
     /// digests are recomputed); invalid or multi-plane views abort with
     /// kInvalidArgument. Rejections increment the per-reason counters
     /// (`rejection_count`). An empty batch commits trivially with zero
-    /// adoptions.
+    /// adoptions. A committed batch also advances the temporal state
+    /// machine's token-backed observations of the planned cycle (M9-05):
+    /// only accepted evidence validates an observation, so cancelled,
+    /// stale or rejected results never advance confirmed state or events
+    /// (DEC-026 sections 5/6).
     ///
     /// Errors: kInvalidArgument for a structurally invalid token, an
     /// invalid/empty-pixel or multi-plane frame, or a token ROI outside
@@ -1136,13 +1262,47 @@ public:
     /// for the coordinator's lifetime. Never throws.
     [[nodiscard]] uint64_t rejection_count(WorkRejectionReason reason) const noexcept;
 
+    /// Queryable temporal state (DEC-026 sections 6/8, M9-05, AC9-09):
+    /// rebuilds the current latest-observation view of every tracked entity
+    /// with the queue/visibility counters. Pure and synchronous — safe to
+    /// call at any point in the caller's schedule; a query never advances
+    /// the state machine and never counts as an observation. Closed
+    /// lifecycles stay queryable until entity-cap pressure evicts them
+    /// (counted in `untracked_entities`). Never throws.
+    [[nodiscard]] TemporalSemanticState query_temporal_state() const noexcept;
+
+    /// Resolves every engaged attention condition against the confirmed
+    /// temporal layer — the focus-switch query and bounded initial delta
+    /// (DEC-026 section 6, M9-05, AC9-08). Frame-free and immediate: usable
+    /// right after `set_attention_policy`, before any new cycle. Matching
+    /// semantics per condition are documented on `FocusStateResolution`;
+    /// unresolved outcomes are explicit (unknown/待刷新), never fabricated.
+    /// Freshness of each match comes from the matching
+    /// `query_temporal_state` entity. With no policy engaged the result is
+    /// empty. Never throws.
+    [[nodiscard]] std::vector<FocusStateResolution> query_focus_states() const noexcept;
+
+    /// Drains the bounded event queue synchronously (DEC-026 sections 6/8,
+    /// M9-05): returns the queued `SemanticEvent`s in ascending
+    /// event_sequence and clears the queue. Events are enqueued by the
+    /// state machine's confirmation advances (notification filter
+    /// permitting) and by source resets (termination ends, unfiltered);
+    /// overflow drops the oldest queued events first and counts them in
+    /// `dropped_total` while flagging the next plan_cycle's
+    /// resync_required — a non-zero counter means the consumer has not seen
+    /// the complete sequence. The queue is capped by `max_events` and the
+    /// coordination byte budget; draining is the caller's pressure valve,
+    /// the library never pushes. Errors: kCancelled/kTimeout from
+    /// `context`. Never throws.
+    [[nodiscard]] Result<EventDrain> drain_events(const ExecutionContext& context = {}) noexcept;
+
     /// Bytes owned by all coordination state — the engaged attention
     /// policy's buffers (conditions and matcher text) since M9-03, the
     /// in-flight descriptor set and coverage ledger with their strings
-    /// since M9-04, later the M9-05 event queue — the accounting enforced
-    /// against `max_coordination_bytes` (DEC-026 section 7). An unset
-    /// policy and empty cycle state own nothing. Deterministic for a given
-    /// standard library.
+    /// since M9-04, and the temporal entity map plus event queue since
+    /// M9-05 — the accounting enforced against `max_coordination_bytes`
+    /// (DEC-026 section 7). An unset policy and empty cycle state own
+    /// nothing. Deterministic for a given standard library.
     [[nodiscard]] int64_t coordination_owned_bytes() const noexcept;
 
 private:
@@ -1168,6 +1328,72 @@ private:
         uint64_t content_digest = 0;
     };
 
+    /// One tracked entity of the temporal state machine (DEC-026 sections
+    /// 6/8, M9-05). Two layers per the decision: the latest observation
+    /// layer (generation/bounds/freshness/observation/observed_frame —
+    /// updated by every valid observation, exposed by
+    /// `query_temporal_state`) and the debounced confirmed layer
+    /// (text/label/part-of parents + lifecycle + instance generation) that
+    /// gates event emission. Kept sorted by stable id.
+    struct TemporalEntity {
+        uint64_t stable_id = 0;
+        // Latest observation layer.
+        uint64_t generation = 0;
+        RectF bounds{};
+        CoordinateSpaceId space = CoordinateSpaceId::kOriented;
+        Freshness freshness = Freshness::kUnvalidated;
+        ObservationState observation = ObservationState::kUnanalyzed;
+        uint64_t observed_frame = 0;
+        // Confirmed layer (event-bearing axes only; geometry tracks latest).
+        uint64_t instance_generation = 0;  ///< 0 until the first confirmation
+        std::string confirmed_text;
+        std::string confirmed_label;
+        std::vector<uint64_t> confirmed_parents;  ///< part_of parent ids, ascending
+        uint64_t confirmed_frame = 0;
+        bool lifecycle_open = false;
+        bool confirmed_occluded = false;
+        // Debounce streaks: consecutive valid observations of one kind.
+        uint32_t presence_count = 0;
+        uint32_t absence_count = 0;
+        uint32_t occluded_count = 0;
+        uint64_t presence_since_frame = 0;
+        uint64_t absence_since_frame = 0;
+        uint64_t occluded_since_frame = 0;
+        // Pending change candidate (text/label/parents tuple).
+        bool pending_active = false;
+        uint32_t pending_count = 0;
+        uint64_t pending_since_frame = 0;
+        std::string pending_text;
+        std::string pending_label;
+        std::vector<uint64_t> pending_parents;
+    };
+
+    /// One classified observation of the planned cycle (M9-05): recorded by
+    /// plan_cycle; the covered_now subset advances at plan time, the
+    /// token_backed subset at accept time (valid only for a committed
+    /// batch), and the rest is unanalyzed (unknown — advances nothing).
+    struct ObservationItem {
+        uint64_t stable_id = 0;
+        bool present = false;           ///< entity seen in this cycle's snapshot
+        bool covered_now = false;       ///< inside a surviving coverage entry
+        bool token_backed = false;      ///< inside an issued work ROI
+        bool occluded = false;          ///< absence classification (covered, not visible)
+        bool absence_advances = false;  ///< bare covered-missing: disappearance channel
+        bool tracking_lost = false;     ///< absence classification (tracker kLost)
+        Freshness freshness = Freshness::kUnvalidated;
+        size_t work_index = 0;  ///< issued work binding this item waits on
+        uint64_t generation = 0;
+        RectF bounds{};
+        CoordinateSpaceId space = CoordinateSpaceId::kOriented;
+        std::string text;
+        std::string label;
+        std::vector<uint64_t> parents;  ///< part_of parent ids, ascending
+    };
+    struct PendingObservation {
+        uint64_t frame_sequence = 0;
+        std::vector<ObservationItem> items;
+    };
+
     ContinuousPerceptionOptions options_;
     uint64_t epoch_ = 1;
     /// M9-03 coordination state: the engaged attention policy with its
@@ -1188,8 +1414,68 @@ private:
     uint64_t planned_frame_sequence_ = 0;
     uint64_t planned_generation_ = 0;
     /// Set when coverage was emptied wholesale (source reset, layout-scale
-    /// change); reported once by the next plan_cycle as resync_required.
+    /// change) or the event queue overflowed; reported once by the next
+    /// plan_cycle as resync_required.
     bool resync_pending_ = false;
+    /// M9-05 coordination state: the temporal entity map (sorted by stable
+    /// id), the bounded event queue, the classified pending observation of
+    /// the planned cycle, and the monotonic counters/fences of the state
+    /// machine. Everything here counts against `max_coordination_bytes`
+    /// except the fixed-width counters; the queue is capped by max_events
+    /// and drops oldest-first under pressure (visible, never silent).
+    std::vector<TemporalEntity> entities_;
+    std::vector<SemanticEvent> events_;
+    PendingObservation pending_;
+    uint64_t event_sequence_ = 0;
+    uint64_t dropped_events_ = 0;
+    uint64_t untracked_entities_ = 0;
+    uint64_t plan_advanced_frame_ = 0;    ///< surviving-backed advance fence
+    uint64_t accept_advanced_frame_ = 0;  ///< token-backed advance fence
+    uint64_t last_observed_frame_ = 0;
+    uint64_t last_confirmed_frame_ = 0;
+    uint64_t last_published_frame_ = 0;
+    /// Notification flag of the most recent plan_cycle (DEC-026 section 6:
+    /// the filter gates publication only — confirmed state evolves either
+    /// way; source-reset ends bypass it).
+    bool notify_enabled_ = true;
+
+    // M9-05 temporal machinery (defined in continuous_perception.cpp).
+    [[nodiscard]] std::vector<TemporalEntity>::iterator find_entity(uint64_t stable_id) noexcept;
+    [[nodiscard]] std::vector<TemporalEntity>::const_iterator find_entity(uint64_t stable_id) const noexcept;
+    /// Looks up or creates the entity record, evicting closed lifecycles
+    /// under entity-cap pressure; end() means the cap refused the identity
+    /// (counted, never silent).
+    [[nodiscard]] std::vector<TemporalEntity>::iterator ensure_entity(uint64_t stable_id) noexcept;
+    void emit_semantic_event(EventSemantic semantic, SemanticChangeKind kind, const TemporalEntity& entity,
+                             uint64_t observed_frame, uint64_t confirmed_frame) noexcept;
+    /// `emit_semantic_event` under the cycle's notification filter (DEC-026
+    /// section 6: the filter gates publication only — confirmed state and
+    /// its staleness rules evolve either way). Source-reset ends bypass it.
+    void emit_notifiable(EventSemantic semantic, SemanticChangeKind kind, const TemporalEntity& entity,
+                         uint64_t observed_frame, uint64_t confirmed_frame) noexcept;
+    void apply_present_observation(TemporalEntity& entity, const ObservationItem& item,
+                                   uint64_t frame_sequence) noexcept;
+    void apply_absent_observation(TemporalEntity& entity, const ObservationItem& item,
+                                  uint64_t frame_sequence) noexcept;
+    static void apply_uncovered_observation(TemporalEntity& entity) noexcept;
+    void advance_observation_item(ObservationItem& item, uint64_t frame_sequence) noexcept;
+    /// Advances the planned cycle's token-backed observations for the
+    /// tokens the committed batch adopted (M9-05: only accepted evidence
+    /// validates an observation, DEC-026 sections 5/6).
+    void advance_accepted_observations() noexcept;
+    /// Classifies the planned cycle into per-entity observations and runs
+    /// the plan-side (surviving-coverage) advance; token-backed items wait
+    /// in `pending_` for accept. Bounded in-memory work — runs to
+    /// completion, no cancellation checks inside.
+    void record_cycle_observation(const SemanticSnapshot& snapshot,
+                                  const std::vector<std::pair<uint64_t, uint64_t>>& part_of_edges,
+                                  const std::vector<RectF>& work_rois, uint64_t frame_sequence) noexcept;
+    void record_present_items(const SemanticSnapshot& snapshot,
+                              const std::vector<std::pair<uint64_t, uint64_t>>& part_of_edges,
+                              const std::vector<RectF>& work_rois, uint64_t frame_sequence, bool advance_now,
+                              std::vector<uint64_t>* seen_ids) noexcept;
+    void record_absent_items(const SemanticSnapshot& snapshot, const std::vector<RectF>& work_rois,
+                             uint64_t frame_sequence, bool advance_now, const std::vector<uint64_t>& seen_ids) noexcept;
 };
 
 }  // namespace mirador

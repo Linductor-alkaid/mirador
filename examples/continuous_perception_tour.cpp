@@ -1,13 +1,15 @@
-// M9-04 (DEC-026 sections 3/5): runtime-free example of the continuous-
-// perception cycle loop. A caller drives ContinuousPerception with the
-// reference latest-pending policy — one in-flight work set plus one latest
-// pending frame, newer captures replacing the pending slot — over a tiny
-// synthetic RGBA frame. The tour shows the near-zero-cost reuse path
+// M9-04/M9-05 (DEC-026 sections 3/5/6/8): runtime-free example of the
+// continuous-perception cycle loop. A caller drives ContinuousPerception
+// with the reference latest-pending policy — one in-flight work set plus one
+// latest pending frame, newer captures replacing the pending slot — over a
+// tiny synthetic RGBA frame. The tour shows the near-zero-cost reuse path
 // (static frames re-verified by exact content digests issue no work), the
 // content-mismatch invalidation when a region's pixels change under a
-// fingerprint-stable frame, whole-batch accept with duplicate rejection,
-// and the source-reset ending old-generation tokens. No backend, no model,
-// no threads, nothing persisted.
+// fingerprint-stable frame, whole-batch accept with duplicate rejection, the
+// temporal state machine confirming an identity after two valid observations
+// and exposing it with explicit freshness, and the source-reset ending
+// old-generation tokens and terminating old lifecycles with explicit
+// kSourceReset events. No backend, no model, no threads, nothing persisted.
 
 #include <mirador/continuous_perception.hpp>
 #include <mirador/execution_context.hpp>
@@ -168,11 +170,38 @@ int main() {
         "duplicate: committed=%d first-reason=%d count=%llu\n", duplicate.committed ? 1 : 0, first_reason,
         static_cast<unsigned long long>(coordinator.rejection_count(WorkRejectionReason::kDuplicateSubmission)));
 
+    // M9-05: the identity was confirmed after two valid observations (the
+    // fill accept, then the static cycle's digest re-verification) — the
+    // appearance event is queued, and the queryable state carries explicit
+    // freshness (AC9-08: a focus switch can query what is known right now).
+    const mirador::TemporalSemanticState state = coordinator.query_temporal_state();
+    std::printf("state: entities=%zu pending=%llu dropped=%llu\n", state.entities.size(),
+                static_cast<unsigned long long>(state.pending_events),
+                static_cast<unsigned long long>(state.dropped_events));
+    for (const mirador::TemporalEntityState& entity : state.entities) {
+        std::printf("  entity: id=%llu freshness=%d observation=%d confirmed-frame=%llu\n",
+                    static_cast<unsigned long long>(entity.stable_id), static_cast<int>(entity.freshness),
+                    static_cast<int>(entity.observation), static_cast<unsigned long long>(entity.confirmed_frame));
+    }
+
     // Source rebuild: the reset ends the epoch and empties the coverage; the
     // next cycle reports resync_required once and re-issues the focus work
     // under the new epoch (DEC-026 section 8).
     static_cast<void>(coordinator.notify_source_reset());
     const WorkPlan after_reset = coordinator.plan_cycle(snapshot, drifted, {}, 0U, context).value();
     print_plan("after-reset", after_reset);
+
+    // Drain (DEC-026 sections 6/8): the confirmed appearance begin plus the
+    // reset's explicit lifecycle termination — an end carrying kSourceReset
+    // with the old epoch, never a disappearance — in sequence order.
+    const mirador::EventDrain drain = coordinator.drain_events(context).value();
+    std::printf("drain: events=%zu dropped-total=%llu\n", drain.events.size(),
+                static_cast<unsigned long long>(drain.dropped_total));
+    for (const mirador::SemanticEvent& event : drain.events) {
+        std::printf("  event: seq=%llu semantic=%d kind=%d id=%llu epoch=%llu\n",
+                    static_cast<unsigned long long>(event.event_sequence), static_cast<int>(event.semantic),
+                    static_cast<int>(event.change_kind), static_cast<unsigned long long>(event.stable_id),
+                    static_cast<unsigned long long>(event.window.source_epoch));
+    }
     return 0;
 }
