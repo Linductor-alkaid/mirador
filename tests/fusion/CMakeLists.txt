@@ -206,6 +206,20 @@ mirador_add_test(
     LIBS mirador::fusion
     LABELS unit)
 
+# M9-04 cycle binding (DEC-026 sections 3/5, Experimental): the tokenized
+# plan/accept protocol over the incremental coverage ledger — exact content
+# re-digests (static zero-work reuse, single-region drift, partial/global
+# invalidation), the whole-batch rejection matrix with the frozen staleness
+# order, duplicate submission and content mismatch, replaced in-flight
+# accounting, the budget gates, the source-reset ending, cumulative
+# rejection counters, determinism and the AC9-07 latest-pending backlog
+# simulation.
+mirador_add_test(
+    NAME mirador.fusion.cycle_binding
+    SOURCES cycle_binding_test.cpp
+    LIBS mirador::fusion
+    LABELS unit)
+
 # M5-07 concurrency matrix (TSAN preset): published-snapshot readers and
 # parallel sessions. Threads need the system threads library on platforms
 # where std::thread does not link transitively.

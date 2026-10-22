@@ -17,6 +17,14 @@ if(TARGET mirador::fusion)
     add_executable(mirador_example_budgeted_ocr budgeted_ocr_tour.cpp)
     target_link_libraries(mirador_example_budgeted_ocr PRIVATE mirador::fusion)
     mirador_apply_warnings(mirador_example_budgeted_ocr)
+
+    # M9-04 (DEC-026): the continuous-perception cycle loop with the
+    # reference latest-pending policy — tokenized plan/accept, exact-digest
+    # reuse, content-mismatch invalidation, duplicate rejection and the
+    # source-reset ending.
+    add_executable(mirador_example_continuous_perception continuous_perception_tour.cpp)
+    target_link_libraries(mirador_example_continuous_perception PRIVATE mirador::fusion)
+    mirador_apply_warnings(mirador_example_continuous_perception)
 endif()
 
 # M3-11: the two design-section-24 demos proving the library is not bound to

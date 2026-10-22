@@ -4,7 +4,9 @@
 #include <mirador/execution_context.hpp>
 #include <mirador/frame.hpp>
 #include <mirador/geometry.hpp>
+#include <mirador/image_view.hpp>
 #include <mirador/object_tracker.hpp>
+#include <mirador/pixel_format.hpp>
 #include <mirador/result.hpp>
 #include <mirador/semantic_snapshot.hpp>
 #include <mirador/status.hpp>
@@ -18,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -126,6 +129,268 @@ namespace {
     return std::ranges::any_of(work, [&roi](const PlannedWork& item) {
         return item.kind == PlannedWorkKind::kFocus && fusion_internal::intersection_area(roi, item.roi) > 0.0;
     });
+}
+
+/// Structural + pixel requirements of a cycle frame: a valid single-plane
+/// view with resident pixels (the exact ROI digests read them).
+[[nodiscard]] Status validate_cycle_frame(const Frame& frame) noexcept {
+    if (const Result<void> view = validate(frame.image); !view.ok()) {
+        return view.status();
+    }
+    if (frame.image.data == nullptr) {
+        return {ErrorCode::kInvalidArgument, "cycle frames require resident pixels for content binding"};
+    }
+    if (plane_count(frame.image.format) != 1) {
+        return {ErrorCode::kInvalidArgument, "cycle content binding supports single-plane frames only"};
+    }
+    return {};
+}
+
+/// Converts a plan-space ROI into the integer frame-pixel rectangle it
+/// covers; rejects anything that leaves the frame or rounds down to empty
+/// (DEC-021: reject, never clamp).
+[[nodiscard]] Result<RectI> frame_digest_rect(const RectF& roi, CoordinateSpaceId space, const Frame& frame) noexcept {
+    const std::optional<RectF> converted = convert_plan_rect(roi, space, CoordinateSpaceId::kFrame, frame);
+    if (!converted.has_value()) {
+        return Result<RectI>{Status(ErrorCode::kInvalidArgument, "ROI space not convertible to the frame space")};
+    }
+    const bool inside = converted->x >= 0.0F && converted->y >= 0.0F &&
+                        converted->x + converted->width <= static_cast<float>(frame.image.width) &&
+                        converted->y + converted->height <= static_cast<float>(frame.image.height);
+    const int32_t x0 = std::max(0, static_cast<int32_t>(std::floor(converted->x)));
+    const int32_t y0 = std::max(0, static_cast<int32_t>(std::floor(converted->y)));
+    const int32_t x1 = std::min(frame.image.width, static_cast<int32_t>(std::ceil(converted->x + converted->width)));
+    const int32_t y1 = std::min(frame.image.height, static_cast<int32_t>(std::ceil(converted->y + converted->height)));
+    if (!inside || x1 <= x0 || y1 <= y0) {
+        return Result<RectI>{Status(ErrorCode::kInvalidArgument, "work ROI must cover pixels inside the frame")};
+    }
+    return Result<RectI>{RectI{x0, y0, x1 - x0, y1 - y0}};
+}
+
+/// Exact content digest of one frame-pixel rectangle: FNV-1a over the
+/// primary-plane bytes of every covered row segment. Layout-sensitive by
+/// design (the digest binds the pixels the work was planned against);
+/// deterministic across processes.
+[[nodiscard]] uint64_t digest_frame_region(const ImageView& view, const RectI& rect) noexcept {
+    const int32_t bpp = bytes_per_pixel(view.format);
+    const int64_t stride = view.row_stride_bytes;
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (int32_t y = 0; y < rect.height; ++y) {
+        const auto* row = view.data + static_cast<int64_t>(rect.y + y) * stride + static_cast<int64_t>(rect.x) * bpp;
+        hash = digest_bytes(hash, row, static_cast<size_t>(rect.width) * static_cast<size_t>(bpp));
+    }
+    return hash;
+}
+
+/// True when `inner` lies fully inside `outer` (exact float containment).
+[[nodiscard]] bool rect_contains(const RectF& outer, const RectF& inner) noexcept {
+    return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width &&
+           inner.y + inner.height <= outer.y + outer.height;
+}
+
+/// Identity a cycle binds and coverage entries are re-verified against
+/// (DEC-026 sections 3/5).
+struct CycleIdentity {
+    uint64_t epoch = 0;
+    uint64_t generation = 0;
+    uint64_t policy_revision = 0;
+    uint64_t request_digest = 0;
+    CoordinateSpaceId snapshot_space = CoordinateSpaceId::kOriented;
+};
+
+/// First coverage entry whose region contains `roi`, if any.
+template <typename CoverageEntries>
+[[nodiscard]] std::optional<size_t> find_covering_entry(const CoverageEntries& coverage, const RectF& roi) noexcept {
+    for (size_t index = 0; index < coverage.size(); ++index) {
+        if (rect_contains(coverage[index].roi, roi)) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+/// Re-verifies every coverage entry against the current cycle (DEC-026
+/// section 3): identity components (generation, request digest, policy
+/// revision, snapshot space), a kGlobal change emptying the ledger, a
+/// partial change ROI intersecting the entry, and the exact content digest
+/// of the entry's region against `frame`'s pixels. Every drop is recorded.
+/// Works on the private CoverageEntry through a template parameter.
+template <typename CoverageEntries>
+[[nodiscard]] Status refresh_cycle_coverage(CoverageEntries* coverage, const SemanticSnapshot& snapshot,
+                                            const Frame& frame, const CycleIdentity& identity,
+                                            std::vector<WorkInvalidation>* invalidations, bool* resync_required,
+                                            const ExecutionContext& context) noexcept {
+    const ChangeReport& change = snapshot.change;
+    if (change.classification == ChangeClassification::kGlobal) {
+        if (!coverage->empty()) {
+            WorkInvalidation record;
+            record.roi = full_frame_rect(frame, identity.snapshot_space);
+            record.space = identity.snapshot_space;
+            record.reason = WorkInvalidationReason::kLayoutChange;
+            record.global = true;
+            invalidations->push_back(record);
+            *resync_required = true;
+        }
+        coverage->clear();
+        return {};
+    }
+
+    std::vector<RectF> changed;
+    changed.reserve(change.changed_regions.size());
+    for (const RectI& region : change.changed_regions) {
+        const RectF frame_rect{static_cast<float>(region.x), static_cast<float>(region.y),
+                               static_cast<float>(region.width), static_cast<float>(region.height)};
+        const std::optional<RectF> converted =
+            convert_plan_rect(frame_rect, CoordinateSpaceId::kFrame, identity.snapshot_space, frame);
+        if (!converted.has_value()) {
+            return {ErrorCode::kInvalidArgument, "change ROI space not convertible to the snapshot space"};
+        }
+        changed.push_back(*converted);
+    }
+
+    size_t kept = 0;
+    for (size_t index = 0; index < coverage->size(); ++index) {
+        if ((index & 63) == 0) {
+            if (const Status stage = context_status(context); !stage.ok()) {
+                return stage;
+            }
+        }
+        auto entry = (*coverage)[index];
+        std::optional<WorkInvalidationReason> reason;
+        if (entry.generation != identity.generation || entry.request_digest != identity.request_digest ||
+            entry.policy_revision != identity.policy_revision || entry.space != identity.snapshot_space) {
+            reason = WorkInvalidationReason::kIdentityChanged;
+        } else if (std::ranges::any_of(changed, [&entry](const RectF& roi) {
+                       return fusion_internal::intersection_area(roi, entry.roi) > 0.0;
+                   })) {
+            reason = WorkInvalidationReason::kRegionChanged;
+        } else {
+            const Result<RectI> digest_rect = frame_digest_rect(entry.roi, entry.space, frame);
+            if (!digest_rect.ok() || digest_frame_region(frame.image, digest_rect.value()) != entry.content_digest) {
+                reason = WorkInvalidationReason::kContentMismatch;
+            }
+        }
+        if (reason.has_value()) {
+            WorkInvalidation record;
+            record.roi = entry.roi;
+            record.space = entry.space;
+            record.reason = *reason;
+            record.global = false;
+            invalidations->push_back(record);
+            continue;
+        }
+        (*coverage)[kept++] = entry;
+    }
+    coverage->resize(kept);
+    return {};
+}
+
+/// Reports snapshot regions covered by a surviving coverage entry (AC9-03:
+/// the validating frame stays queryable).
+template <typename CoverageEntries>
+[[nodiscard]] Status emit_cycle_reuse(const std::vector<VisualRegion>& regions, const CoverageEntries& coverage,
+                                      CoordinateSpaceId space, std::vector<WorkReuse>* reuse,
+                                      const ExecutionContext& context) noexcept {
+    for (size_t index = 0; index < regions.size(); ++index) {
+        if ((index & 63) == 0) {
+            if (const Status stage = context_status(context); !stage.ok()) {
+                return stage;
+            }
+        }
+        const std::optional<size_t> covering = find_covering_entry(coverage, regions[index].bounds);
+        if (!covering.has_value()) {
+            continue;
+        }
+        WorkReuse entry;
+        entry.roi = regions[index].bounds;
+        entry.space = space;
+        entry.generation = coverage[*covering].generation;
+        entry.validated_frame = coverage[*covering].frame_sequence;
+        reuse->push_back(entry);
+    }
+    return {};
+}
+
+/// Issues the cycle work: covered-and-verified focus candidates are
+/// suppressed into reuse (the near-zero-cost path); the rest become
+/// binding tokens (DEC-026 section 5).
+template <typename CoverageEntries>
+[[nodiscard]] Status emit_cycle_work(const std::vector<PlannedWork>& candidates, const CoverageEntries& coverage,
+                                     const Frame& frame, const CycleIdentity& identity, uint64_t frame_sequence,
+                                     const std::string& source_id, std::vector<PlannedWorkBinding>* work,
+                                     std::vector<WorkReuse>* reuse, std::vector<WorkToken>* tokens,
+                                     const ExecutionContext& context) noexcept {
+    for (size_t index = 0; index < candidates.size(); ++index) {
+        if ((index & 15) == 0) {
+            if (const Status stage = context_status(context); !stage.ok()) {
+                return stage;
+            }
+        }
+        const PlannedWork& candidate = candidates[index];
+        const Result<RectI> digest_rect = frame_digest_rect(candidate.roi, candidate.space, frame);
+        if (!digest_rect.ok()) {
+            return digest_rect.status();
+        }
+        if (candidate.kind == PlannedWorkKind::kFocus) {
+            const std::optional<size_t> covering = find_covering_entry(coverage, candidate.roi);
+            if (covering.has_value()) {
+                WorkReuse entry;
+                entry.roi = candidate.roi;
+                entry.space = candidate.space;
+                entry.generation = coverage[*covering].generation;
+                entry.validated_frame = coverage[*covering].frame_sequence;
+                reuse->push_back(entry);
+                continue;
+            }
+        }
+        if (coverage.size() + tokens->size() >= static_cast<size_t>(kContinuousMaxEntities)) {
+            return {ErrorCode::kBudgetExceeded, "cycle work exceeds the coverage cap"};
+        }
+        PlannedWorkBinding binding;
+        binding.work = candidate;
+        binding.token.source_id = source_id;
+        binding.token.source_epoch = identity.epoch;
+        binding.token.frame_sequence = frame_sequence;
+        binding.token.generation = identity.generation;
+        binding.token.policy_revision = identity.policy_revision;
+        binding.token.request_digest = identity.request_digest;
+        binding.token.roi = candidate.roi;
+        binding.token.roi_space = candidate.space;
+        binding.token.content_digest = digest_frame_region(frame.image, digest_rect.value());
+        tokens->push_back(binding.token);
+        work->push_back(std::move(binding));
+    }
+    return {};
+}
+
+/// Per-item outcome of the accept validation pass over the current
+/// in-flight set (nullopt = valid). The frozen staleness order decides
+/// first; then the token must belong to the current in-flight set and be
+/// unadopted; finally the exact content re-digest must match.
+template <typename InFlightEntries>
+[[nodiscard]] std::optional<WorkRejectionReason> classify_accept_item(const WorkToken& token,
+                                                                      const InFlightEntries& inflight,
+                                                                      const WorkBindingContext& binding,
+                                                                      const Frame& frame) noexcept {
+    if (const std::optional<WorkRejectionReason> stale = work_token_stale_reason(token, binding)) {
+        return stale;
+    }
+    for (const auto& flight : inflight) {
+        if (!(flight.token == token)) {
+            continue;
+        }
+        if (flight.adopted) {
+            return WorkRejectionReason::kDuplicateSubmission;
+        }
+        const Result<RectI> rect = frame_digest_rect(token.roi, token.roi_space, frame);
+        if (!rect.ok() || digest_frame_region(frame.image, rect.value()) != token.content_digest) {
+            return WorkRejectionReason::kContentMismatch;
+        }
+        return std::nullopt;
+    }
+    // Matching identity but absent from the in-flight set: no plan issued
+    // for it under the current cycle (frozen kStaleFrameSequence case).
+    return WorkRejectionReason::kStaleFrameSequence;
 }
 
 /// Input validation of one attention plan: snapshot space, frame geometry
@@ -811,7 +1076,178 @@ SourceResetReport ContinuousPerception::notify_source_reset() noexcept {
     report.previous_epoch = epoch_;
     ++epoch_;
     report.new_epoch = epoch_;
+    // The rebuild ends the old generation's cycle state (DEC-026 section
+    // 8): in-flight descriptors and coverage never re-validate under the
+    // new epoch.
+    inflight_.clear();
+    coverage_.clear();
+    resync_pending_ = true;
     return report;
+}
+
+Result<WorkPlan> ContinuousPerception::plan_cycle(const SemanticSnapshot& snapshot, const Frame& frame,
+                                                  const ImportancePolicy& importance, uint64_t request_digest,
+                                                  const ExecutionContext& context) noexcept {
+    if (const Status validated = validate_plan_input(snapshot, frame, importance); !validated.ok()) {
+        return Result<WorkPlan>{validated};
+    }
+    if (const Status usable = validate_cycle_frame(frame); !usable.ok()) {
+        return Result<WorkPlan>{usable};
+    }
+    if (options_.source_id.empty()) {
+        // Tokens bind the source identity; a coordinator created without
+        // one could plan work its own accept would always reject.
+        return Result<WorkPlan>{Status(ErrorCode::kInvalidArgument, "cycle planning requires a non-empty source id")};
+    }
+
+    Result<AttentionPlan> attention = plan_attention(snapshot, frame, importance, context);
+    if (!attention.ok()) {
+        return Result<WorkPlan>{attention.status()};
+    }
+    WorkPlan plan;
+    plan.attention = attention.take_value();
+
+    const CycleIdentity identity{epoch_, snapshot.generation, policy_revision_, request_digest,
+                                 snapshot.coordinate_space};
+    if (const Status refreshed = refresh_cycle_coverage(&coverage_, snapshot, frame, identity, &plan.invalidations,
+                                                        &resync_pending_, context);
+        !refreshed.ok()) {
+        return Result<WorkPlan>{refreshed};
+    }
+    if (const Status reused =
+            emit_cycle_reuse(snapshot.regions, coverage_, snapshot.coordinate_space, &plan.reuse, context);
+        !reused.ok()) {
+        return Result<WorkPlan>{reused};
+    }
+
+    // The previous in-flight descriptors not adopted are replaced (the
+    // caller's one-in-flight + one-latest-pending policy keeps this
+    // bounded; skipped work is never silently carried over).
+    plan.replaced_inflight = static_cast<uint64_t>(
+        std::count_if(inflight_.begin(), inflight_.end(), [](const InFlightWork& flight) { return !flight.adopted; }));
+    std::vector<WorkToken> tokens;
+    tokens.reserve(plan.attention.work.size());
+    if (const Status issued = emit_cycle_work(plan.attention.work, coverage_, frame, identity, frame.sequence,
+                                              options_.source_id, &plan.work, &plan.reuse, &tokens, context);
+        !issued.ok()) {
+        return Result<WorkPlan>{issued};
+    }
+
+    // Budget gate before any state mutation (DEC-026 section 7): the cycle
+    // state with the new in-flight set must fit max_coordination_bytes.
+    int64_t projected = coordination_owned_bytes();
+    projected -= static_cast<int64_t>(inflight_.size() * sizeof(InFlightWork));
+    for (const InFlightWork& flight : inflight_) {
+        projected -= static_cast<int64_t>(flight.token.source_id.capacity());
+    }
+    projected += static_cast<int64_t>(tokens.capacity() * sizeof(InFlightWork));
+    for (const WorkToken& token : tokens) {
+        projected += static_cast<int64_t>(token.source_id.capacity());
+    }
+    if (projected > options_.max_coordination_bytes) {
+        return Result<WorkPlan>{Status(ErrorCode::kBudgetExceeded, "cycle state exceeds max_coordination_bytes")};
+    }
+
+    inflight_.assign(tokens.size(), InFlightWork{WorkToken{}, false});
+    for (size_t index = 0; index < tokens.size(); ++index) {
+        inflight_[index].token = tokens[index];
+    }
+    planned_frame_sequence_ = frame.sequence;
+    planned_generation_ = snapshot.generation;
+    plan.resync_required = resync_pending_;
+    resync_pending_ = false;
+    plan.coverage = CoverageState::kIncomplete;
+    if (!coverage_.empty() && std::ranges::all_of(snapshot.regions, [this](const VisualRegion& region) {
+            return find_covering_entry(coverage_, region.bounds).has_value();
+        })) {
+        plan.coverage = CoverageState::kComplete;
+    }
+    return Result<WorkPlan>{std::move(plan)};
+}
+
+Result<WorkAcceptReport> ContinuousPerception::accept_work(std::span<const WorkToken> tokens, const Frame& frame,
+                                                           const ExecutionContext& context) noexcept {
+    if (const Status usable = validate_cycle_frame(frame); !usable.ok()) {
+        return Result<WorkAcceptReport>{usable};
+    }
+
+    WorkAcceptReport report;
+    report.item_rejections.resize(tokens.size());
+    const WorkBindingContext binding{options_.source_id, epoch_, planned_frame_sequence_, planned_generation_,
+                                     policy_revision_};
+
+    // Pass 0 — structure and geometry abort the whole call (DEC-021).
+    for (const WorkToken& token : tokens) {
+        if (const Result<void> structural = validate_work_token(token); !structural.ok()) {
+            return Result<WorkAcceptReport>{structural.status()};
+        }
+        if (!frame_digest_rect(token.roi, token.roi_space, frame).ok()) {
+            return Result<WorkAcceptReport>{
+                Status(ErrorCode::kInvalidArgument, "token ROI must cover pixels inside the frame")};
+        }
+    }
+
+    // Pass 1 — per-item binding and content validation.
+    bool rejected = false;
+    for (size_t index = 0; index < tokens.size(); ++index) {
+        if ((index & 63) == 0) {
+            if (const Status stage = context_status(context); !stage.ok()) {
+                return Result<WorkAcceptReport>{stage};
+            }
+        }
+        const std::optional<WorkRejectionReason> reason =
+            classify_accept_item(tokens[index], inflight_, binding, frame);
+        if (!reason.has_value()) {
+            continue;
+        }
+        report.item_rejections[index] = reason;
+        ++rejection_counts_[static_cast<size_t>(*reason)];
+        rejected = true;
+    }
+    if (rejected) {
+        return Result<WorkAcceptReport>{report};
+    }
+
+    // Pass 2 — atomic commit into the coverage ledger (refresh-on-same-
+    // region keeps the ledger duplicate-free and bounded).
+    if (coverage_.size() + tokens.size() > static_cast<size_t>(kContinuousMaxEntities)) {
+        return Result<WorkAcceptReport>{Status(ErrorCode::kBudgetExceeded, "accept exceeds the coverage cap")};
+    }
+    int64_t projected = coordination_owned_bytes();
+    projected += static_cast<int64_t>(tokens.size() * sizeof(CoverageEntry));
+    if (projected > options_.max_coordination_bytes) {
+        return Result<WorkAcceptReport>{Status(ErrorCode::kBudgetExceeded, "accept exceeds max_coordination_bytes")};
+    }
+    for (const WorkToken& token : tokens) {
+        std::erase_if(coverage_, [&token](const CoverageEntry& entry) {
+            return entry.space == token.roi_space && entry.roi == token.roi;
+        });
+        CoverageEntry entry;
+        entry.roi = token.roi;
+        entry.space = token.roi_space;
+        entry.generation = token.generation;
+        entry.frame_sequence = token.frame_sequence;
+        entry.policy_revision = token.policy_revision;
+        entry.request_digest = token.request_digest;
+        entry.content_digest = token.content_digest;
+        coverage_.push_back(entry);
+        for (InFlightWork& flight : inflight_) {
+            if (flight.token == token) {
+                flight.adopted = true;
+            }
+        }
+    }
+    report.committed = true;
+    report.adopted_count = static_cast<uint64_t>(tokens.size());
+    return Result<WorkAcceptReport>{report};
+}
+
+uint64_t ContinuousPerception::rejection_count(WorkRejectionReason reason) const noexcept {
+    const auto index = static_cast<size_t>(reason);
+    if (index >= rejection_counts_.size()) {
+        return 0;
+    }
+    return rejection_counts_[index];
 }
 
 Result<void> ContinuousPerception::set_attention_policy(const AttentionPolicy& policy) noexcept {
@@ -907,15 +1343,26 @@ Result<AttentionPlan> ContinuousPerception::plan_attention(const SemanticSnapsho
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static): frozen public member of the M9-01 contract surface
 int64_t ContinuousPerception::coordination_owned_bytes() const noexcept {
     // M9-03 owns the engaged attention policy (conditions and matcher
-    // text); an unset policy owns nothing. The tracker is injected and
-    // caller-owned — the pointer is not accounted (DEC-026 section 7).
-    // Tokens land with the M9-04 accept, events with the M9-05 queue. The
-    // formula grows with each surface; configuration itself is
-    // caller-owned and never counted.
-    if (!policy_.has_value()) {
-        return 0;
+    // text); M9-04 owns the in-flight descriptor set (with each token's
+    // source-id string) and the coverage ledger; the rejection counters are
+    // fixed-width. The tracker is injected and caller-owned — the pointer
+    // is not accounted. An unset policy and empty cycle state own nothing.
+    // Events land with the M9-05 queue; the formula grows with each
+    // surface; configuration itself is caller-owned and never counted
+    // (DEC-026 section 7).
+    int64_t bytes = 0;
+    if (policy_.has_value()) {
+        bytes += attention_policy_owned_bytes(*policy_);
     }
-    return attention_policy_owned_bytes(*policy_);
+    bytes += static_cast<int64_t>(inflight_.capacity() * sizeof(InFlightWork));
+    for (const InFlightWork& flight : inflight_) {
+        bytes += static_cast<int64_t>(flight.token.source_id.capacity());
+    }
+    bytes += static_cast<int64_t>(coverage_.capacity() * sizeof(CoverageEntry));
+    // The rejection counters are fixed-width and cannot grow: like the
+    // injected tracker pointer they carry no budget-relevant capacity and
+    // are not accounted (DEC-026 section 7).
+    return bytes;
 }
 
 }  // namespace mirador

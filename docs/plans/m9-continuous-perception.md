@@ -8,8 +8,9 @@
 > 决策：[DEC-026](../decisions/DEC-026-continuous-perception-and-attention.md)
 > （Accepted，M9-01 冻结；M9-07 依验证决定转正或回退）
 > 建议发布点：独立 Experimental 增量，具体 minor 版本在 M9-07 判定后确认
-> 更新日期：2026-10-21（M9-03 注意规划交付；M9-02 关系视图构建器与 M9-01
-> 契约冻结交付；2026-10-20 纳入 Issue #41 日期化后续，诉求优先级不变）
+> 更新日期：2026-10-22（M9-04 循环绑定交付；M9-03 注意规划、M9-02 关系视图
+> 构建器与 M9-01 契约冻结已交付；2026-10-20 纳入 Issue #41 日期化后续，
+> 诉求优先级不变）
 
 ## 目标、范围与非目标
 
@@ -34,14 +35,16 @@ token 压缩模型/权重/runtime 或模型序列协议（MiniCPM-o 仅为下游
 | M9-01 | Delivered（契约与套件已落地） | 冻结 DEC-026 与 opt-in 协调/关系/策略/事件领域契约（`continuous_perception.hpp`）：source epoch、覆盖/预算、generation、事件来源/代际/时间窗/开始-更新-结束字段与旧 API 兼容；冻结纯规则与验证套件；状态化原语按 M9-02…05 增长 | M8-02 | AC9-01、06…11 |
 | M9-02 | Delivered（构建器与套件已落地） | 同实体去重/part_of/普通重叠关系视图，原始证据、冲突与 trace 可追溯，固定融合夹具 | M9-01 | AC9-01、02 |
 | M9-03 | Delivered（规划面与套件已落地） | Attention/Importance 到 ROI 和候选优先级的同步规划，ID 焦点随跟踪移动、外围监测与失效 | M9-01；M8-03/04 | AC9-03、04、08 |
-| M9-04 | Proposed | 增量覆盖/缓存接线，plan/accept 绑定、延迟/乱序拒绝、调用方 latest-pending 示例与积压测试 | M9-02、03；M8-04 | AC9-03、05…07、09 |
+| M9-04 | Delivered（循环绑定与套件已落地） | 增量覆盖/缓存接线，plan/accept 绑定、延迟/乱序拒绝、调用方 latest-pending 示例与积压测试 | M9-02、03；M8-04 | AC9-03、05…07、09 |
 | M9-05 | Proposed | latest/confirmed/published 状态、有界事件 drain、去抖与过滤、切换焦点查询/初始差量；事件携带来源/代际/证据时间窗与 begin/update/end 语义，源重置显式终结旧代事件 | M9-04 | AC9-07、08、09、11 |
 | M9-06 | Proposed | 伪 Backend 确定性矩阵、真实桌面留出集、全屏基线与增量对照；校准并固定阈值 | M9-02…05；M8-06 | AC9-01…11 |
 | M9-07 | Proposed | go/no-go、工程门禁、兼容性与下游接入证据；决定继续 Experimental、转正或回退 | M9-06 | 全部退出条件 |
 
 - [x] 契约与关系能力可单独验收（M9-01 冻结契约 + M9-02 关系视图构建器；
   AC9-01 机制证据在案；AC9-02 真实留出集质量门槛待数据采集后补验）。
-- [ ] 注意规划、增量执行与陈旧结果防护可单独验收。
+- [x] 注意规划、增量执行与陈旧结果防护可单独验收（M9-03 注意规划 +
+  M9-04 循环绑定；AC9-03/06 机制证据在案，AC9-04 收益量化归 M9-06 基准，
+  AC9-05 的 ID 延续率与 AC9-07 真实耗时集成项保持未完成）。
 - [ ] 状态稳定化、通知和真实收益对照可单独验收。
 
 预期三个交付阶段为“实体关系 → 注意与增量闭环 → 语义稳定化与通知”。每阶段单独
@@ -225,3 +228,47 @@ master `72a834f`，即 M9-02 合并提交）。交付：
 - 限制：无新增阈值常量（外围显著性判读、bootstrap 授权语义随 M9-06
   校准与 M9-04 接线细化）；kDisplay 快照/条件 ROI 空间在本项显式拒绝，
   随 M9-04 display-transform 接线评估放开。
+
+2026-10-22：M9-04 循环绑定交付（分支 `feat/m9-04-cycle-binding`，基于
+master `23f7ed2`，即 M9-03 合并提交）。交付：
+
+- `ContinuousPerception` 令牌化 plan/accept 协议与增量覆盖账本（M9-01
+  Experimental 头内增长）：`plan_cycle` 逐条重验覆盖账本——generation/
+  request_digest（调用方能力栈身份）/policy revision/快照空间任一变化
+  kIdentityChanged，kGlobal 清空账本（全局失效记录 + 一次性
+  resync_required，AC9-09 结构失效），partial 变化 ROI 相交
+  kRegionChanged，幸存条目区域对当前帧做精确像素内容摘要复核——单字变化
+  不被相同指纹隐藏（DEC-026 §3，AC9-03 机制核心）；区域与已验证焦点候选
+  进入 `WorkReuse`（携带验证帧号），其余候选签发九字段 `WorkToken`
+  （source/epoch/帧/generation/策略修订/请求身份/ROI/空间/内容摘要）；
+  上一在途集合替换并计数 `replaced_inflight`，配合调用方一在途+一最新
+  待处理参考策略。`accept_work` 整批原子（DEC-021）：结构与几何中止、
+  冻结 stale 序 + 在途成员/采纳态（kDuplicateSubmission）+ 内容重摘要
+  （kContentMismatch）逐项拒绝且 `rejection_count` 累计可查（AC9-06），
+  提交按同区刷新去重（条目上限 1024）。`notify_source_reset` 同时终结
+  在途与账本并置一次性 resync（AC9-05 旧绑定采纳次数 0）。预算门全部在
+  状态变更前；全新协调对象字节零点不变（固定宽度计数器与注入指针不计）。
+  空 source_id 协调对象不能规划循环（验证轮发现的缺口：可 plan 不可
+  accept，修复为 plan 侧 kInvalidArgument）。能力结果缓存仍在
+  PerceptionSession（组合不重写）；帧像素仅在 plan/accept 调用内同步
+  摘要，不持久化不日志（RULE-10）。
+- 新示例 `examples/continuous_perception_tour.cpp`：latest-pending 循环
+  全流程（填充/静态零工作复用/漂移失效/重复拒绝/reset 终结）。
+- 验证：套件 `mirador.fusion.cycle_binding` 58 用例（覆盖账本失效矩阵、
+  令牌九字段行为钉定、冻结拒绝序与整批原子性、replaced 记账、预算门零
+  副作用、k0/90/180/270 摘要往返含 stride 填充、600 周期 60fps/5fps
+  积压模拟——状态有界、发布=采纳+替换精确守恒（AC9-07）、确定性、新旧
+  API 隔离）由 Independent-Verification-Agent 独立编写与执行；验证轮
+  发现空 source_id 缺口，主循环修复后复验 58/58 并新增零副作用钉定
+  用例。门禁：debug/ASAN/UBSAN 全量 ctest 59/59 零回归零 sanitizer
+  报告；clang-format/clang-tidy 归零。CI 证据随
+  [PR #53](https://github.com/Linductor-alkaid/mirador/pull/53) 回填
+  （run 39711183839，14/14 job 全绿）；合并不在本项自动授权范围内。
+- 验收状态：AC9-03 静止序列零 forward 机制、AC9-06 拒绝矩阵、AC9-07
+  状态有界与积压模拟、AC9-09 结构失效与 resync 可观测在本项机制证据
+  在案；AC9-03/04 的真实 forward 计数与收益量化、AC9-05 的 ID 延续率、
+  AC9-07 的真实耗时集成项归 M9-06 对照基准与集成验证；真实留出集门槛
+  保持未完成。
+- 限制：kDisplay 快照/条件 ROI 空间沿用 M9-03 的显式拒绝；1024 条目
+  上限路径经公开 API 难达（条件上限 64），以字节预算门为主守门；阈值
+  （失效显著性与摘要策略）随 M9-06 校准。

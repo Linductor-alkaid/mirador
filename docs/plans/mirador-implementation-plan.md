@@ -9,11 +9,19 @@
 （DP-01…05，In Progress），对应 issue #36；同步无内部并发、预算与隐私边界不变。
 
 > 状态：Active
-> 版本：1.37
+> 版本：1.38
 > 负责人：linductor
 > 设计依据：[Mirador 低负载终端视觉基础设施库开发设计方案](../design/mirador-development-design.md)
 > 协作约束：根 [AGENTS.md](../../AGENTS.md) 与[项目管理与工程规范](../project/project-standards.md)
-> 更新日期：2026-10-21
+> 更新日期：2026-10-22
+>
+> 1.38 修订（2026-10-22）：M9-04 循环绑定交付——令牌化 plan/accept 协议
+> 与增量覆盖账本（精确内容摘要复核的零工作复用路径、九字段 WorkToken、
+> 冻结拒绝序整批原子采纳、latest-pending 示例与 600 周期积压模拟）；独立
+> 验证套件 `mirador.fusion.cycle_binding` 58 用例全绿（验证轮修复空
+> source_id 缺口后复验），debug/ASAN/UBSAN 全量 ctest 59/59，CI run
+> 39711183839 14/14；证据随 [PR #53](https://github.com/Linductor-alkaid/mirador/pull/53)
+> 提交评审，待负责人授权合并。1.37 修订内容不变。
 >
 > 1.37 修订（2026-10-21）：M9-03 注意规划交付——`ContinuousPerception` 引入
 > 首个协调状态与同步规划面（`set_attention_policy` 策略状态与单调 policy
@@ -530,10 +538,13 @@ M9-02 关系视图构建器（星形重复分组/part_of/重叠/冲突，固定�
 合入 master（merge `72a834f`，CI 14/14 绿）。M9-03 注意规划（策略状态与
 policy revision、ID 焦点随跟踪移动、同步 plan_attention 与外围监测，47 用例
 独立验证全绿）经 [PR #52](https://github.com/Linductor-alkaid/mirador/pull/52)
-提交评审（CI 14/14 绿），待负责人授权合并；M9-04（增量覆盖/缓存接线与
-plan/accept 绑定）就绪待启，按"实体关系 → 注意与增量闭环 → 语义稳定化与
-通知"三阶段推进，AC9-01…11 最终验收证据归后续工作项，真实留出集质量门槛
-保持未完成。
+合入 master（merge `23f7ed2`，CI 14/14 绿）。M9-04 循环绑定（精确摘要复核的
+覆盖账本、九字段 WorkToken plan/accept、冻结拒绝序整批原子、积压模拟，58 用例
+独立验证全绿）经 [PR #53](https://github.com/Linductor-alkaid/mirador/pull/53)
+提交评审（CI 14/14 绿），待负责人授权合并；M9-05（latest/confirmed/published
+状态、有界事件 drain 与语义稳定化）就绪待启，按"实体关系 → 注意与增量闭环 →
+语义稳定化与通知"三阶段推进，AC9-01…11 最终验收证据归后续工作项，真实留出集
+质量门槛保持未完成。
 
 M0「边界与骨架」已完成并发布 `v0.1.0-alpha`（PR #1 全部工作项与退出条件通过，CI 9/9
 绿）：公共类型（`Status`/`Result`、`ImageView`/`Frame`、`Transform2D`）、架构测试、
